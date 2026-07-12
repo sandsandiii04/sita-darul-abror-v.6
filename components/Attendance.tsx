@@ -13,10 +13,11 @@ interface AttendanceProps {
   users: User[]; // All users to find teachers
   attendance: Attendance[];
   onMarkAttendance: (att: Attendance) => void;
+  onDeleteAttendance?: (id: string) => void;
   type: 'student' | 'teacher';
 }
 
-const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, attendance, onMarkAttendance, type }) => {
+const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type }) => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [session, setSession] = useState<'pagi' | 'malam'>('pagi');
   const [showAdminQR, setShowAdminQR] = useState(false);
@@ -327,65 +328,83 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
                                     <X size={14} /> Tolak
                                 </button>
                             </div>
+                            {onDeleteAttendance && (
+                              <button 
+                                onClick={() => onDeleteAttendance(record.id)}
+                                className="w-full mt-2 bg-rose-50 hover:bg-rose-100 text-rose-600 py-1 rounded text-xs font-bold flex items-center justify-center gap-1 border border-rose-200 transition-all duration-200"
+                              >
+                                <XCircle size={12} /> Hapus Pengajuan
+                              </button>
+                            )}
                          </div>
                        ) : (
                          (user.role === 'teacher' || (user.role === 'admin' && type === 'student') || (user.role === 'admin' && type === 'teacher' && !isPending)) && (
-                            <div className="grid grid-cols-4 gap-2 mt-1">
-                              {/* Tombol Hadir (H) */}
-                              <button 
-                                onClick={() => handleStatusClick(subject.id, 'present')}
-                                className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
-                                  currentStatus === 'present' 
-                                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm scale-[1.03]' 
-                                    : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-                                }`}
-                                title="Hadir"
-                              >
-                                <span className="text-sm font-black">H</span>
-                                <span className="text-[9px] font-bold mt-0.5 opacity-90">Hadir</span>
-                              </button>
+                            <div className="space-y-2 mt-1">
+                              <div className="grid grid-cols-4 gap-2">
+                                {/* Tombol Hadir (H) */}
+                                <button 
+                                  onClick={() => handleStatusClick(subject.id, 'present')}
+                                  className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
+                                    currentStatus === 'present' 
+                                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm scale-[1.03]' 
+                                      : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                                  }`}
+                                  title="Hadir"
+                                >
+                                  <span className="text-sm font-black">H</span>
+                                  <span className="text-[9px] font-bold mt-0.5 opacity-90">Hadir</span>
+                                </button>
 
-                              {/* Tombol Sakit (S) */}
-                              <button 
-                                onClick={() => handleStatusClick(subject.id, 'sick')}
-                                className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
-                                  currentStatus === 'sick' 
-                                    ? 'bg-amber-500 border-amber-500 text-white shadow-sm scale-[1.03]' 
-                                    : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-                                }`}
-                                title="Sakit"
-                              >
-                                <span className="text-sm font-black">S</span>
-                                <span className="text-[9px] font-bold mt-0.5 opacity-90">Sakit</span>
-                              </button>
+                                {/* Tombol Sakit (S) */}
+                                <button 
+                                  onClick={() => handleStatusClick(subject.id, 'sick')}
+                                  className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
+                                    currentStatus === 'sick' 
+                                      ? 'bg-amber-500 border-amber-500 text-white shadow-sm scale-[1.03]' 
+                                      : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                                  }`}
+                                  title="Sakit"
+                                >
+                                  <span className="text-sm font-black">S</span>
+                                  <span className="text-[9px] font-bold mt-0.5 opacity-90">Sakit</span>
+                                </button>
 
-                              {/* Tombol Izin (I) */}
-                              <button 
-                                onClick={() => handleStatusClick(subject.id, 'permission')}
-                                className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
-                                  currentStatus === 'permission' 
-                                    ? 'bg-sky-500 border-sky-500 text-white shadow-sm scale-[1.03]' 
-                                    : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-                                }`}
-                                title="Izin"
-                              >
-                                <span className="text-sm font-black">I</span>
-                                <span className="text-[9px] font-bold mt-0.5 opacity-90">Izin</span>
-                              </button>
+                                {/* Tombol Izin (I) */}
+                                <button 
+                                  onClick={() => handleStatusClick(subject.id, 'permission')}
+                                  className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
+                                    currentStatus === 'permission' 
+                                      ? 'bg-sky-500 border-sky-500 text-white shadow-sm scale-[1.03]' 
+                                      : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                                  }`}
+                                  title="Izin"
+                                >
+                                  <span className="text-sm font-black">I</span>
+                                  <span className="text-[9px] font-bold mt-0.5 opacity-90">Izin</span>
+                                </button>
 
-                              {/* Tombol Alpha (A) */}
-                              <button 
-                                onClick={() => handleStatusClick(subject.id, 'alpha')}
-                                className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
-                                  currentStatus === 'alpha' 
-                                    ? 'bg-rose-500 border-rose-500 text-white shadow-sm scale-[1.03]' 
-                                    : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
-                                }`}
-                                title="Alpha"
-                              >
-                                <span className="text-sm font-black">A</span>
-                                <span className="text-[9px] font-bold mt-0.5 opacity-90">Alpha</span>
-                              </button>
+                                {/* Tombol Alpha (A) */}
+                                <button 
+                                  onClick={() => handleStatusClick(subject.id, 'alpha')}
+                                  className={`py-1.5 rounded-lg flex flex-col items-center justify-center border transition-all duration-200 ${
+                                    currentStatus === 'alpha' 
+                                      ? 'bg-rose-500 border-rose-500 text-white shadow-sm scale-[1.03]' 
+                                      : 'bg-gray-50 border-gray-100 text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                                  }`}
+                                  title="Alpha"
+                                >
+                                  <span className="text-sm font-black">A</span>
+                                  <span className="text-[9px] font-bold mt-0.5 opacity-90">Alpha</span>
+                                </button>
+                              </div>
+                              {user.role === 'admin' && type === 'teacher' && record && onDeleteAttendance && (
+                                <button 
+                                  onClick={() => onDeleteAttendance(record.id)}
+                                  className="w-full bg-rose-50 hover:bg-rose-100 text-rose-600 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 border border-rose-200 transition-all duration-200"
+                                >
+                                  <XCircle size={14} /> Batalkan/Hapus Absen
+                                </button>
+                              )}
                             </div>
                          )
                        )}
