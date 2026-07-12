@@ -253,26 +253,26 @@ export const api = {
         let error = null;
 
         if (item.action === 'addUser') {
-          const { error: err } = await supabase.from('users').upsert(mapUserToDb(item.data));
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'users', p_data: mapUserToDb(item.data) });
           error = err;
         } else if (item.action === 'addStudent') {
-          const { error: err } = await supabase.from('students').upsert(mapStudentToDb(item.data));
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'students', p_data: mapStudentToDb(item.data) });
           error = err;
         } else if (item.action === 'addRecord') {
-          const { error: err } = await supabase.from('records').upsert(mapRecordToDb(item.data));
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'records', p_data: mapRecordToDb(item.data) });
           error = err;
         } else if (item.action === 'markAttendance') {
-          const { error: err } = await supabase.from('attendance').upsert(mapAttendanceToDb(item.data));
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'attendance', p_data: mapAttendanceToDb(item.data) });
           error = err;
         } else if (item.action === 'addExam') {
-          const { error: err } = await supabase.from('exams').upsert(mapExamToDb(item.data));
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'exams', p_data: mapExamToDb(item.data) });
           error = err;
         } else if (item.action === 'updateUser') {
-          const { error: err } = await supabase.from('users').upsert(mapUserToDb(item.data));
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'users', p_data: mapUserToDb(item.data) });
           error = err;
         } else if (item.action === 'deleteData') {
           const tableName = item.data.sheetName.toLowerCase();
-          const { error: err } = await supabase.from(tableName).delete().eq('id', item.data.id);
+          const { error: err } = await supabase.rpc('delete_data_secure', { p_table: tableName, p_id: item.data.id });
           error = err;
         }
 
