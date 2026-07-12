@@ -328,28 +328,28 @@ export const api = {
     }
   },
 
-  // Fungsi mengambil semua data (GET)
+  // Fungsi mengambil semua data (GET) - Menggunakan RPC Aman
   async load(currentUser: User | null) {
     if (!supabase) return null;
 
     try {
-      let usersQuery = supabase.from('users').select('id, name, role');
-      let studentsQuery = supabase.from('students').select('id, name, nis, class, halaqah, teacher_id, total_juz');
-      let recordsQuery = supabase.from('records').select('*');
-      let attendanceQuery = supabase.from('attendance').select('*');
-      let examsQuery = supabase.from('exams').select('*');
-
       if (!currentUser) {
-        // Jika belum login, hanya load list minimal guru untuk scan cepat
-        const { data: usersData, error: usersError } = await supabase
-          .from('users')
-          .select('id, name, role')
-          .eq('role', 'teacher');
-          
-        if (usersError) throw usersError;
+        // Jika belum login, hanya load list minimal guru menggunakan RPC aman
+        const { data: teachersData, error: teachersError } = await supabase.rpc('get_teacher_list');
+        if (teachersError) throw teachersError;
         
         return {
-          users: (usersData || []).map(mapUserFromDb),
+          users: (teachersData || []).map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            role: row.role,
+            username: '',
+            password: '',
+            phoneNumber: '',
+            childId: '',
+            email: '',
+            avatar: ''
+          })),
           students: [],
           records: [],
           attendance: [],
@@ -357,54 +357,38 @@ export const api = {
         };
       }
 
-      // Jika login sebagai Admin
-      if (currentUser.role === 'admin') {
-        usersQuery = supabase.from('users').select('*');
-        studentsQuery = supabase.from('students').select('*');
-      }
-      // Jika login sebagai Guru
-      else if (currentUser.role === 'teacher') {
-        usersQuery = supabase.from('users').select('id, name, role, email, avatar');
-        studentsQuery = supabase.from('students').select('id, name, nis, class, halaqah, teacher_id, total_juz');
-      }
-      // Jika login sebagai Orang Tua / Santri
-      else if (currentUser.role === 'parent' && currentUser.childId) {
-        usersQuery = supabase.from('users').select('id, name, role, email, avatar');
-        studentsQuery = supabase.from('students').select('id, name, nis, class, halaqah, teacher_id, total_juz').eq('id', currentUser.childId);
-        recordsQuery = supabase.from('records').select('*').eq('student_id', currentUser.childId);
-        attendanceQuery = supabase.from('attendance').select('*').eq('user_id', currentUser.childId);
-        examsQuery = supabase.from('exams').select('*').eq('student_id', currentUser.childId);
+      // Jika login, load seluruh data secara aman lewat RPC menggunakan kredensial user
+      const { data: secureData, error: secureError } = await supabase.rpc('load_secure_data', {
+        p_username: currentUser.username,
+        p_password: currentUser.password
+      });
+
+      if (secureError) throw secureError;
+      
+      const result = secureData as {
+        success: boolean;
+        message?: string;
+        users?: any[];
+        students?: any[];
+        records?: any[];
+        attendance?: any[];
+        exams?: any[];
+      };
+
+      if (!result.success) {
+        throw new Error(result.message || "Gagal memuat data aman.");
       }
 
-      // Ambil data terbaru secara paralel
-      const [
-        { data: usersData, error: usersError },
-        { data: studentsData, error: studentsError },
-        { data: recordsData, error: recordsError },
-        { data: attendanceData, error: attendanceError },
-        { data: examsData, error: examsError }
-      ] = await Promise.all([
-        usersQuery,
-        studentsQuery,
-        recordsQuery,
-        attendanceQuery,
-        examsQuery
-      ]);
-
-      if (usersError || studentsError || recordsError || attendanceError || examsError) {
-        throw new Error("Gagal memuat data dari Supabase");
-      }
-
-      console.log("Data loaded from Supabase successfully");
+      console.log("Data loaded securely from Supabase RPC");
       return {
-        users: (usersData || []).map(mapUserFromDb),
-        students: (studentsData || []).map(mapStudentFromDb),
-        records: (recordsData || []).map(mapRecordFromDb),
-        attendance: (attendanceData || []).map(mapAttendanceFromDb),
-        exams: (examsData || []).map(mapExamFromDb)
+        users: (result.users || []).map(mapUserFromDb),
+        students: (result.students || []).map(mapStudentFromDb),
+        records: (result.records || []).map(mapRecordFromDb),
+        attendance: (result.attendance || []).map(mapAttendanceFromDb),
+        exams: (result.exams || []).map(mapExamFromDb)
       };
     } catch (error) {
-      console.error("Failed to load cloud data:", error);
+      console.error("Failed to load secure cloud data:", error);
       return null;
     }
   }
