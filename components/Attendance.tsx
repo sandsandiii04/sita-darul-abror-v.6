@@ -22,6 +22,37 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
   const [showAdminQR, setShowAdminQR] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
 
+  // Fungsi pengecekan batas waktu absensi
+  const checkSessionLock = (sess: 'pagi' | 'malam') => {
+    if (user.role === 'admin') return { locked: false, reason: '' };
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (date !== todayStr) {
+      return { locked: true, reason: 'Hanya bisa mengisi absensi untuk hari ini.' };
+    }
+
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    if (sess === 'pagi') {
+      const start = 4 * 60 + 30; // 04:30
+      const end = 12 * 60;       // 12:00
+      if (currentMinutes < start || currentMinutes > end) {
+        return { locked: true, reason: 'Absensi Pagi hanya dibuka pukul 04:30 - 12:00 WIB.' };
+      }
+    } else if (sess === 'malam') {
+      const start = 17 * 60 + 30; // 17:30
+      const end = 21 * 60;        // 21:00
+      if (currentMinutes < start || currentMinutes > end) {
+        return { locked: true, reason: 'Absensi Malam hanya dibuka pukul 17:30 - 21:00 WIB.' };
+      }
+    }
+
+    return { locked: false, reason: '' };
+  };
+
+  const lockInfo = checkSessionLock(session);
+
   let subjectList: {id: string, name: string, subInfo?: string, phone?: string}[] = [];
   
   if (type === 'student') {
@@ -48,6 +79,12 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
 
   const handleStatusClick = (subjectId: string, status: Attendance['status']) => {
     if (user.role === 'parent') return;
+
+    const currentLock = checkSessionLock(session);
+    if (currentLock.locked && user.role !== 'admin') {
+      alert(currentLock.reason);
+      return;
+    }
 
     const existing = attendance.find(a => a.userId === subjectId && a.date === date && a.type === type && a.session === session);
     
@@ -195,7 +232,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
                     <QrCode size={16} /> QR Absensi
                 </button>
             )}
-            {user.role === 'teacher' && type === 'teacher' && (
+            {user.role === 'teacher' && type === 'teacher' && !lockInfo.locked && (
                 <button onClick={() => setShowScanner(true)} className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-emerald-100">
                     <Camera size={16} /> Scan QR
                 </button>
@@ -228,6 +265,16 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
         </div>
       </div>
 
+      {lockInfo.locked && user.role !== 'admin' && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex items-center gap-3">
+          <Clock className="text-amber-600 shrink-0" size={20} />
+          <div>
+            <p className="font-bold text-sm">Absensi Terkunci</p>
+            <p className="text-xs text-amber-700">{lockInfo.reason}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {subjectList.map((subject) => {
           const record = attendance.find(a => a.userId === subject.id && a.date === date && a.type === type && a.session === session);
@@ -253,9 +300,13 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
                </div>
 
                {/* Controls */}
-               {isTeacherSelfLocked ? (
-                   // LOCKED VIEW FOR TEACHER WHO HAS SUBMITTED
-                   getLockedStatusDisplay(record)
+               {isTeacherSelfLocked || (lockInfo.locked && user.role !== 'admin') ? (
+                   // LOCKED VIEW
+                   record ? getLockedStatusDisplay(record) : (
+                      <div className="w-full p-2.5 rounded-lg border border-dashed border-gray-200 bg-gray-50 text-gray-400 flex items-center justify-center gap-1.5 font-bold text-xs">
+                          <Lock size={14} /> ABSENSI TERKUNCI (DILUAR JAM)
+                      </div>
+                   )
                ) : (
                    // NORMAL VIEW / ADMIN APPROVAL VIEW
                    <>
