@@ -436,6 +436,16 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateUser = (updatedUser: User) => {
+    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    api.send('addUser', updatedUser);
+  };
+
+  const handleUpdateStudent = (updatedStudent: Student) => {
+    setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+    api.send('addStudent', updatedStudent);
+  };
+
   const handleDeleteExam = (id: string) => {
     if(confirm("Hapus data ujian?")) {
         setExams(prev => prev.filter(e => e.id !== id));
@@ -448,7 +458,7 @@ const App: React.FC = () => {
       case 'dashboard': return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
       case 'ziyadah': return <TahfidzLog key="ziyadah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} defaultTab="sabaq" allowedTabs={['sabaq']} />;
       case 'murojaah': return <TahfidzLog key="murojaah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} defaultTab="sabqi" allowedTabs={['sabqi', 'manzil']} />;
-      case 'master_data': return <AdminPanel users={users} students={students} onAddUser={(u) => { setUsers(prev => [...prev, u]); api.send('addUser', u); }} onDeleteUser={handleDeleteUser} onAddStudent={(s) => { setStudents(prev => [...prev, s]); api.send('addStudent', s); }} onDeleteStudent={handleDeleteStudent} onBulkAddStudents={(s) => { setStudents(prev => [...prev, ...s]); s.forEach(item => api.send('addStudent', item)); }} onBulkAddUsers={(u) => { setUsers(prev => [...prev, ...u]); u.forEach(item => api.send('addUser', item)); }} onBulkAddRecords={(r) => { setRecords(prev => [...r, ...prev]); r.forEach(item => { const student = students.find(st => st.id === item.studentId); api.send('addRecord', { ...item, studentId: student ? `${student.id} | ${student.name}` : item.studentId, class: student?.class || '-' }); }); }} />;
+      case 'master_data': return <AdminPanel users={users} students={students} onAddUser={(u) => { setUsers(prev => [...prev, u]); api.send('addUser', u); }} onDeleteUser={handleDeleteUser} onUpdateUser={handleUpdateUser} onAddStudent={(s) => { setStudents(prev => [...prev, s]); api.send('addStudent', s); }} onDeleteStudent={handleDeleteStudent} onUpdateStudent={handleUpdateStudent} onBulkAddStudents={(s) => { setStudents(prev => [...prev, ...s]); s.forEach(item => api.send('addStudent', item)); }} onBulkAddUsers={(u) => { setUsers(prev => [...prev, ...u]); u.forEach(item => api.send('addUser', item)); }} onBulkAddRecords={(r) => { setRecords(prev => [...r, ...prev]); r.forEach(item => { const student = students.find(st => st.id === item.studentId); api.send('addRecord', { ...item, studentId: student ? `${student.id} | ${student.name}` : item.studentId, class: student?.class || '-' }); }); }} />;
       case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} />;
       case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" />;
       case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" />;

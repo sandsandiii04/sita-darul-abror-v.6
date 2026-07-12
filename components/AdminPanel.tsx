@@ -1,15 +1,17 @@
 
 import React, { useState, useRef } from 'react';
 import { User, Student, TahfidzRecord, Grade } from '../types';
-import { UserPlus, Trash2, Users, GraduationCap, School, Upload, FileText, Download, Clipboard, ListPlus, BookOpen } from 'lucide-react';
+import { UserPlus, Trash2, Users, GraduationCap, School, Upload, FileText, Download, Clipboard, ListPlus, BookOpen, Edit2 } from 'lucide-react';
 
 interface AdminPanelProps {
   users: User[];
   students: Student[];
   onAddUser: (user: User) => void;
   onDeleteUser: (id: string) => void;
+  onUpdateUser?: (user: User) => void;
   onAddStudent: (student: Student) => void;
   onDeleteStudent: (id: string) => void;
+  onUpdateStudent?: (student: Student) => void;
   // New Bulk Props
   onBulkAddStudents: (students: Student[]) => void;
   onBulkAddUsers: (users: User[]) => void;
@@ -17,13 +19,17 @@ interface AdminPanelProps {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ 
-  users, students, onAddUser, onDeleteUser, onAddStudent, onDeleteStudent,
+  users, students, onAddUser, onDeleteUser, onUpdateUser, onAddStudent, onDeleteStudent, onUpdateStudent,
   onBulkAddStudents, onBulkAddUsers, onBulkAddRecords
 }) => {
   const [activeTab, setActiveTab] = useState<'santri' | 'guru' | 'hafalan'>('santri');
   const [inputMode, setInputMode] = useState<'single' | 'bulk'>('single');
   const [bulkText, setBulkText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // State untuk edit modal
+  const [editingTeacher, setEditingTeacher] = useState<User | null>(null);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
   // Form States
   const [newStudent, setNewStudent] = useState({ name: '', nis: '', class: '', halaqah: '', teacherId: '', username: '', password: '' });
@@ -391,7 +397,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                            <div className="text-emerald-600 mb-1">{users.find(u => u.id === student.teacherId)?.name || '-'}</div>
                            <div className="text-xs text-gray-400 bg-gray-50 px-1 rounded inline-block">User: {student.username || student.nis}</div>
                        </td>
-                       <td className="p-3 text-center"><button onClick={() => onDeleteStudent(student.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button></td>
+                       <td className="p-3">
+                         <div className="flex items-center justify-center gap-2.5">
+                           <button onClick={() => setEditingStudent(student)} className="text-gray-400 hover:text-emerald-600" title="Edit Profil"><Edit2 size={16} /></button>
+                           <button onClick={() => onDeleteStudent(student.id)} className="text-gray-400 hover:text-red-500" title="Hapus"><Trash2 size={16} /></button>
+                         </div>
+                       </td>
                      </tr>
                    ))
                  ) : (
@@ -404,7 +415,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                        <td className="p-3 font-mono text-xs">
                          {user.username}
                        </td>
-                       <td className="p-3 text-center"><button onClick={() => onDeleteUser(user.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button></td>
+                       <td className="p-3">
+                         <div className="flex items-center justify-center gap-2.5">
+                           <button onClick={() => setEditingTeacher(user)} className="text-gray-400 hover:text-emerald-600" title="Edit Profil"><Edit2 size={16} /></button>
+                           <button onClick={() => onDeleteUser(user.id)} className="text-gray-400 hover:text-red-500" title="Hapus"><Trash2 size={16} /></button>
+                         </div>
+                       </td>
                      </tr>
                    ))
                  )}
@@ -414,6 +430,182 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
            </div>
         </div>
       </div>
+
+      {/* Modal Edit Guru */}
+      {editingTeacher && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl relative">
+            <h3 className="font-bold text-lg text-gray-800 mb-4">Edit Profil Guru</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (onUpdateUser) onUpdateUser(editingTeacher);
+              setEditingTeacher(null);
+              alert("Profil guru berhasil diperbarui");
+            }} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500">Nama Guru</label>
+                <input 
+                  type="text" 
+                  value={editingTeacher.name} 
+                  onChange={e => setEditingTeacher({...editingTeacher, name: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Username</label>
+                <input 
+                  type="text" 
+                  value={editingTeacher.username || ''} 
+                  onChange={e => setEditingTeacher({...editingTeacher, username: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Password</label>
+                <input 
+                  type="text" 
+                  value={editingTeacher.password} 
+                  onChange={e => setEditingTeacher({...editingTeacher, password: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">WhatsApp (628..)</label>
+                <input 
+                  type="text" 
+                  value={editingTeacher.phoneNumber || ''} 
+                  onChange={e => setEditingTeacher({...editingTeacher, phoneNumber: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                  placeholder="6281234..." 
+                />
+              </div>
+              <div className="flex gap-2 justify-end pt-4 border-t">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingTeacher(null)} 
+                  className="px-4 py-2 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-sm"
+                >
+                  Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Edit Santri */}
+      {editingStudent && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl relative">
+            <h3 className="font-bold text-lg text-gray-800 mb-4">Edit Profil Santri</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (onUpdateStudent) onUpdateStudent(editingStudent);
+              setEditingStudent(null);
+              alert("Profil santri berhasil diperbarui");
+            }} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-gray-500">Nama Lengkap</label>
+                <input 
+                  type="text" 
+                  value={editingStudent.name} 
+                  onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">NIS</label>
+                <input 
+                  type="text" 
+                  value={editingStudent.nis} 
+                  onChange={e => setEditingStudent({...editingStudent, nis: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Kelas</label>
+                  <input 
+                    type="text" 
+                    value={editingStudent.class} 
+                    onChange={e => setEditingStudent({...editingStudent, class: e.target.value})} 
+                    className="w-full border rounded-lg p-2 text-sm" 
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Halaqah</label>
+                  <input 
+                    type="text" 
+                    value={editingStudent.halaqah} 
+                    onChange={e => setEditingStudent({...editingStudent, halaqah: e.target.value})} 
+                    className="w-full border rounded-lg p-2 text-sm" 
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Guru Pembimbing</label>
+                <select 
+                  value={editingStudent.teacherId} 
+                  onChange={e => setEditingStudent({...editingStudent, teacherId: e.target.value})} 
+                  className="w-full border rounded-lg p-2 text-sm bg-white" 
+                  required
+                >
+                  <option value="">Pilih Guru...</option>
+                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              <div className="pt-2 border-t mt-2">
+                <p className="text-xs font-bold text-emerald-600 mb-2">Akun Login Santri/Wali</p>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500">Username</label>
+                    <input 
+                      type="text" 
+                      value={editingStudent.username || ''} 
+                      onChange={e => setEditingStudent({...editingStudent, username: e.target.value})} 
+                      className="w-full border rounded-lg p-2 text-sm" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500">Password</label>
+                    <input 
+                      type="text" 
+                      value={editingStudent.password} 
+                      onChange={e => setEditingStudent({...editingStudent, password: e.target.value})} 
+                      className="w-full border rounded-lg p-2 text-sm" 
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end pt-4 border-t">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingStudent(null)} 
+                  className="px-4 py-2 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-sm"
+                >
+                  Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
