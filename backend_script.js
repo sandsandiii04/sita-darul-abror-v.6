@@ -88,6 +88,15 @@ function doPost(e) {
     
     if (action == 'addUser') {
       doc.getSheetByName('Users').appendRow([data.id, data.name, data.role, "'" + data.username, "'" + data.password, "'" + data.phoneNumber, data.childId || '', data.email || '', '']);
+    } else if (action == 'updateUser') {
+      var sheet = doc.getSheetByName('Users');
+      if (sheet) {
+        var values = sheet.getDataRange().getValues();
+        for (var i = 1; i < values.length; i++) {
+          if (values[i][0] == data.id) { sheet.deleteRow(i + 1); break; }
+        }
+      }
+      sheet.appendRow([data.id, data.name, data.role, "'" + data.username, "'" + data.password, "'" + data.phoneNumber, data.childId || '', data.email || '', data.avatar || '']);
     } else if (action == 'addStudent') {
       doc.getSheetByName('Students').appendRow([data.id, data.name, "'" + data.nis, data.class, data.halaqah, data.teacherId, 0, "'" + (data.username || data.nis), "'" + data.password]);
     } else if (action == 'addRecord') {

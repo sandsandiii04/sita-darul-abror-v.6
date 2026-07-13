@@ -23,6 +23,9 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type,
   openRequests = [], onMarkOpenRequest
 }) => {
+  const adminUser = (users || []).find(u => u.role === 'admin');
+  const adminPhone = adminUser?.phoneNumber ? adminUser.phoneNumber.replace(/\D/g, '') : ADMIN_PHONE;
+
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [session, setSession] = useState<'pagi' | 'malam'>('pagi');
   const [showAdminQR, setShowAdminQR] = useState(false);
@@ -183,7 +186,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
         
         if (confirm("Buka WhatsApp untuk mengirim izin ke Admin?")) {
-            window.open(`https://wa.me/${ADMIN_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
+            window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
         }
     }
   };
@@ -235,7 +238,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya di sistem SITA Darul Abror.`;
       
       if (confirm("Kirim pengajuan akses buka absen ke Admin via WhatsApp?")) {
-        window.open(`https://wa.me/${ADMIN_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
+        window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
       }
     }
   };

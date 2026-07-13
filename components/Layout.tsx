@@ -100,7 +100,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
       {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl transform transition-transform duration-300 ease-in-out
-        md:relative md:translate-x-0 print:hidden
+        md:relative md:translate-x-0 print:hidden flex flex-col h-screen
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="p-6 bg-primary text-white h-48 flex flex-col justify-center items-center text-center">
@@ -132,7 +132,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
           </div>
         </div>
 
-        <nav className="p-4 space-y-2 overflow-y-auto max-h-[calc(100vh-320px)]">
+        <nav className="p-4 space-y-2 flex-1 overflow-y-auto">
           {menuItems.map((item) => (
             <button
               key={item.id}
@@ -152,7 +152,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
           ))}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-4 border-t bg-white space-y-1">
+        <div className="w-full p-4 border-t bg-white space-y-1 mt-auto">
           {user.role === 'admin' && onOpenDbConfig && (
             <button 
               onClick={onOpenDbConfig}

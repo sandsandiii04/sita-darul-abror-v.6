@@ -343,11 +343,11 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-     const fetchData = async () => {
+     const fetchData = async (isSilent = false) => {
         const hasEnv = import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY;
         const hasLocal = window.localStorage.getItem('sita_supabase_url') && window.localStorage.getItem('sita_supabase_anon_key');
         if (!hasEnv && !hasLocal) { setConnectionError('no_url'); return; }
-        setIsLoadingData(true);
+        if (!isSilent) setIsLoadingData(true);
         try {
             const data = await api.load(user);
             if (data) {
@@ -360,14 +360,24 @@ const App: React.FC = () => {
                setAttendanceOpenRequests(data.openRequests || []);
                
                setConnectionError(null);
-            } else setConnectionError('fetch_failed');
+            } else if (!isSilent) setConnectionError('fetch_failed');
         } catch (e) {
-            setConnectionError('fetch_failed');
+            if (!isSilent) setConnectionError('fetch_failed');
         } finally {
-            setIsLoadingData(false);
+            if (!isSilent) setIsLoadingData(false);
         }
      };
-     fetchData();
+     
+     fetchData(false);
+     
+     // Set polling interval 30 detik untuk sinkronisasi data real-time secara background (silent)
+     const intervalId = setInterval(() => {
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+           fetchData(true);
+        }
+     }, 30000);
+     
+     return () => clearInterval(intervalId);
   }, [user, setUsers, setStudents, setRecords, setAttendance, setExams, setAttendanceOpenRequests]);
 
   const handleAddRecord = (newRecord: TahfidzRecord) => {
