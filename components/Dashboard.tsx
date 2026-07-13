@@ -68,29 +68,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Connection Status Banner */}
-      <div className={`flex flex-col md:flex-row md:items-center justify-between px-4 py-3 rounded-lg border gap-3 ${isOnline ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-        <div className="flex items-center gap-3">
-            {isOnline ? <Wifi size={20} className="text-blue-600" /> : <WifiOff size={20} className="text-red-600" />}
-            <div>
-                <span className="font-bold text-sm block">
-                    {isOnline ? "Mode Online (Terhubung ke Supabase)" : "Koneksi Terputus / Mode Offline"}
-                </span>
-                <span className="text-xs opacity-80 block mt-0.5">
-                    {isOnline 
-                        ? "Data tersimpan otomatis ke Supabase." 
-                        : connectionError === 'no_url' 
-                            ? "Kunci API Supabase belum dipasang. Aplikasi berjalan di memori lokal."
-                            : "Akses ke Supabase gagal. Cek koneksi internet Anda atau kredensial API."}
-                </span>
-            </div>
+      <div className={`flex items-center justify-between px-4 py-2 rounded-lg border gap-3 ${isOnline ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+        <div className="flex items-center gap-2">
+            {isOnline ? <Wifi size={16} className="text-blue-600" /> : <WifiOff size={16} className="text-red-600" />}
+            <span className="font-bold text-xs">
+                {isOnline ? "Mode Online" : "Mode Offline"}
+            </span>
         </div>
         {!isOnline && user.role === 'admin' && (
             <button 
                 onClick={() => onNavigate && onNavigate('tutorial')}
-                className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg text-xs font-bold border border-red-200 shadow-sm text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-md text-[10px] font-bold border border-red-200 shadow-sm text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap"
             >
-                <AlertTriangle size={14} />
-                Setup Database Sekarang <ArrowRight size={14} />
+                <AlertTriangle size={12} />
+                Setup Database <ArrowRight size={12} />
             </button>
         )}
       </div>

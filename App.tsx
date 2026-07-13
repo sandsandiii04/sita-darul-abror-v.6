@@ -565,7 +565,7 @@ const SyncStatusWidget = ({ queueLength, isSyncing, isOnline, syncError }: { que
         <div className="fixed bottom-4 right-4 z-50 pointer-events-auto no-print">
           <div className="bg-red-50 border border-red-200 text-red-800 px-3 py-2 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold animate-fade-in">
             <WifiOff className="text-red-500 shrink-0" size={14} />
-            <span>Mode Offline (Terkoneksi Lokal)</span>
+            <span>Mode Offline</span>
           </div>
         </div>
       );
@@ -577,7 +577,7 @@ const SyncStatusWidget = ({ queueLength, isSyncing, isOnline, syncError }: { que
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </div>
-          <span>Sistem Sinkron (Online)</span>
+          <span>Mode Online</span>
         </div>
       </div>
     );
