@@ -205,6 +205,21 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     const student = myStudents[0];
     if (!student) return <div className="p-8 text-center text-gray-500">Data santri tidak ditemukan atau filter tidak sesuai.</div>;
 
+    const getTargetForClass = (className: string) => {
+      const clean = className.trim().toUpperCase();
+      if (clean.startsWith('7')) return { label: 'Kelas 7 SMP (Target Tahunan: 2 Juz)', target: 2 };
+      if (clean.startsWith('8')) return { label: 'Kelas 8 SMP (Target Tahunan: 2 Juz)', target: 4 };
+      if (clean.startsWith('9')) return { label: 'Kelas 9 SMP (Target Tahunan: 2 Juz)', target: 6 };
+      if (clean.startsWith('10') || clean.startsWith('X')) return { label: 'Kelas 10 SMA (Target Tahunan: 1 Juz)', target: 7 };
+      if (clean.startsWith('11') || clean.startsWith('XI')) return { label: 'Kelas 11 SMA (Target Tahunan: 1 Juz)', target: 8 };
+      if (clean.startsWith('12') || clean.startsWith('XII')) return { label: 'Kelas 12 SMA (Target Tahunan: 1 Juz)', target: 9 };
+      return { label: 'SMP (Target Tahunan: 2 Juz)', target: 2 };
+    };
+
+    const targetInfo = getTargetForClass(student.class);
+    const currentJuz = student.totalJuz || 0;
+    const progressPercent = Math.min(Math.round((currentJuz / targetInfo.target) * 100), 100);
+
     const studentRecords = records.filter(r => {
       const rDate = new Date(r.date);
       return r.studentId === student.id && rDate >= startDate && rDate <= endDate;
@@ -287,6 +302,34 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
              <span className="w-32 font-bold text-gray-600">Halaqah</span>
              <span className="font-semibold">: {student.halaqah}</span>
            </div>
+        </div>
+
+        {/* Informasi Target & Capaian Tahfidz */}
+        <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl mb-6 print:border-gray-300 print:bg-white">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+            <div>
+              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider print:text-black">Target Kelulusan Akumulatif</span>
+              <h4 className="text-xs font-bold text-gray-800 mt-0.5">{targetInfo.label}</h4>
+            </div>
+            <div className="text-left sm:text-right">
+              <span className="text-[10px] text-gray-500 font-bold">Pencapaian:</span>
+              <span className="text-xs font-bold text-emerald-700 ml-1.5 print:text-black">{currentJuz} / {targetInfo.target} Juz</span>
+            </div>
+          </div>
+          
+          {/* Visual Progress Bar */}
+          <div className="w-full bg-gray-200 rounded-full h-3 print:border print:border-gray-300 overflow-hidden">
+            <div 
+              className="bg-emerald-600 h-3 rounded-full transition-all duration-500 print:bg-gray-700" 
+              style={{ width: `${progressPercent}%` }}
+            ></div>
+          </div>
+          
+          <div className="flex justify-between items-center mt-1.5 text-[9px] font-bold text-gray-500">
+            <span>0 Juz</span>
+            <span className="text-emerald-700 print:text-black">{progressPercent}% Tercapai</span>
+            <span>{targetInfo.target} Juz</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-4 mb-4">
