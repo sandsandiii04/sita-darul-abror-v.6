@@ -259,7 +259,12 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         const sessionLabel = session === 'pagi' ? 'Pagi' : 'Malam';
         const typeLabel = status === 'sick' ? 'Sakit' : 'Izin';
         
-        const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nKeterangan: "${newRecord.lateReason}"\n\nMohon jawab chat ini dengan:\n✅ *OK #${recordId}* (untuk menyetujui)\n❌ *TIDAK #${recordId}* (untuk menolak)`;
+        // Generate Magic Links
+        const baseUrl = window.location.origin + window.location.pathname;
+        const approveLink = `${baseUrl}?action=approve&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+        const rejectLink = `${baseUrl}?action=reject&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+
+        const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nKeterangan: "${newRecord.lateReason}"\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
         
         if (confirm("Buka WhatsApp untuk mengirim izin ke Admin?")) {
             window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
@@ -312,7 +317,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       const sessionLabel = session === 'pagi' ? 'Pagi' : 'Malam';
       const typeLabel = type === 'student' ? 'Absen Santri' : 'Absen Diri';
       
-      const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon jawab chat ini dengan:\n✅ *OK #${newReq.id}* (untuk menyetujui)\n❌ *TIDAK #${newReq.id}* (untuk menolak)`;
+      const baseUrl = window.location.origin + window.location.pathname;
+      const approveLink = `${baseUrl}?action=approveRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+      const rejectLink = `${baseUrl}?action=rejectRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+
+      const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
       
       if (confirm("Kirim pengajuan akses buka absen ke Admin via WhatsApp?")) {
         window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
