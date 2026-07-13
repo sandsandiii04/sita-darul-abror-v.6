@@ -4,6 +4,7 @@ import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, 
 import { LOGO_URL } from '../constants';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
 interface ReportsViewProps {
   user: User;
@@ -225,6 +226,31 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
     const totalScore = studentRecords.reduce((acc, curr) => acc + gradeValue(curr.grade), 0);
     const avgScore = studentRecords.length > 0 ? (totalScore / studentRecords.length) : 0;
+    // Hitung data capaian mingguan untuk santri ini
+    const weeklyData = [
+      { name: 'Pekan 1', sabaq: 0, murojaah: 0 },
+      { name: 'Pekan 2', sabaq: 0, murojaah: 0 },
+      { name: 'Pekan 3', sabaq: 0, murojaah: 0 },
+      { name: 'Pekan 4', sabaq: 0, murojaah: 0 },
+    ];
+
+    studentRecords.forEach(r => {
+      const rDate = new Date(r.date);
+      const day = rDate.getDate();
+      let weekIndex = 0;
+      if (day <= 7) weekIndex = 0;
+      else if (day <= 14) weekIndex = 1;
+      else if (day <= 21) weekIndex = 2;
+      else weekIndex = 3;
+
+      const isSabaq = r.type === 'sabaq' || r.type === 'ziyadah';
+      if (isSabaq) {
+        weeklyData[weekIndex].sabaq += 1;
+      } else {
+        weeklyData[weekIndex].murojaah += 1;
+      }
+    });
+
     const predikat = getPredikat(avgScore);
 
     return (
@@ -300,6 +326,26 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
               <div className="text-2xl font-bold text-red-700 print:text-black">{alpha}</div>
               <div className="text-[10px] font-bold text-red-900 uppercase mt-1">Alpha</div>
            </div>
+        </div>
+
+        {/* Grafik Capaian Mingguan Santri */}
+        <div className="bg-white p-4 rounded-xl border border-gray-100 mb-6 print:border-gray-300">
+          <h3 className="text-sm font-bold text-gray-700 mb-3 text-center print:text-black">Grafik Capaian Setoran Bulanan (Frekuensi)</h3>
+          <div className="h-48 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={weeklyData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} />
+                <YAxis axisLine={false} tickLine={false} fontSize={10} allowDecimals={false} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '11px' }}
+                />
+                <Legend wrapperStyle={{ fontSize: '10px' }} />
+                <Bar name="Sabaq (Setoran Baru)" dataKey="sabaq" fill="#10b981" radius={[3, 3, 0, 0]} />
+                <Bar name="Muroja'ah (Ulang)" dataKey="murojaah" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
         <div className="mb-6 flex-1">
