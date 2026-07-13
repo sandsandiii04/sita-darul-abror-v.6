@@ -19,12 +19,23 @@ interface AttendanceProps {
   onMarkOpenRequest?: (req: AttendanceOpenRequest) => void;
 }
 
+const formatWhatsAppPhone = (phone: string | undefined): string => {
+  if (!phone) return '';
+  let clean = phone.replace(/\D/g, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.substring(1);
+  } else if (clean.startsWith('8')) {
+    clean = '62' + clean;
+  }
+  return clean;
+};
+
 const AttendanceView: React.FC<AttendanceProps> = ({ 
   user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type,
   openRequests = [], onMarkOpenRequest
 }) => {
   const adminUser = (users || []).find(u => u.role === 'admin');
-  const adminPhone = adminUser?.phoneNumber ? adminUser.phoneNumber.replace(/\D/g, '') : ADMIN_PHONE;
+  const adminPhone = adminUser?.phoneNumber ? formatWhatsAppPhone(adminUser.phoneNumber) : formatWhatsAppPhone(ADMIN_PHONE);
 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [session, setSession] = useState<'pagi' | 'malam'>('pagi');
@@ -274,8 +285,8 @@ const AttendanceView: React.FC<AttendanceProps> = ({
           const sessionLabel = record.session === 'pagi' ? 'Pagi' : 'Malam';
           const message = `Assalamu'alaikum, pengajuan izin anda untuk tanggal ${record.date} sesi *${sessionLabel}* telah *${statusText}* oleh Admin.`;
           
-          // Remove non-numeric characters for link
-          const cleanPhone = subjectPhone.replace(/\D/g, '');
+          // Remove non-numeric characters and format for link
+          const cleanPhone = formatWhatsAppPhone(subjectPhone);
           
           if (confirm(`Buka WhatsApp untuk notifikasi ke Guru (${cleanPhone})?`)) {
              window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
@@ -333,7 +344,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         const typeLabel = req.type === 'student' ? 'Absen Santri' : 'Absen Diri';
         const message = `Assalamu'alaikum, pengajuan buka absensi *${typeLabel}* Anda untuk tanggal ${req.date} sesi *${sessionLabel}* telah *${statusText}* oleh Admin.`;
         
-        const cleanPhone = teacher.phoneNumber.replace(/\D/g, '');
+        const cleanPhone = formatWhatsAppPhone(teacher.phoneNumber);
         if (confirm(`Kirim notifikasi persetujuan ke Guru (${teacher.name}) via WhatsApp?`)) {
           window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
         }
