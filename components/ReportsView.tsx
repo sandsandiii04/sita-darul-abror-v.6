@@ -210,9 +210,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
       if (clean.startsWith('7')) return { label: 'Kelas 7 SMP (Target Tahunan: 2 Juz)', target: 2 };
       if (clean.startsWith('8')) return { label: 'Kelas 8 SMP (Target Tahunan: 2 Juz)', target: 4 };
       if (clean.startsWith('9')) return { label: 'Kelas 9 SMP (Target Tahunan: 2 Juz)', target: 6 };
-      if (clean.startsWith('10') || clean.startsWith('X')) return { label: 'Kelas 10 SMA (Target Tahunan: 1 Juz)', target: 7 };
-      if (clean.startsWith('11') || clean.startsWith('XI')) return { label: 'Kelas 11 SMA (Target Tahunan: 1 Juz)', target: 8 };
-      if (clean.startsWith('12') || clean.startsWith('XII')) return { label: 'Kelas 12 SMA (Target Tahunan: 1 Juz)', target: 9 };
+      if (clean.startsWith('10') || clean.startsWith('X')) return { label: 'Kelas 10 SMA (Target Kelulusan: 8 Juz)', target: 8 };
+      if (clean.startsWith('11') || clean.startsWith('XI')) return { label: 'Kelas 11 SMA (Target Kelulusan: 9 Juz)', target: 9 };
+      if (clean.startsWith('12') || clean.startsWith('XII')) return { label: 'Kelas 12 SMA (Target Kelulusan: 10 Juz)', target: 10 };
       return { label: 'SMP (Target Tahunan: 2 Juz)', target: 2 };
     };
 
