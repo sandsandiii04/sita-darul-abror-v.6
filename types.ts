@@ -54,6 +54,18 @@ export interface Attendance {
   approvalStatus?: 'pending' | 'approved' | 'rejected'; // New field for admin approval
   type: 'student' | 'teacher';
   class?: string;
+  lateReason?: string; // New field for late attendance explanation
+}
+
+export interface AttendanceOpenRequest {
+  id: string;
+  teacherId: string;
+  date: string;
+  session: 'pagi' | 'malam';
+  type: 'student' | 'teacher';
+  status: 'pending' | 'approved' | 'rejected';
+  lateReason: string;
+  createdAt?: string;
 }
 
 export interface Exam {

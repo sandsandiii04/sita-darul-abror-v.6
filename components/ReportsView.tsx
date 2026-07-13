@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User, Student, TahfidzRecord, Grade, Attendance } from '../types';
-import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck } from 'lucide-react';
+import { User, Student, TahfidzRecord, Grade, Attendance, AttendanceOpenRequest } from '../types';
+import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle } from 'lucide-react';
 import { LOGO_URL } from '../constants';
 
 interface ReportsViewProps {
@@ -10,12 +10,13 @@ interface ReportsViewProps {
   records: TahfidzRecord[];
   users?: User[];
   attendance: Attendance[];
+  openRequests?: AttendanceOpenRequest[];
 }
 
 type Period = 'weekly' | 'monthly' | 'semester' | 'yearly';
 type ReportType = 'student' | 'teacher';
 
-const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, users, attendance }) => {
+const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, users, attendance, openRequests = [] }) => {
   const [period, setPeriod] = useState<Period>('monthly');
   const [reportType, setReportType] = useState<ReportType>('student');
   const [studentTab, setStudentTab] = useState<'hafalan' | 'absen'>('hafalan');
@@ -471,13 +472,13 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
              </table>
            )}
 
-           <div className="hidden print:flex justify-end mt-16 px-10">
-              <div className="text-center">
-                  <p className="mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-                  <p className="font-bold underline">{user.name}</p>
-              </div>
-           </div>
-        </div>
+            <div className="hidden print:flex justify-end mt-16 px-10">
+               <div className="text-center">
+                   <p className="mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                   <p className="font-bold underline">{user.name}</p>
+               </div>
+            </div>
+         </div>
       </div>
     );
   };
@@ -487,8 +488,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     
     const data = teachers.map(t => {
        const teacherAtt = attendance.filter(a => {
-           const aDate = new Date(a.date);
-           return a.userId === t.id && a.type === 'teacher' && aDate >= startDate && aDate <= endDate;
+            const aDate = new Date(a.date);
+            return a.userId === t.id && a.type === 'teacher' && aDate >= startDate && aDate <= endDate;
        });
 
        const present = teacherAtt.filter(a => a.status === 'present').length;
@@ -496,12 +497,36 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
        const permission = teacherAtt.filter(a => a.status === 'permission').length;
        const alpha = teacherAtt.filter(a => a.status === 'alpha').length;
 
+       // Hitung jumlah keterlambatan yang disetujui
+       const lateCount = (openRequests || []).filter(r => 
+           r.teacherId === t.id && 
+           r.status === 'approved' && 
+           new Date(r.date) >= startDate && 
+           new Date(r.date) <= endDate
+       ).length;
+
        return {
-           name: t.name,
-           phone: t.phoneNumber || '-',
-           present, sick, permission, alpha
+            name: t.name,
+            phone: t.phoneNumber || '-',
+            present, sick, permission, alpha, lateCount
        };
     });
+
+    // Kumpulkan seluruh detail alasan keterlambatan untuk guru-guru pada periode terpilih
+    const allLateDetails = (openRequests || [])
+      .filter(r => 
+         r.status === 'approved' && 
+         new Date(r.date) >= startDate && 
+         new Date(r.date) <= endDate
+      )
+      .map(r => {
+         const teacher = (users || []).find(u => u.id === r.teacherId);
+         return {
+             ...r,
+             teacherName: teacher?.name || 'Guru'
+         };
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
@@ -512,47 +537,83 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
          <div className="p-0 print:p-4">
              <table className="w-full text-left border-collapse border border-gray-300">
-                <thead>
-                   <tr className="bg-gray-100 text-gray-700 text-sm print:bg-gray-200 print:text-black">
-                      <th className="p-3 border border-gray-300 text-center w-12">No</th>
-                      <th className="p-3 border border-gray-300">Nama Guru</th>
-                      <th className="p-3 border border-gray-300">Kontak</th>
-                      <th className="p-3 border border-gray-300 text-center bg-green-50">Hadir</th>
-                      <th className="p-3 border border-gray-300 text-center bg-yellow-50">Sakit</th>
-                      <th className="p-3 border border-gray-300 text-center bg-blue-50">Izin</th>
-                      <th className="p-3 border border-gray-300 text-center bg-red-50">Alpha</th>
-                      <th className="p-3 border border-gray-300 text-center">Ket</th>
-                   </tr>
-                </thead>
-                <tbody className="text-sm">
-                   {data.length === 0 ? (
-                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">Tidak ada data guru.</td></tr>
-                   ) : (
-                      data.map((row, idx) => (
-                         <tr key={idx} className="print:text-black">
-                            <td className="p-3 border border-gray-300 text-center">{idx + 1}</td>
-                            <td className="p-3 border border-gray-300 font-medium">{row.name}</td>
-                            <td className="p-3 border border-gray-300 text-xs">{row.phone}</td>
-                            <td className="p-3 border border-gray-300 text-center font-bold text-green-700 bg-green-50 print:bg-transparent print:text-black">{row.present}</td>
-                            <td className="p-3 border border-gray-300 text-center text-yellow-700 bg-yellow-50 print:bg-transparent print:text-black">{row.sick}</td>
-                            <td className="p-3 border border-gray-300 text-center text-blue-700 bg-blue-50 print:bg-transparent print:text-black">{row.permission}</td>
-                            <td className="p-3 border border-gray-300 text-center text-red-700 bg-red-50 print:bg-transparent print:text-black">{row.alpha}</td>
-                            <td className="p-3 border border-gray-300 text-center text-xs">
-                                {row.present > 0 ? `${Math.round((row.present / (row.present + row.sick + row.permission + row.alpha)) * 100)}%` : '-'}
-                            </td>
-                         </tr>
-                      ))
-                   )}
-                </tbody>
-             </table>
+                 <thead>
+                    <tr className="bg-gray-100 text-gray-700 text-sm print:bg-gray-200 print:text-black">
+                       <th className="p-3 border border-gray-300 text-center w-12">No</th>
+                       <th className="p-3 border border-gray-300">Nama Guru</th>
+                       <th className="p-3 border border-gray-300">Kontak</th>
+                       <th className="p-3 border border-gray-300 text-center bg-green-50">Hadir</th>
+                       <th className="p-3 border border-gray-300 text-center bg-yellow-50">Sakit</th>
+                       <th className="p-3 border border-gray-300 text-center bg-blue-50">Izin</th>
+                       <th className="p-3 border border-gray-300 text-center bg-red-50">Alpha</th>
+                       <th className="p-3 border border-gray-300 text-center bg-amber-50">Terlambat</th>
+                       <th className="p-3 border border-gray-300 text-center">Ket</th>
+                    </tr>
+                 </thead>
+                 <tbody className="text-sm">
+                    {data.length === 0 ? (
+                       <tr><td colSpan={9} className="p-8 text-center text-gray-400">Tidak ada data guru.</td></tr>
+                    ) : (
+                       data.map((row, idx) => (
+                          <tr key={idx} className="print:text-black">
+                             <td className="p-3 border border-gray-300 text-center">{idx + 1}</td>
+                             <td className="p-3 border border-gray-300 font-medium">{row.name}</td>
+                             <td className="p-3 border border-gray-300 text-xs">{row.phone}</td>
+                             <td className="p-3 border border-gray-300 text-center font-bold text-green-700 bg-green-50 print:bg-transparent print:text-black">{row.present}</td>
+                             <td className="p-3 border border-gray-300 text-center text-yellow-700 bg-yellow-50 print:bg-transparent print:text-black">{row.sick}</td>
+                             <td className="p-3 border border-gray-300 text-center text-blue-700 bg-blue-50 print:bg-transparent print:text-black">{row.permission}</td>
+                             <td className="p-3 border border-gray-300 text-center text-red-700 bg-red-50 print:bg-transparent print:text-black">{row.alpha}</td>
+                             <td className="p-3 border border-gray-300 text-center text-amber-700 bg-amber-50 font-bold print:bg-transparent print:text-black">{row.lateCount}x</td>
+                             <td className="p-3 border border-gray-300 text-center text-xs">
+                                 {row.present > 0 ? `${Math.round((row.present / (row.present + row.sick + row.permission + row.alpha)) * 100)}%` : '-'}
+                             </td>
+                          </tr>
+                       ))
+                    )}
+                 </tbody>
+              </table>
 
-             <div className="hidden print:flex justify-end mt-16 px-10">
-                <div className="text-center">
-                    <p className="mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-                    <p className="font-bold underline">Kepala Pondok</p>
+              {/* Tabel Detail Keterangan Keterlambatan Guru */}
+              {allLateDetails.length > 0 && (
+                <div className="mt-8 print:mt-12 border-t pt-6">
+                  <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-1.5">
+                    <AlertTriangle className="text-amber-500" size={16} />
+                    Detail Alasan Keterlambatan Mengabsen Guru
+                  </h3>
+                  <table className="w-full text-left border-collapse border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-700 text-xs print:bg-gray-200 print:text-black">
+                        <th className="p-2.5 border border-gray-300 w-10 text-center">No</th>
+                        <th className="p-2.5 border border-gray-300 w-36">Nama Guru</th>
+                        <th className="p-2.5 border border-gray-300 w-24 text-center">Tanggal</th>
+                        <th className="p-2.5 border border-gray-300 w-16 text-center">Sesi</th>
+                        <th className="p-2.5 border border-gray-300 w-28 text-center">Tipe Absen</th>
+                        <th className="p-2.5 border border-gray-300">Keterangan / Alasan Terlambat</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs">
+                      {allLateDetails.map((item, idx) => (
+                        <tr key={idx} className="print:text-black">
+                          <td className="p-2.5 border border-gray-300 text-center">{idx + 1}</td>
+                          <td className="p-2.5 border border-gray-300 font-semibold">{item.teacherName}</td>
+                          <td className="p-2.5 border border-gray-300 text-center">{item.date}</td>
+                          <td className="p-2.5 border border-gray-300 text-center capitalize">{item.session}</td>
+                          <td className="p-2.5 border border-gray-300 text-center">{item.type === 'student' ? 'Absen Santri' : 'Absen Diri'}</td>
+                          <td className="p-2.5 border border-gray-300 italic text-gray-600 print:text-black">"{item.lateReason}"</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-            </div>
-         </div>
+              )}
+
+              <div className="hidden print:flex justify-end mt-16 px-10">
+                 <div className="text-center">
+                     <p className="mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                     <p className="font-bold underline">Kepala Pondok</p>
+                 </div>
+             </div>
+          </div>
       </div>
     );
   };

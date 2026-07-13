@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { User, Student, TahfidzRecord, Attendance, Exam } from './types';
+import { User, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest } from './types';
 
-export type ActionType = 'addUser' | 'addStudent' | 'addRecord' | 'addExam' | 'markAttendance' | 'updateUser' | 'deleteData';
+export type ActionType = 'addUser' | 'addStudent' | 'addRecord' | 'addExam' | 'markAttendance' | 'updateUser' | 'deleteData' | 'addAttendanceOpenRequest';
 
 export interface QueueItem {
   id: string;
@@ -114,7 +114,8 @@ const mapAttendanceFromDb = (row: any): Attendance => ({
   status: row.status,
   approvalStatus: row.approval_status,
   type: row.type,
-  class: row.class
+  class: row.class,
+  lateReason: row.late_reason
 });
 
 const mapAttendanceToDb = (model: Attendance): any => ({
@@ -125,7 +126,29 @@ const mapAttendanceToDb = (model: Attendance): any => ({
   status: model.status,
   approval_status: model.approvalStatus || null,
   type: model.type,
-  class: model.class || null
+  class: model.class || null,
+  late_reason: model.lateReason || null
+});
+
+const mapAttendanceOpenRequestFromDb = (row: any): AttendanceOpenRequest => ({
+  id: row.id,
+  teacherId: row.teacher_id,
+  date: row.date,
+  session: row.session,
+  type: row.type,
+  status: row.status,
+  lateReason: row.late_reason,
+  createdAt: row.created_at
+});
+
+const mapAttendanceOpenRequestToDb = (model: AttendanceOpenRequest): any => ({
+  id: model.id,
+  teacher_id: cleanId(model.teacherId),
+  date: model.date,
+  session: model.session,
+  type: model.type,
+  status: model.status,
+  late_reason: model.lateReason
 });
 
 const mapExamFromDb = (row: any): Exam => ({
@@ -264,6 +287,9 @@ export const api = {
         } else if (item.action === 'markAttendance') {
           const { error: err } = await supabase.rpc('upsert_data', { p_table: 'attendance', p_data: mapAttendanceToDb(item.data) });
           error = err;
+        } else if (item.action === 'addAttendanceOpenRequest') {
+          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'attendance_open_requests', p_data: mapAttendanceOpenRequestToDb(item.data) });
+          error = err;
         } else if (item.action === 'addExam') {
           const { error: err } = await supabase.rpc('upsert_data', { p_table: 'exams', p_data: mapExamToDb(item.data) });
           error = err;
@@ -353,7 +379,8 @@ export const api = {
           students: [],
           records: [],
           attendance: [],
-          exams: []
+          exams: [],
+          openRequests: []
         };
       }
 
@@ -379,13 +406,24 @@ export const api = {
         throw new Error(result.message || "Gagal memuat data aman.");
       }
 
+      let openRequests: any[] = [];
+      try {
+        const { data: reqData, error: reqError } = await supabase.from('attendance_open_requests').select('*');
+        if (!reqError && reqData) {
+          openRequests = reqData;
+        }
+      } catch (e) {
+        console.warn("Table attendance_open_requests might not exist:", e);
+      }
+
       console.log("Data loaded securely from Supabase RPC");
       return {
         users: (result.users || []).map(mapUserFromDb),
         students: (result.students || []).map(mapStudentFromDb),
         records: (result.records || []).map(mapRecordFromDb),
         attendance: (result.attendance || []).map(mapAttendanceFromDb),
-        exams: (result.exams || []).map(mapExamFromDb)
+        exams: (result.exams || []).map(mapExamFromDb),
+        openRequests: openRequests.map(mapAttendanceOpenRequestFromDb)
       };
     } catch (error) {
       console.error("Failed to load secure cloud data:", error);

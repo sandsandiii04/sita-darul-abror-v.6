@@ -122,3 +122,22 @@ BEGIN
   RETURN json_build_object('success', false, 'message', 'Username atau password salah');
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 7. Migrasi Fitur Akses Absensi Terlambat (Batas 05:50 Pagi & 18:50 Malam)
+-- ============================================================
+
+-- Tambahkan kolom keterangan keterlambatan ke tabel attendance jika belum ada
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS late_reason TEXT;
+
+-- Tabel untuk menampung permohonan buka absen terlambat dari guru
+CREATE TABLE IF NOT EXISTS attendance_open_requests (
+    id TEXT PRIMARY KEY,
+    teacher_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    session TEXT NOT NULL CHECK (session IN ('pagi', 'malam')),
+    type TEXT NOT NULL CHECK (type IN ('student', 'teacher')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+    late_reason TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);

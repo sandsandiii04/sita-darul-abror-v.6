@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User, Student, Attendance } from '../types';
-import { CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, Lock, QrCode, Camera, Printer, Download } from 'lucide-react';
+import { User, Student, Attendance, AttendanceOpenRequest } from '../types';
+import { CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, Lock, QrCode, Camera, Printer, Download, Key } from 'lucide-react';
 import { ADMIN_PHONE } from '../constants';
 import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
@@ -15,23 +15,76 @@ interface AttendanceProps {
   onMarkAttendance: (att: Attendance) => void;
   onDeleteAttendance?: (id: string) => void;
   type: 'student' | 'teacher';
+  openRequests?: AttendanceOpenRequest[];
+  onMarkOpenRequest?: (req: AttendanceOpenRequest) => void;
 }
 
-const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type }) => {
+const AttendanceView: React.FC<AttendanceProps> = ({ 
+  user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type,
+  openRequests = [], onMarkOpenRequest
+}) => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [session, setSession] = useState<'pagi' | 'malam'>('pagi');
   const [showAdminQR, setShowAdminQR] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [lateReason, setLateReason] = useState('');
+
+  // Fungsi pengecekan apakah guru terlambat
+  const checkIsLate = (sess: 'pagi' | 'malam', targetDate: string) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Tanggal kemarin atau sebelumnya selalu terlambat
+    if (targetDate < todayStr) return true;
+    // Tanggal besok belum bisa dianggap terlambat (akan diblokir di logic lock)
+    if (targetDate > todayStr) return false;
+
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    if (sess === 'pagi') {
+      const limitMinutes = 5 * 60 + 50; // 05:50
+      return currentMinutes > limitMinutes;
+    } else if (sess === 'malam') {
+      const limitMinutes = 18 * 60 + 50; // 18:50
+      return currentMinutes > limitMinutes;
+    }
+    return false;
+  };
 
   // Fungsi pengecekan batas waktu absensi
   const checkSessionLock = (sess: 'pagi' | 'malam') => {
-    if (user.role === 'admin') return { locked: false, reason: '' };
+    if (user.role === 'admin') return { locked: false, reason: '', status: 'open' };
 
     const todayStr = new Date().toISOString().split('T')[0];
-    if (date !== todayStr) {
-      return { locked: true, reason: 'Hanya bisa mengisi absensi untuk hari ini.' };
+    if (date > todayStr) {
+      return { locked: true, reason: 'Belum bisa mengisi absensi untuk hari esok.', status: 'future' };
     }
 
+    // Cari permohonan buka absensi untuk guru ini pada tanggal & sesi terpilih
+    const request = openRequests.find(r => 
+      r.teacherId === user.id && 
+      r.date === date && 
+      r.session === sess && 
+      r.type === type
+    );
+
+    if (request && request.status === 'approved') {
+      return { locked: false, reason: '', status: 'approved' };
+    }
+
+    const isLate = checkIsLate(sess, date);
+    if (isLate) {
+      if (request && request.status === 'pending') {
+        return { locked: true, reason: 'Permintaan buka akses sedang menunggu persetujuan admin.', status: 'pending', request };
+      } else if (request && request.status === 'rejected') {
+        return { locked: true, reason: 'Permintaan buka akses ditolak oleh admin.', status: 'rejected', request };
+      } else {
+        return { locked: true, reason: 'Absensi terkunci karena terlambat (melebihi batas jam pagi 05:50 / malam 18:50).', status: 'late' };
+      }
+    }
+
+    // Pengecekan jam normal (seperti jam buka awal dan batas akhir sesi)
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
@@ -39,17 +92,17 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
       const start = 4 * 60 + 30; // 04:30
       const end = 12 * 60;       // 12:00
       if (currentMinutes < start || currentMinutes > end) {
-        return { locked: true, reason: 'Absensi Pagi hanya dibuka pukul 04:30 - 12:00 WIB.' };
+        return { locked: true, reason: 'Absensi Pagi hanya dibuka pukul 04:30 - 12:00 WIB.', status: 'outside_hours' };
       }
     } else if (sess === 'malam') {
       const start = 17 * 60 + 30; // 17:30
       const end = 21 * 60;        // 21:00
       if (currentMinutes < start || currentMinutes > end) {
-        return { locked: true, reason: 'Absensi Malam hanya dibuka pukul 17:30 - 21:00 WIB.' };
+        return { locked: true, reason: 'Absensi Malam hanya dibuka pukul 17:30 - 21:00 WIB.', status: 'outside_hours' };
       }
     }
 
-    return { locked: false, reason: '' };
+    return { locked: false, reason: '', status: 'open' };
   };
 
   const lockInfo = checkSessionLock(session);
@@ -87,6 +140,16 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
       return;
     }
 
+    // Cari request yang disetujui untuk mendapatkan alasan keterlambatan
+    const request = openRequests.find(r => 
+      r.teacherId === user.id && 
+      r.date === date && 
+      r.session === session && 
+      r.type === type &&
+      r.status === 'approved'
+    );
+    const lateReasonToSave = request?.lateReason || undefined;
+
     const existing = attendance.find(a => a.userId === subjectId && a.date === date && a.type === type && a.session === session);
     
     // For teachers marking sick/permission, set approval to pending
@@ -102,7 +165,8 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
       session,
       status,
       type,
-      approvalStatus: existing?.approvalStatus || approvalStatus
+      approvalStatus: existing?.approvalStatus || approvalStatus,
+      lateReason: existing?.lateReason || lateReasonToSave
     };
     onMarkAttendance(newRecord);
 
@@ -146,6 +210,57 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
       } else {
           alert("Nomor HP Guru tidak terdaftar, tidak bisa kirim WA otomatis.");
       }
+  };
+
+  const handleSubmitRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lateReason.trim()) return alert('Mohon isi keterangan keterlambatan!');
+    
+    if (onMarkOpenRequest) {
+      const newReq: AttendanceOpenRequest = {
+        id: 'req_' + Math.random().toString(36).substr(2, 9),
+        teacherId: user.id,
+        date,
+        session,
+        type,
+        status: 'pending',
+        lateReason: lateReason.trim()
+      };
+      onMarkOpenRequest(newReq);
+      setShowRequestModal(false);
+      setLateReason('');
+      
+      const sessionLabel = session === 'pagi' ? 'Pagi' : 'Malam';
+      const typeLabel = type === 'student' ? 'Absen Santri' : 'Absen Diri';
+      const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya di sistem SITA Darul Abror.`;
+      
+      if (confirm("Kirim pengajuan akses buka absen ke Admin via WhatsApp?")) {
+        window.open(`https://wa.me/${ADMIN_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
+      }
+    }
+  };
+
+  const handleApproveRequest = (req: AttendanceOpenRequest, approve: boolean) => {
+    if (onMarkOpenRequest) {
+      const updatedReq: AttendanceOpenRequest = {
+        ...req,
+        status: approve ? 'approved' : 'rejected'
+      };
+      onMarkOpenRequest(updatedReq);
+      
+      const teacher = users.find(u => u.id === req.teacherId);
+      if (teacher?.phoneNumber) {
+        const statusText = approve ? "DISETUJUI (akses dibuka)" : "DITOLAK";
+        const sessionLabel = req.session === 'pagi' ? 'Pagi' : 'Malam';
+        const typeLabel = req.type === 'student' ? 'Absen Santri' : 'Absen Diri';
+        const message = `Assalamu'alaikum, pengajuan buka absensi *${typeLabel}* Anda untuk tanggal ${req.date} sesi *${sessionLabel}* telah *${statusText}* oleh Admin.`;
+        
+        const cleanPhone = teacher.phoneNumber.replace(/\D/g, '');
+        if (confirm(`Kirim notifikasi persetujuan ke Guru (${teacher.name}) via WhatsApp?`)) {
+          window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+        }
+      }
+    }
   };
 
   const getStatusIcon = (status: Attendance['status']) => {
@@ -266,14 +381,111 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
         </div>
       </div>
 
-      {lockInfo.locked && user.role !== 'admin' && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex items-center gap-3">
-          <Clock className="text-amber-600 shrink-0" size={20} />
-          <div>
-            <p className="font-bold text-sm">Absensi Terkunci</p>
-            <p className="text-xs text-amber-700">{lockInfo.reason}</p>
-          </div>
+      {user.role === 'admin' && openRequests.filter(r => r.status === 'pending').length > 0 && (
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-amber-200 bg-amber-50/10 space-y-3">
+            <h3 className="font-bold text-amber-800 flex items-center gap-2 text-sm">
+                <Clock className="text-amber-600" size={18} />
+                Permintaan Akses Buka Absensi Terlambat ({openRequests.filter(r => r.status === 'pending').length})
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {openRequests.filter(r => r.status === 'pending').map(req => {
+                    const teacher = users.find(u => u.id === req.teacherId);
+                    return (
+                        <div key={req.id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between gap-2 text-xs">
+                            <div>
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="font-bold text-gray-800">{teacher?.name || 'Guru'}</span>
+                                    <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold uppercase shrink-0">
+                                        {req.session}
+                                    </span>
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                    Tgl: {req.date} | Tipe: {req.type === 'student' ? 'Absen Santri' : 'Absen Diri'}
+                                </p>
+                                <div className="mt-1.5 bg-gray-50 p-1.5 rounded border text-[11px] text-gray-600 italic">
+                                    Alasan: "{req.lateReason}"
+                                </div>
+                            </div>
+                            <div className="flex gap-2 mt-1">
+                                <button
+                                    onClick={() => handleApproveRequest(req, true)}
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-1 rounded font-bold flex items-center justify-center gap-1 transition-all"
+                                >
+                                    <Check size={12} /> Setujui
+                                </button>
+                                <button
+                                    onClick={() => handleApproveRequest(req, false)}
+                                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-1 rounded font-bold flex items-center justify-center gap-1 transition-all"
+                                >
+                                    <X size={12} /> Tolak
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
+      )}
+
+      {lockInfo.locked && user.role !== 'admin' && (
+        (() => {
+          const lInfo = lockInfo as any;
+          if (lInfo.status === 'late') {
+            return (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <Clock className="text-amber-600 shrink-0" size={20} />
+                  <div>
+                    <p className="font-bold text-sm">Absensi Terkunci (Terlambat)</p>
+                    <p className="text-xs text-amber-700">{lInfo.reason}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowRequestModal(true)} 
+                  className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all whitespace-nowrap"
+                >
+                  <Key size={14} /> Minta Akses Buka Absen
+                </button>
+              </div>
+            );
+          } else if (lInfo.status === 'pending') {
+            return (
+              <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-xl flex items-center gap-3">
+                <Clock className="text-yellow-600 shrink-0 mt-0.5 animate-pulse" size={20} />
+                <div>
+                  <p className="font-bold text-sm">Permintaan Akses Dikirim</p>
+                  <p className="text-xs text-yellow-700">{lInfo.reason}</p>
+                  {lInfo.request?.lateReason && (
+                    <p className="text-xs italic text-yellow-600 mt-1">Alasan: "{lInfo.request.lateReason}"</p>
+                  )}
+                </div>
+              </div>
+            );
+          } else if (lInfo.status === 'rejected') {
+            return (
+              <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl flex items-center gap-3">
+                <XCircle className="text-rose-600 shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="font-bold text-sm">Permintaan Akses Ditolak</p>
+                  <p className="text-xs text-rose-700">{lInfo.reason}</p>
+                  {lInfo.request?.lateReason && (
+                    <p className="text-xs italic text-rose-600 mt-1">Alasan awal: "{lInfo.request.lateReason}"</p>
+                  )}
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex items-center gap-3">
+                <Clock className="text-amber-600 shrink-0" size={20} />
+                <div>
+                  <p className="font-bold text-sm">Absensi Terkunci</p>
+                  <p className="text-xs text-amber-700">{lInfo.reason}</p>
+                </div>
+              </div>
+            );
+          }
+        })()
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -291,6 +503,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
                  <div>
                    <h3 className="font-bold text-gray-800">{subject.name}</h3>
                    <p className="text-xs text-gray-500">{subject.subInfo}</p>
+                   {record?.lateReason && (
+                     <p className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 italic mt-1 inline-block">
+                       Terlambat: "{record.lateReason}"
+                     </p>
+                   )}
                  </div>
                  <div className="flex flex-col items-end">
                     {currentStatus && getStatusIcon(currentStatus)}
@@ -459,6 +676,41 @@ const AttendanceView: React.FC<AttendanceProps> = ({ user, students, users, atte
                     }} 
                 />
             </div>
+        </div>
+      )}
+
+      {showRequestModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <form onSubmit={handleSubmitRequest} className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl relative flex flex-col gap-4">
+                <button type="button" onClick={() => setShowRequestModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={20}/></button>
+                <div>
+                  <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                    <Key className="text-amber-500" size={18} />
+                    Permohonan Buka Absen
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">Anda terlambat melakukan absensi. Silakan tuliskan alasan keterlambatan untuk meminta persetujuan Admin.</p>
+                </div>
+                <div>
+                    <label className="block text-[10px] font-bold text-gray-600 mb-1 tracking-wider uppercase">
+                      Keterangan Keterlambatan
+                    </label>
+                    <textarea 
+                      value={lateReason} 
+                      onChange={(e) => setLateReason(e.target.value)} 
+                      className="w-full border border-gray-300 rounded-xl p-3 text-xs focus:ring-2 focus:ring-amber-500 outline-none h-24" 
+                      placeholder="Contoh: Terhambat macet di jalan / Listrik padam" 
+                      required 
+                    />
+                </div>
+                <div className="flex gap-2 w-full">
+                    <button type="button" onClick={() => setShowRequestModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl font-bold text-xs transition-all">
+                        Batal
+                    </button>
+                    <button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded-xl font-bold text-xs transition-all shadow-sm">
+                        Kirim Permintaan
+                    </button>
+                </div>
+            </form>
         </div>
       )}
     </div>

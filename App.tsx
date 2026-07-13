@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Role, Student, TahfidzRecord, Attendance, Exam } from './types';
+import { User, Role, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest } from './types';
 import { MOCK_USERS, MOCK_STUDENTS, MOCK_RECORDS, MOCK_ATTENDANCE, MOCK_EXAMS, LOGO_URL, GOOGLE_SCRIPT_URL } from './constants';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -261,6 +261,7 @@ const App: React.FC = () => {
   const [records, setRecords] = useStickyState<TahfidzRecord[]>(MOCK_RECORDS, 'sita_records_v1');
   const [attendance, setAttendance] = useStickyState<Attendance[]>(MOCK_ATTENDANCE, 'sita_attendance_v1');
   const [exams, setExams] = useStickyState<Exam[]>(MOCK_EXAMS, 'sita_exams_v1');
+  const [attendanceOpenRequests, setAttendanceOpenRequests] = useStickyState<AttendanceOpenRequest[]>([], 'sita_attendance_open_requests_v1');
 
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -356,6 +357,7 @@ const App: React.FC = () => {
                setRecords(data.records ? data.records.map((r: any) => ({ ...r, studentId: cleanId(r.studentId) })) : []);
                setAttendance(data.attendance ? data.attendance.map((a: any) => ({ ...a, userId: cleanId(a.userId) })) : []);
                setExams(data.exams ? data.exams.map((e: any) => ({ ...e, studentId: cleanId(e.studentId) })) : []);
+               setAttendanceOpenRequests(data.openRequests || []);
                
                setConnectionError(null);
             } else setConnectionError('fetch_failed');
@@ -366,7 +368,7 @@ const App: React.FC = () => {
         }
      };
      fetchData();
-  }, [user, setUsers, setStudents, setRecords, setAttendance, setExams]);
+  }, [user, setUsers, setStudents, setRecords, setAttendance, setExams, setAttendanceOpenRequests]);
 
   const handleAddRecord = (newRecord: TahfidzRecord) => {
     setRecords(prev => [newRecord, ...prev]);
@@ -408,6 +410,24 @@ const App: React.FC = () => {
         ...newAtt,
         userId: target ? `${target.id} | ${target.name}` : newAtt.userId,
         class: (newAtt.type === 'student' ? (target as Student)?.class : 'GURU') || '-'
+    });
+  };
+
+  const handleMarkAttendanceOpenRequest = (newReq: AttendanceOpenRequest) => {
+    setAttendanceOpenRequests(prev => {
+        const exists = prev.findIndex(r => r.id === newReq.id);
+        if (exists >= 0) {
+          const updated = [...prev];
+          updated[exists] = newReq;
+          return updated;
+        }
+        return [newReq, ...prev];
+    });
+    
+    const teacher = users.find(u => u.id === newReq.teacherId);
+    api.send('addAttendanceOpenRequest', {
+        ...newReq,
+        teacherId: teacher ? `${teacher.id} | ${teacher.name}` : newReq.teacherId
     });
   };
 
@@ -459,9 +479,9 @@ const App: React.FC = () => {
       case 'ziyadah': return <TahfidzLog key="ziyadah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} defaultTab="sabaq" allowedTabs={['sabaq']} />;
       case 'murojaah': return <TahfidzLog key="murojaah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} defaultTab="sabqi" allowedTabs={['sabqi', 'manzil']} />;
       case 'master_data': return <AdminPanel users={users} students={students} onAddUser={(u) => { setUsers(prev => [...prev, u]); api.send('addUser', u); }} onDeleteUser={handleDeleteUser} onUpdateUser={handleUpdateUser} onAddStudent={(s) => { setStudents(prev => [...prev, s]); api.send('addStudent', s); }} onDeleteStudent={handleDeleteStudent} onUpdateStudent={handleUpdateStudent} onBulkAddStudents={(s) => { setStudents(prev => [...prev, ...s]); s.forEach(item => api.send('addStudent', item)); }} onBulkAddUsers={(u) => { setUsers(prev => [...prev, ...u]); u.forEach(item => api.send('addUser', item)); }} onBulkAddRecords={(r) => { setRecords(prev => [...r, ...prev]); r.forEach(item => { const student = students.find(st => st.id === item.studentId); api.send('addRecord', { ...item, studentId: student ? `${student.id} | ${student.name}` : item.studentId, class: student?.class || '-' }); }); }} />;
-      case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} />;
-      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" />;
-      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" />;
+      case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} />;
+      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} />;
+      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} />;
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
       case 'tutorial': return <TutorialGuide />;

@@ -14,7 +14,10 @@ function setup() {
   createSheetIfNeeded(doc, 'Records', ['id', 'studentId', 'date', 'type', 'surah', 'ayahStart', 'ayahEnd', 'grade', 'notes', 'class']);
   
   // 4. Attendance
-  createSheetIfNeeded(doc, 'Attendance', ['id', 'userId', 'date', 'session', 'status', 'approvalStatus', 'type', 'class']);
+  createSheetIfNeeded(doc, 'Attendance', ['id', 'userId', 'date', 'session', 'status', 'approvalStatus', 'type', 'class', 'lateReason']);
+  
+  // 4b. Attendance Open Requests
+  createSheetIfNeeded(doc, 'AttendanceOpenRequests', ['id', 'teacherId', 'date', 'session', 'type', 'status', 'lateReason']);
   
   // 5. Exams (Ditambahkan StudentName dan class)
   createSheetIfNeeded(doc, 'Exams', ['id', 'studentId', 'StudentName', 'date', 'category', 'score', 'examiner', 'status', 'notes', 'juz', 'class']);
@@ -48,7 +51,8 @@ function doGet(e) {
     students: getSheetData(doc, 'Students'),
     records: getSheetData(doc, 'Records'),
     attendance: getSheetData(doc, 'Attendance'),
-    exams: getSheetData(doc, 'Exams')
+    exams: getSheetData(doc, 'Exams'),
+    openRequests: getSheetData(doc, 'AttendanceOpenRequests')
   };
   lock.releaseLock();
   return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
@@ -89,7 +93,16 @@ function doPost(e) {
     } else if (action == 'addRecord') {
       doc.getSheetByName('Records').appendRow([data.id, data.studentId, data.date, data.type, data.surah, data.ayahStart, data.ayahEnd, data.grade, data.notes, data.class || '']);
     } else if (action == 'markAttendance') {
-      doc.getSheetByName('Attendance').appendRow([data.id, data.userId, data.date, data.session, data.status, data.approvalStatus, data.type, data.class || '']);
+      doc.getSheetByName('Attendance').appendRow([data.id, data.userId, data.date, data.session, data.status, data.approvalStatus, data.type, data.class || '', data.lateReason || '']);
+    } else if (action == 'addAttendanceOpenRequest') {
+      var sheet = doc.getSheetByName('AttendanceOpenRequests');
+      if (sheet) {
+        var values = sheet.getDataRange().getValues();
+        for (var i = 1; i < values.length; i++) {
+          if (values[i][0] == data.id) { sheet.deleteRow(i + 1); break; }
+        }
+      }
+      sheet.appendRow([data.id, data.teacherId, data.date, data.session, data.type, data.status, data.lateReason]);
     } else if (action == 'addExam') {
       var juzInfo = data.juz || (data.details && data.details.juz) || '-';
       doc.getSheetByName('Exams').appendRow([data.id, data.studentId, data.studentName || '-', data.date, data.category, data.score, data.examiner, data.status, data.notes, juzInfo, data.class || '']);
