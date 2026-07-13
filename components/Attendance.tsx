@@ -65,6 +65,28 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       return { locked: true, reason: 'Belum bisa mengisi absensi untuk hari esok.', status: 'future' };
     }
 
+    // PERATURAN KHUSUS ABSENSI SANTRI
+    if (type === 'student') {
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+      if (sess === 'pagi') {
+        const start = 4 * 60 + 30; // 04:30
+        const end = 9 * 60;        // 09:00
+        if (currentMinutes < start || currentMinutes > end) {
+          return { locked: true, reason: 'Absensi Santri Pagi hanya dibuka pukul 04:30 - 09:00 WIB.', status: 'outside_hours' };
+        }
+      } else if (sess === 'malam') {
+        const start = 18 * 60 + 30; // 18:30
+        const end = 21 * 60;        // 21:00
+        if (currentMinutes < start || currentMinutes > end) {
+          return { locked: true, reason: 'Absensi Santri Malam hanya dibuka pukul 18:30 - 21:00 WIB.', status: 'outside_hours' };
+        }
+      }
+      return { locked: false, reason: '', status: 'open' };
+    }
+
+    // PERATURAN KHUSUS ABSENSI GURU (DENGAN TOLERANSI KETERLAMBATAN)
     // Cari permohonan buka absensi untuk guru ini pada tanggal & sesi terpilih
     const request = openRequests.find(r => 
       r.teacherId === user.id && 
@@ -88,7 +110,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       }
     }
 
-    // Pengecekan jam normal (seperti jam buka awal dan batas akhir sesi)
+    // Pengecekan jam normal guru (sebelum terlambat)
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
@@ -96,13 +118,13 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       const start = 4 * 60 + 30; // 04:30
       const end = 12 * 60;       // 12:00
       if (currentMinutes < start || currentMinutes > end) {
-        return { locked: true, reason: 'Absensi Pagi hanya dibuka pukul 04:30 - 12:00 WIB.', status: 'outside_hours' };
+        return { locked: true, reason: 'Absensi Guru Pagi hanya dibuka pukul 04:30 - 12:00 WIB.', status: 'outside_hours' };
       }
     } else if (sess === 'malam') {
       const start = 17 * 60 + 30; // 17:30
       const end = 21 * 60;        // 21:00
       if (currentMinutes < start || currentMinutes > end) {
-        return { locked: true, reason: 'Absensi Malam hanya dibuka pukul 17:30 - 21:00 WIB.', status: 'outside_hours' };
+        return { locked: true, reason: 'Absensi Guru Malam hanya dibuka pukul 17:30 - 21:00 WIB.', status: 'outside_hours' };
       }
     }
 
