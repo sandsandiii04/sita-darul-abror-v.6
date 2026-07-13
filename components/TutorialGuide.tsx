@@ -24,7 +24,7 @@ const BACKEND_SCRIPT = `function setup() {
   // Tambah Dummy Data jika kosong
   var userSheet = doc.getSheetByName('Users');
   if (userSheet.getLastRow() === 1) {
-     userSheet.appendRow(['u1', 'Super Admin', 'admin', "'admin", "'123", "'6281234567890", "", "", ""]);
+     userSheet.appendRow(['u1', 'Super Admin', 'admin', "'admin", "'123", "'6281383237720", "", "", ""]);
   }
 }
 

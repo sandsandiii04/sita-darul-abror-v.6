@@ -13,7 +13,7 @@ export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzeW66
 export const LOGO_URL = "https://lh3.googleusercontent.com/u/0/d/1TVfDQ2RysRmOgfIr0hUL9H1l7Rth_AsK"; 
 
 // WhatsApp Number for Admin
-export const ADMIN_PHONE = "6281234567890"; 
+export const ADMIN_PHONE = "6281383237720"; 
 
 export const SURAH_LIST = [
   "Al-Fatihah", "Al-Baqarah", "Ali 'Imran", "An-Nisa'", "Al-Ma'idah", 
