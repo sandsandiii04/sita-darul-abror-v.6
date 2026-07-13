@@ -318,7 +318,7 @@ export const api = {
           const { error: err } = await supabase.rpc('upsert_data', { p_table: 'attendance', p_data: mapAttendanceToDb(item.data) });
           error = err;
         } else if (item.action === 'addAttendanceOpenRequest') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'attendance_open_requests', p_data: mapAttendanceOpenRequestToDb(item.data) });
+          const { error: err } = await supabase.from('attendance_open_requests').upsert(mapAttendanceOpenRequestToDb(item.data));
           error = err;
         } else if (item.action === 'addExam') {
           const { error: err } = await supabase.rpc('upsert_data', { p_table: 'exams', p_data: mapExamToDb(item.data) });
