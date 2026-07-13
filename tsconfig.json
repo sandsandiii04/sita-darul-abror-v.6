@@ -22,6 +22,7 @@
   "exclude": [
     "node_modules",
     "dist",
-    "backend_script.js"
+    "backend_script.js",
+    "supabase"
   ]
 }
