@@ -31,6 +31,36 @@ const cleanId = (id: any): string => {
   return id.toString().split(' | ')[0].trim();
 };
 
+// Helper: Enkripsi dan Dekripsi string untuk mengamankan No HP dari pencurian data/db leak
+const SECRET_KEY = "SITA_DARUL_ABROR_SECURE_PHONE_KEY";
+
+const encryptPhone = (phone: string): string => {
+  if (!phone) return '';
+  let xorResult = '';
+  for (let i = 0; i < phone.length; i++) {
+    const charCode = phone.charCodeAt(i) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length);
+    xorResult += String.fromCharCode(charCode);
+  }
+  return 'ENC_' + btoa(unescape(encodeURIComponent(xorResult)));
+};
+
+const decryptPhone = (encodedPhone: string): string => {
+  if (!encodedPhone) return '';
+  if (!encodedPhone.startsWith('ENC_')) return encodedPhone; // Fallback jika data lama belum terenkripsi
+  try {
+    const cleanBase64 = encodedPhone.substring(4);
+    const xorResult = decodeURIComponent(escape(atob(cleanBase64)));
+    let phone = '';
+    for (let i = 0; i < xorResult.length; i++) {
+      const charCode = xorResult.charCodeAt(i) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length);
+      phone += String.fromCharCode(charCode);
+    }
+    return phone;
+  } catch (e) {
+    return encodedPhone; // Fallback jika terjadi error dekripsi
+  }
+};
+
 // 2. Mapping Helper (Database snake_case <=> Frontend camelCase)
 const mapUserFromDb = (row: any): User => ({
   id: row.id,
@@ -38,7 +68,7 @@ const mapUserFromDb = (row: any): User => ({
   role: row.role,
   username: row.username,
   password: row.password,
-  phoneNumber: row.phone_number,
+  phoneNumber: decryptPhone(row.phone_number),
   childId: row.child_id,
   email: row.email,
   avatar: row.avatar
@@ -50,7 +80,7 @@ const mapUserToDb = (model: User): any => ({
   role: model.role,
   username: model.username,
   password: model.password,
-  phone_number: model.phoneNumber || null,
+  phone_number: model.phoneNumber ? encryptPhone(model.phoneNumber) : null,
   child_id: model.childId || null,
   email: model.email || null,
   avatar: model.avatar || null
