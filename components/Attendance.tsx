@@ -32,6 +32,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   const [showScanner, setShowScanner] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [lateReason, setLateReason] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fungsi pengecekan apakah guru terlambat
   const checkIsLate = (sess: 'pagi' | 'malam', targetDate: string) => {
@@ -119,7 +120,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         ? students.filter(s => s.id === user.childId)
         : students; // Admin sees all
 
-    subjectList = visibleStudents.map(s => ({
+    const filteredStudents = searchQuery.trim() !== ''
+      ? visibleStudents.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      : visibleStudents;
+
+    subjectList = filteredStudents.map(s => ({
       id: s.id,
       name: s.name,
       subInfo: s.class
@@ -140,6 +145,16 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     const currentLock = checkSessionLock(session);
     if (currentLock.locked && user.role !== 'admin') {
       alert(currentLock.reason);
+      return;
+    }
+
+    const existing = attendance.find(a => a.userId === subjectId && a.date === date && a.type === type && a.session === session);
+    
+    // Pembatalan: jika klik status yang sudah aktif, hapus absensi tersebut
+    if (existing && existing.status === status) {
+      if (onDeleteAttendance) {
+        onDeleteAttendance(existing.id);
+      }
       return;
     }
 
@@ -166,8 +181,6 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     );
     const lateReasonToSave = request?.lateReason || undefined;
 
-    const existing = attendance.find(a => a.userId === subjectId && a.date === date && a.type === type && a.session === session);
-    
     // For teachers marking sick/permission, set approval to pending
     const approvalStatus = (type === 'teacher' && (status === 'sick' || status === 'permission')) ? 'pending' : undefined;
     
@@ -507,6 +520,33 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             );
           }
         })()
+      )}
+
+      {type === 'student' && (
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center gap-3 print:hidden">
+          <span className="text-sm font-bold text-gray-700 shrink-0">Cari Nama Santri:</span>
+          <input 
+            type="text"
+            placeholder="Ketik nama santri untuk mencari..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 px-4 py-2 border rounded-lg text-sm bg-gray-50 focus:outline-primary outline-none"
+          />
+          {searchQuery && (
+            <button 
+              onClick={() => setSearchQuery('')}
+              className="text-xs text-red-600 hover:text-red-800 font-bold px-2 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              Bersihkan
+            </button>
+          )}
+        </div>
+      )}
+
+      {type === 'student' && subjectList.length === 0 && (
+        <div className="bg-white p-12 rounded-xl border border-dashed border-gray-200 text-center text-gray-400">
+           Tidak ada santri yang cocok dengan kata kunci pencarian "{searchQuery}"
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
