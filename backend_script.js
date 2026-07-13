@@ -83,6 +83,12 @@ function doPost(e) {
   try {
     var doc = SpreadsheetApp.getActiveSpreadsheet();
     var jsonData = JSON.parse(e.postData.contents);
+    
+    // Detect Fonnte / WhatsApp Webhook
+    if (jsonData.sender && jsonData.message) {
+      return handleFonnteWebhook(doc, jsonData);
+    }
+    
     var action = jsonData.action;
     var data = jsonData.data;
     
@@ -130,4 +136,55 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// Function to handle WhatsApp Webhook (Fonnte)
+function handleFonnteWebhook(doc, payload) {
+  var sender = payload.sender.replace(/\D/g, '');
+  var message = payload.message.trim().toLowerCase();
+  
+  // Ambil nomor Admin dari Sheet Users atau gunakan nomor default
+  var adminNumber = "6281383237720"; // Admin utama
+  if (sender !== adminNumber) {
+    return ContentService.createTextOutput(JSON.stringify({result: 'error', message: 'Unauthorized sender'})).setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  // Format teks: "ok #id" atau "tidak #id" (case-insensitive)
+  var match = message.match(/(ok|tidak)\s+#([a-z0-9_]+)/);
+  if (!match) {
+    return ContentService.createTextOutput(JSON.stringify({result: 'error', message: 'Invalid message format'})).setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  var action = match[1]; // "ok" atau "tidak"
+  var id = match[2]; // ID record
+  
+  var newStatus = (action === 'ok') ? 'approved' : 'rejected';
+  
+  if (id.indexOf('req_') === 0) {
+    // Ini permohonan buka absen (AttendanceOpenRequests)
+    var sheet = doc.getSheetByName('AttendanceOpenRequests');
+    if (!sheet) return ContentService.createTextOutput(JSON.stringify({result: 'error', message: 'Sheet not found'})).setMimeType(ContentService.MimeType.JSON);
+    
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] == id) {
+        sheet.getRange(i + 1, 6).setValue(newStatus); // Kolom status (F)
+        return ContentService.createTextOutput(JSON.stringify({result: 'success', info: 'Request ' + id + ' updated to ' + newStatus})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+  } else {
+    // Ini izin/sakit guru (Attendance)
+    var sheet = doc.getSheetByName('Attendance');
+    if (!sheet) return ContentService.createTextOutput(JSON.stringify({result: 'error', message: 'Sheet not found'})).setMimeType(ContentService.MimeType.JSON);
+    
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] == id) {
+        sheet.getRange(i + 1, 6).setValue(newStatus); // Kolom approvalStatus (F)
+        return ContentService.createTextOutput(JSON.stringify({result: 'success', info: 'Attendance ' + id + ' updated to ' + newStatus})).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({result: 'error', message: 'ID not found'})).setMimeType(ContentService.MimeType.JSON);
 }
