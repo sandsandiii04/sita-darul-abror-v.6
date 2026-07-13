@@ -143,6 +143,19 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       return;
     }
 
+    // Tanya alasan izin/sakit jika absensi diri guru
+    let reasonText = '';
+    if (type === 'teacher' && (status === 'sick' || status === 'permission')) {
+      const promptMsg = status === 'sick' ? 'Masukkan alasan / keterangan Sakit:' : 'Masukkan alasan / keterangan Izin:';
+      const userInput = prompt(promptMsg);
+      if (userInput === null) return; // User cancelled
+      if (!userInput.trim()) {
+        alert('Keterangan alasan wajib diisi!');
+        return;
+      }
+      reasonText = userInput.trim();
+    }
+
     // Cari request yang disetujui untuk mendapatkan alasan keterlambatan
     const request = openRequests.find(r => 
       r.teacherId === user.id && 
@@ -169,7 +182,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       status,
       type,
       approvalStatus: existing?.approvalStatus || approvalStatus,
-      lateReason: existing?.lateReason || lateReasonToSave
+      lateReason: reasonText || existing?.lateReason || lateReasonToSave
     };
     onMarkAttendance(newRecord);
 
@@ -183,7 +196,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         const approveLink = `${baseUrl}?action=approve&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
         const rejectLink = `${baseUrl}?action=reject&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
 
-        const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
+        const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nKeterangan: "${newRecord.lateReason}"\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
         
         if (confirm("Buka WhatsApp untuk mengirim izin ke Admin?")) {
             window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
@@ -235,7 +248,12 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       
       const sessionLabel = session === 'pagi' ? 'Pagi' : 'Malam';
       const typeLabel = type === 'student' ? 'Absen Santri' : 'Absen Diri';
-      const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya di sistem SITA Darul Abror.`;
+      
+      const baseUrl = window.location.origin + window.location.pathname;
+      const approveLink = `${baseUrl}?action=approveRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+      const rejectLink = `${baseUrl}?action=rejectRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+
+      const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
       
       if (confirm("Kirim pengajuan akses buka absen ke Admin via WhatsApp?")) {
         window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');

@@ -314,7 +314,35 @@ const App: React.FC = () => {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
-  }, [attendance, user, users]);
+
+    // Magic links untuk buka akses absen terlambat
+    if ((action === 'approveRequest' || action === 'rejectRequest') && id && attendanceOpenRequests.length > 0 && user?.role === 'admin') {
+      const targetReq = attendanceOpenRequests.find(r => r.id === id);
+      if (targetReq) {
+        if (targetReq.status === 'pending') {
+          const updatedStatus = action === 'approveRequest' ? 'approved' : 'rejected';
+          const updatedReq: AttendanceOpenRequest = {
+            ...targetReq,
+            status: updatedStatus
+          };
+          
+          // Update state
+          setAttendanceOpenRequests(prev => prev.map(r => r.id === id ? updatedReq : r));
+          
+          // Sync to cloud
+          const teacher = users.find(u => u.id === targetReq.teacherId);
+          api.send('addAttendanceOpenRequest', {
+            ...updatedReq,
+            teacherId: teacher ? `${teacher.id} | ${teacher.name}` : targetReq.teacherId
+          });
+          
+          alert(`Permintaan akses absen Guru ${params.get('name') || ''} telah berhasil ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
+        }
+        // Clear query parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [attendance, attendanceOpenRequests, user, users]);
 
   useEffect(() => {
     const handleOnline = () => {
