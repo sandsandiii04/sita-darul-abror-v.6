@@ -1,8 +1,9 @@
-
 import React, { useState } from 'react';
 import { User, Student, TahfidzRecord, Grade, Attendance, AttendanceOpenRequest } from '../types';
-import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle } from 'lucide-react';
+import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download } from 'lucide-react';
 import { LOGO_URL } from '../constants';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 interface ReportsViewProps {
   user: User;
@@ -152,6 +153,49 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleDownloadPDF = async () => {
+    const element = document.querySelector('.printable-area') as HTMLElement;
+    if (!element) return;
+
+    setIsExporting(true);
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const pageHeight = 295;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const fileName = `Laporan_SITA_${periodLabel.replace(/\s+/g, '_')}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error("Gagal mendownload PDF:", error);
+      alert("Gagal mengunduh PDF. Silakan gunakan tombol 'Cetak / Print' lalu pilih 'Simpan sebagai PDF'.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // --- SUB COMPONENTS ---
@@ -713,13 +757,23 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                 <h2 className="text-lg font-bold text-gray-800">Laporan & Rekapitulasi</h2>
                 <p className="text-sm text-gray-500">Unduh atau cetak laporan berkala</p>
              </div>
-             <button 
-                onClick={handlePrint}
-                className="flex items-center gap-2 bg-gray-800 text-white px-6 py-2 rounded-lg hover:bg-black transition-colors shadow-lg font-medium text-sm"
-             >
-                <Printer size={16} />
-                Cetak / PDF
-             </button>
+             <div className="flex flex-wrap gap-2">
+                 <button 
+                    onClick={handleDownloadPDF}
+                    disabled={isExporting}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg transition-colors shadow font-medium text-sm disabled:opacity-50"
+                 >
+                    <Download size={16} />
+                    {isExporting ? 'Membuat PDF...' : 'Unduh PDF'}
+                 </button>
+                 <button 
+                    onClick={handlePrint}
+                    className="flex items-center gap-2 bg-gray-800 text-white px-5 py-2 rounded-lg hover:bg-black transition-colors shadow font-medium text-sm"
+                 >
+                    <Printer size={16} />
+                    Cetak / Print
+                 </button>
+             </div>
          </div>
 
          {/* Filters Row */}
