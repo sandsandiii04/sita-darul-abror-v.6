@@ -196,6 +196,10 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
   const handleStatusClick = (subjectId: string, status: Attendance['status']) => {
     if (user.role === 'parent') return;
+    if (!date) {
+      alert('Mohon pilih tanggal absensi terlebih dahulu!');
+      return;
+    }
 
     const currentLock = checkSessionLock(session);
     if (currentLock.locked && user.role !== 'admin') {
@@ -298,6 +302,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
   const handleSubmitRequest = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!date) return alert('Mohon pilih tanggal absensi terlebih dahulu!');
     if (!lateReason.trim()) return alert('Mohon isi keterangan keterlambatan!');
     
     if (onMarkOpenRequest) {
@@ -464,7 +469,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             <input 
             type="date" 
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => setDate(e.target.value || new Date().toISOString().split('T')[0])}
             className="border rounded-lg p-2 text-sm bg-gray-50 focus:outline-primary h-10"
             />
         </div>
