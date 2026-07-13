@@ -564,6 +564,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Total Capaian Juz</label>
+                <input 
+                  type="number" 
+                  step="0.1" 
+                  min="0" 
+                  max="30" 
+                  value={editingStudent.totalJuz || 0} 
+                  onChange={e => setEditingStudent({...editingStudent, totalJuz: parseFloat(e.target.value) || 0})} 
+                  className="w-full border rounded-lg p-2 text-sm" 
+                  required 
+                />
+              </div>
               <div className="pt-2 border-t mt-2">
                 <p className="text-xs font-bold text-emerald-600 mb-2">Akun Login Santri/Wali</p>
                 <div className="space-y-2">

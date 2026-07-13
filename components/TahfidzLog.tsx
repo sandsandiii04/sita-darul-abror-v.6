@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, TahfidzRecord, Grade } from '../types';
 import { SURAH_LIST, QURAN_CHAPTERS } from '../constants';
-import { PlusCircle, Search, Filter, Trash2, X, Calendar, BookOpen, Layers, RotateCcw } from 'lucide-react';
+import { PlusCircle, Search, Filter, Trash2, X, Calendar, BookOpen, Layers, RotateCcw, Award } from 'lucide-react';
 
 interface TahfidzLogProps {
   user: User;
@@ -10,6 +10,7 @@ interface TahfidzLogProps {
   records: TahfidzRecord[];
   onAddRecord: (record: TahfidzRecord) => void;
   onDeleteRecord: (id: string) => void;
+  onUpdateStudent?: (student: Student) => void;
   defaultTab?: 'sabaq' | 'sabqi' | 'manzil';
   allowedTabs?: ('sabaq' | 'sabqi' | 'manzil')[];
 }
@@ -20,10 +21,13 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
   records, 
   onAddRecord, 
   onDeleteRecord,
+  onUpdateStudent,
   defaultTab = 'sabaq',
   allowedTabs = ['sabaq', 'sabqi', 'manzil']
 }) => {
   const [activeTab, setActiveTab] = useState<'sabaq' | 'sabqi' | 'manzil'>(defaultTab);
+  const [showJuzModal, setShowJuzModal] = useState(false);
+  const [juzValues, setJuzValues] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setActiveTab(defaultTab);
@@ -67,6 +71,17 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
     : user.role === 'parent' && user.childId
       ? students.filter(s => s.id === user.childId)
       : students;
+
+  // Load Juz values for modal
+  useEffect(() => {
+    if (showJuzModal) {
+      const initialValues: Record<string, number> = {};
+      availableStudents.forEach(s => {
+        initialValues[s.id] = s.totalJuz;
+      });
+      setJuzValues(initialValues);
+    }
+  }, [showJuzModal, students]);
 
   // Helper: Estimate Juz from Surah
   const getJuzFromSurahName = (surahName: string): number => {
@@ -214,15 +229,23 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
                </button>
              )}
 
-             {canAdd && (
-              <button
-                onClick={() => setIsFormOpen(!isFormOpen)}
-                className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-emerald-800 transition-colors shadow-sm ml-auto md:ml-0"
-              >
-                <PlusCircle size={18} />
-                <span className="hidden md:inline">{isFormOpen ? 'Tutup' : 'Tambah'}</span>
-              </button>
-            )}
+              {canAdd && (
+                <div className="flex gap-2 ml-auto md:ml-0">
+                  <button 
+                    onClick={() => setShowJuzModal(true)} 
+                    className="flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all"
+                  >
+                    <Award size={16} /> Capaian Juz
+                  </button>
+                  <button
+                    onClick={() => setIsFormOpen(!isFormOpen)}
+                    className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-emerald-800 transition-colors shadow-sm"
+                  >
+                    <PlusCircle size={18} />
+                    <span className="hidden md:inline">{isFormOpen ? 'Tutup' : 'Tambah'}</span>
+                  </button>
+                </div>
+              )}
           </div>
         </div>
 
@@ -522,6 +545,75 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Modal Perbarui Capaian Juz untuk Guru */}
+      {showJuzModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl relative">
+            <button 
+              onClick={() => setShowJuzModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+            <h3 className="font-bold text-lg text-gray-800 mb-2 flex items-center gap-2">
+              <Award className="text-indigo-600" size={20} />
+              Capaian Juz Santri
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">Perbarui total Juz santri di halaqah Anda</p>
+            
+            <div className="max-h-[350px] overflow-y-auto pr-1 space-y-3">
+              {availableStudents.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">Belum ada data santri.</p>
+              ) : (
+                availableStudents.map(student => (
+                  <div key={student.id} className="flex justify-between items-center py-2.5 border-b last:border-0">
+                    <div>
+                      <p className="font-bold text-sm text-gray-800">{student.name}</p>
+                      <p className="text-xs text-gray-500">{student.class} / {student.halaqah}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        step="0.1" 
+                        min="0" 
+                        max="30" 
+                        value={juzValues[student.id] !== undefined ? juzValues[student.id] : student.totalJuz} 
+                        onChange={e => setJuzValues({...juzValues, [student.id]: parseFloat(e.target.value) || 0})}
+                        className="w-16 border rounded p-1 text-center text-sm font-semibold h-8" 
+                      />
+                      <button 
+                        onClick={() => {
+                          const newJuz = juzValues[student.id] !== undefined ? juzValues[student.id] : student.totalJuz;
+                          if (onUpdateStudent) {
+                            onUpdateStudent({
+                              ...student,
+                              totalJuz: newJuz
+                            });
+                            alert(`Sukses memperbarui capaian ${student.name} menjadi ${newJuz} Juz!`);
+                          }
+                        }}
+                        className="bg-emerald-600 text-white px-2.5 py-1 rounded text-xs font-bold hover:bg-emerald-700 h-8 flex items-center transition-colors"
+                      >
+                        Update
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div className="flex justify-end pt-4 border-t mt-4">
+              <button 
+                onClick={() => setShowJuzModal(false)} 
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-bold transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
