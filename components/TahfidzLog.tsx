@@ -73,7 +73,8 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
     const chapter = QURAN_CHAPTERS.find(c => c[1] === surahName);
     if (!chapter) return 0;
     // Simple estimation: 1 Juz approx 20 pages. 
-    return Math.ceil(chapter[2] / 20);
+    const juz = Math.ceil(chapter[2] / 20);
+    return juz > 30 ? 30 : juz;
   };
 
   const filteredRecords = records

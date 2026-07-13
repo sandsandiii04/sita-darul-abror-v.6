@@ -156,7 +156,8 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
     if (!confirm("Simpan Nilai?")) return;
     const finalScore = parseFloat(score.toFixed(1));
     const status = finalScore >= 70 ? 'pass' : 'fail';
-    const juzString = examMode === 'acak' ? `Acak` : `Juz ${Math.ceil(currentSession.start / 20)}`;
+    const juzVal = Math.ceil(currentSession.start / 20);
+    const juzString = examMode === 'acak' ? `Acak` : `Juz ${juzVal > 30 ? 30 : juzVal}`;
     
     onAddExam({
       id: Math.random().toString(36).substr(2, 9),
