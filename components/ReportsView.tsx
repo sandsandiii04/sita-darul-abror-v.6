@@ -387,12 +387,23 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
-        <div className="hidden print:flex flex-col items-center justify-center p-8 border-b-2 border-gray-800 mb-4 text-center">
-            <h1 className="text-xl font-bold uppercase">
-              {studentTab === 'hafalan' ? 'Laporan Rekapitulasi Tahfidz' : 'Laporan Rekapitulasi Absensi'}
-            </h1>
-            <p className="font-medium mt-1">{periodLabel}</p>
-            <p className="text-sm mt-1">Guru: {user.name}</p>
+        <div className="hidden print:block w-full mb-6">
+          <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
+             <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
+             <div className="flex-1 text-center">
+                <h1 className="text-2xl font-bold uppercase tracking-widest text-emerald-900">Ponpes Darul Abror IBS</h1>
+                <p className="text-xs font-semibold tracking-wide mt-0.5">Lajnah Tahfidz Al-Qur'an</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</p>
+             </div>
+             <div className="w-16"></div> 
+          </div>
+          <div className="text-center">
+              <h2 className="text-base font-bold uppercase underline decoration-2 underline-offset-4">
+                {studentTab === 'hafalan' ? 'Laporan Rekapitulasi Tahfidz Santri' : 'Laporan Rekapitulasi Kehadiran Santri'}
+              </h2>
+              <p className="text-xs font-medium mt-1">{periodLabel}</p>
+              <p className="text-[10px] text-gray-600 mt-0.5">Ustadz/Halaqah: {user.name}</p>
+          </div>
         </div>
 
         <div className="p-0 print:p-4">
@@ -530,10 +541,23 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
-         <div className="hidden print:flex flex-col items-center justify-center p-8 border-b-2 border-gray-800 mb-4 text-center">
-            <h1 className="text-xl font-bold uppercase">Laporan Kehadiran Guru Halaqah</h1>
-            <p className="font-medium mt-1">{periodLabel}</p>
-         </div>
+        <div className="hidden print:block w-full mb-6">
+          <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
+             <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
+             <div className="flex-1 text-center">
+                <h1 className="text-2xl font-bold uppercase tracking-widest text-emerald-900">Ponpes Darul Abror IBS</h1>
+                <p className="text-xs font-semibold tracking-wide mt-0.5">Lajnah Tahfidz Al-Qur'an</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</p>
+             </div>
+             <div className="w-16"></div> 
+          </div>
+          <div className="text-center">
+              <h2 className="text-base font-bold uppercase underline decoration-2 underline-offset-4">
+                Laporan Kehadiran & Rekapitulasi Guru Halaqah
+              </h2>
+              <p className="text-xs font-medium mt-1">{periodLabel}</p>
+          </div>
+        </div>
 
          <div className="p-0 print:p-4">
              <table className="w-full text-left border-collapse border border-gray-300">
@@ -620,6 +644,69 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
   return (
     <div className="space-y-6">
+      {/* CSS Khusus untuk Merapihkan Tampilan Print / PDF */}
+      <style>{`
+        @media print {
+          /* Sembunyikan sidebar, navbar, tombol, filter, dan elemen UI lainnya */
+          body * {
+            visibility: hidden;
+          }
+          /* Hanya tampilkan area laporan */
+          .printable-area, .printable-area * {
+            visibility: visible;
+          }
+          .printable-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white !important;
+            color: black !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          /* Aturan halaman A4 */
+          @page {
+            size: A4 portrait;
+            margin: 1.5cm;
+          }
+          /* Merapikan tabel dan memecah halaman */
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            page-break-inside: auto;
+            margin-top: 10px;
+          }
+          tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+          }
+          thead {
+            display: table-header-group;
+          }
+          th, td {
+            padding: 8px !important;
+            border: 1px solid #4b5563 !important;
+            color: black !important;
+            font-size: 11px !important;
+          }
+          th {
+            background-color: #f3f4f6 !important;
+            font-weight: bold !important;
+            text-align: center !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          /* Menghapus shadow & border-radius saat cetak */
+          .shadow-sm, .shadow-lg, .shadow {
+            box-shadow: none !important;
+          }
+          .rounded-xl, .rounded-lg, .rounded-2xl {
+            border-radius: 0 !important;
+          }
+        }
+      `}</style>
+
       <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 print:hidden flex flex-col justify-between gap-4">
          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
              <div className="flex-1">
@@ -804,7 +891,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         </div>
       )}
 
-      <div className="min-h-screen print:h-auto">
+      <div className="min-h-screen print:h-auto printable-area">
         {reportType === 'teacher' && user.role === 'admin' ? (
             <TeacherAttendanceRecap />
         ) : (
