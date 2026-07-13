@@ -65,29 +65,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       return { locked: true, reason: 'Belum bisa mengisi absensi untuk hari esok.', status: 'future' };
     }
 
-    // PERATURAN KHUSUS ABSENSI SANTRI
-    if (type === 'student') {
-      const now = new Date();
-      const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-      if (sess === 'pagi') {
-        const start = 4 * 60 + 30; // 04:30
-        const end = 9 * 60;        // 09:00
-        if (currentMinutes < start || currentMinutes > end) {
-          return { locked: true, reason: 'Absensi Santri Pagi hanya dibuka pukul 04:30 - 09:00 WIB.', status: 'outside_hours' };
-        }
-      } else if (sess === 'malam') {
-        const start = 18 * 60 + 30; // 18:30
-        const end = 21 * 60;        // 21:00
-        if (currentMinutes < start || currentMinutes > end) {
-          return { locked: true, reason: 'Absensi Santri Malam hanya dibuka pukul 18:30 - 21:00 WIB.', status: 'outside_hours' };
-        }
-      }
-      return { locked: false, reason: '', status: 'open' };
-    }
-
-    // PERATURAN KHUSUS ABSENSI GURU (DENGAN TOLERANSI KETERLAMBATAN)
-    // Cari permohonan buka absensi untuk guru ini pada tanggal & sesi terpilih
+    // Cari permohonan buka absensi untuk guru ini pada tanggal & sesi & tipe terpilih
     const request = openRequests.find(r => 
       r.teacherId === user.id && 
       r.date === date && 
@@ -99,6 +77,53 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       return { locked: false, reason: '', status: 'approved' };
     }
 
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // PERATURAN KHUSUS ABSENSI SANTRI
+    if (type === 'student') {
+      let isStudentLate = false;
+      let reasonText = '';
+
+      if (date < todayStr) {
+        isStudentLate = true;
+        reasonText = 'Absensi Santri terkunci karena melewati batas tanggal hari ini.';
+      } else {
+        if (sess === 'pagi') {
+          const start = 4 * 60 + 30; // 04:30
+          const end = 9 * 60;        // 09:00
+          if (currentMinutes > end) {
+            isStudentLate = true;
+            reasonText = 'Absensi Santri Pagi terkunci karena terlambat (melebihi batas jam 09:00 WIB).';
+          } else if (currentMinutes < start) {
+            return { locked: true, reason: 'Absensi Santri Pagi belum dibuka (hanya pukul 04:30 - 09:00 WIB).', status: 'outside_hours' };
+          }
+        } else if (sess === 'malam') {
+          const start = 18 * 60 + 30; // 18:30
+          const end = 21 * 60;        // 21:00
+          if (currentMinutes > end) {
+            isStudentLate = true;
+            reasonText = 'Absensi Santri Malam terkunci karena terlambat (melebihi batas jam 21:00 WIB).';
+          } else if (currentMinutes < start) {
+            return { locked: true, reason: 'Absensi Santri Malam belum dibuka (hanya pukul 18:30 - 21:00 WIB).', status: 'outside_hours' };
+          }
+        }
+      }
+
+      if (isStudentLate) {
+        if (request && request.status === 'pending') {
+          return { locked: true, reason: 'Permintaan buka akses sedang menunggu persetujuan admin.', status: 'pending', request };
+        } else if (request && request.status === 'rejected') {
+          return { locked: true, reason: 'Permintaan buka akses ditolak oleh admin.', status: 'rejected', request };
+        } else {
+          return { locked: true, reason: reasonText, status: 'late' };
+        }
+      }
+
+      return { locked: false, reason: '', status: 'open' };
+    }
+
+    // PERATURAN KHUSUS ABSENSI GURU (DENGAN TOLERANSI KETERLAMBATAN)
     const isLate = checkIsLate(sess, date);
     if (isLate) {
       if (request && request.status === 'pending') {
@@ -106,14 +131,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       } else if (request && request.status === 'rejected') {
         return { locked: true, reason: 'Permintaan buka akses ditolak oleh admin.', status: 'rejected', request };
       } else {
-        return { locked: true, reason: 'Absensi terkunci karena terlambat (melebihi batas jam pagi 05:50 / malam 18:50).', status: 'late' };
+        return { locked: true, reason: 'Absensi Guru terkunci karena terlambat (melebihi batas jam pagi 05:50 / malam 18:50).', status: 'late' };
       }
     }
 
     // Pengecekan jam normal guru (sebelum terlambat)
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
     if (sess === 'pagi') {
       const start = 4 * 60 + 30; // 04:30
       const end = 12 * 60;       // 12:00
