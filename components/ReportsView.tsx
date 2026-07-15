@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, Student, TahfidzRecord, Grade, Attendance, AttendanceOpenRequest } from '../types';
 import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download } from 'lucide-react';
-import { LOGO_URL } from '../constants';
+import { LOGO_URL, getLocalMonthString } from '../constants';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
@@ -30,7 +30,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
   
   // Default to current month
   const today = new Date();
-  const defaultMonth = today.toISOString().slice(0, 7); // YYYY-MM
+  const defaultMonth = getLocalMonthString(today); // YYYY-MM
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
   
   const getWeekNumber = (d: Date) => {

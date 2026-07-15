@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Role, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest } from './types';
-import { MOCK_USERS, MOCK_STUDENTS, MOCK_RECORDS, MOCK_ATTENDANCE, MOCK_EXAMS, LOGO_URL, GOOGLE_SCRIPT_URL } from './constants';
+import { MOCK_USERS, MOCK_STUDENTS, MOCK_RECORDS, MOCK_ATTENDANCE, MOCK_EXAMS, LOGO_URL, GOOGLE_SCRIPT_URL, getLocalDateString } from './constants';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import TahfidzLog from './components/TahfidzLog';
@@ -203,7 +203,7 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                                 const att: Attendance = {
                                     id: 'att_' + Math.random().toString(36).substr(2, 9),
                                     userId: quickUserId,
-                                    date: new Date().toISOString().split('T')[0],
+                                    date: getLocalDateString(),
                                     session: quickSession,
                                     status: 'present',
                                     type: 'teacher'

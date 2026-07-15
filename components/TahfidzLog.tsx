@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Student, TahfidzRecord, Grade } from '../types';
-import { SURAH_LIST, QURAN_CHAPTERS } from '../constants';
+import { SURAH_LIST, QURAN_CHAPTERS, getLocalDateString } from '../constants';
 import { PlusCircle, Search, Filter, Trash2, X, Calendar, BookOpen, Layers, RotateCcw, Award } from 'lucide-react';
 
 interface TahfidzLogProps {
@@ -143,7 +143,7 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
     const newRecord: TahfidzRecord = {
       id: Math.random().toString(36).substr(2, 9),
       studentId: user.role === 'parent' ? user.childId! : selectedStudent,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       type: activeTab,
       surah: selectedSurah,
       ayahStart: validAyahStart,

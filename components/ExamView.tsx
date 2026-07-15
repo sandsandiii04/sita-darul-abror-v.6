@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, Exam } from '../types';
-import { QURAN_CHAPTERS, MANDATORY_QUESTIONS, JUZ_QUESTIONS, Question } from '../constants';
+import { QURAN_CHAPTERS, MANDATORY_QUESTIONS, JUZ_QUESTIONS, Question, getLocalDateString } from '../constants';
 import { Award, Play, ChevronLeft, ChevronRight, Maximize2, Minimize2, Sun, ZoomIn, ZoomOut, Save, Trash2, Search, Filter, RotateCcw, Download } from 'lucide-react';
 
 interface ExamViewProps {
@@ -162,7 +162,7 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
     onAddExam({
       id: Math.random().toString(36).substr(2, 9),
       studentId: currentSession.student.id,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       category: `${currentSession.label}`,
       score: finalScore,
       examiner: user.name,
@@ -222,7 +222,7 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Rekap_Ujian_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Rekap_Ujian_${getLocalDateString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

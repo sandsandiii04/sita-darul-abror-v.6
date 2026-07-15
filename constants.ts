@@ -131,6 +131,19 @@ export const JUZ_QUESTIONS: Record<number, Question[]> = {
     ]
 };
 
+export const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const getLocalMonthString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
 export const MOCK_USERS: User[] = [
   { id: 'u1', name: 'Super Admin', role: 'admin', username: 'admin', password: '123', phoneNumber: '62811111111' },
   { id: 'u2', name: 'Ust. Abdullah', role: 'teacher', username: 'guru', password: '123', phoneNumber: '62822222222' },
@@ -166,7 +179,7 @@ export const MOCK_RECORDS: TahfidzRecord[] = [
   {
     id: 'r1',
     studentId: 's1',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     type: 'ziyadah',
     surah: 'Al-Baqarah',
     ayahStart: 1,

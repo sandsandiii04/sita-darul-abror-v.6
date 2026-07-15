@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { User, Student, Attendance, AttendanceOpenRequest } from '../types';
 import { CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, Lock, QrCode, Camera, Printer, Download, Key } from 'lucide-react';
-import { ADMIN_PHONE } from '../constants';
+import { ADMIN_PHONE, getLocalDateString } from '../constants';
 import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 import QRScanner from './QRScanner';
@@ -37,7 +37,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   const adminUser = (users || []).find(u => u.role === 'admin');
   const adminPhone = adminUser?.phoneNumber ? formatWhatsAppPhone(adminUser.phoneNumber) : formatWhatsAppPhone(ADMIN_PHONE);
 
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getLocalDateString());
   const [session, setSession] = useState<'pagi' | 'malam'>('pagi');
   const [showAdminQR, setShowAdminQR] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -47,7 +47,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
   // Fungsi pengecekan apakah guru terlambat
   const checkIsLate = (sess: 'pagi' | 'malam', targetDate: string) => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     
     // Tanggal kemarin atau sebelumnya selalu terlambat
     if (targetDate < todayStr) return true;
@@ -71,7 +71,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   const checkSessionLock = (sess: 'pagi' | 'malam') => {
     if (user.role === 'admin') return { locked: false, reason: '', status: 'open' };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     if (date > todayStr) {
       return { locked: true, reason: 'Belum bisa mengisi absensi untuk hari esok.', status: 'future' };
     }
@@ -469,7 +469,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             <input 
             type="date" 
             value={date}
-            onChange={(e) => setDate(e.target.value || new Date().toISOString().split('T')[0])}
+            onChange={(e) => setDate(e.target.value || getLocalDateString())}
             className="border rounded-lg p-2 text-sm bg-gray-50 focus:outline-primary h-10"
             />
         </div>
