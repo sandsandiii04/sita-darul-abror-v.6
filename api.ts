@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { User, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest } from './types';
+import { MOCK_USERS, MOCK_STUDENTS } from './constants';
 
 export type ActionType = 'addUser' | 'addStudent' | 'addRecord' | 'addExam' | 'markAttendance' | 'updateUser' | 'deleteData' | 'addAttendanceOpenRequest';
 
@@ -11,19 +12,36 @@ export interface QueueItem {
 }
 
 // 1. Inisialisasi Supabase Client
-let supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-let supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+let supabaseUrl = '';
+let supabaseAnonKey = '';
 
-if (!supabaseUrl && typeof window !== 'undefined') {
+if (typeof window !== 'undefined') {
   supabaseUrl = window.localStorage.getItem('sita_supabase_url') || '';
-}
-if (!supabaseAnonKey && typeof window !== 'undefined') {
   supabaseAnonKey = window.localStorage.getItem('sita_supabase_anon_key') || '';
+}
+
+if (!supabaseUrl) {
+  supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+}
+if (!supabaseAnonKey) {
+  supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+}
+
+// Default fallback credentials from project's .env file
+const DEFAULT_SUPABASE_URL = 'https://sxcgiznhnvyhozghloik.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_gUTuV06xBXIXNYBgH3IyPw_u6DiKMS_';
+
+if (!supabaseUrl || supabaseUrl === 'undefined' || supabaseUrl === 'null') {
+  supabaseUrl = DEFAULT_SUPABASE_URL;
+}
+if (!supabaseAnonKey || supabaseAnonKey === 'undefined' || supabaseAnonKey === 'null') {
+  supabaseAnonKey = DEFAULT_SUPABASE_ANON_KEY;
 }
 
 export const supabase = (supabaseUrl && supabaseAnonKey)
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
+
 
 // Helper: Bersihkan ID dari format "id | nama" menjadi "id"
 const cleanId = (id: any): string => {
@@ -235,6 +253,25 @@ const notifyCallbacks = () => {
   queueChangeCallbacks.forEach(cb => cb(len, isProcessing, lastSyncError));
 };
 
+async function seedIfEmpty() {
+  if (!supabase) return;
+  try {
+    const { count, error } = await supabase.from('users').select('*', { count: 'exact', head: true });
+    if (!error && count === 0) {
+      console.log("Database is empty. Seeding default mock users and students...");
+      const dbUsers = MOCK_USERS.map(mapUserToDb);
+      const { error: errUsers } = await supabase.from('users').insert(dbUsers);
+      if (errUsers) console.error("Error seeding users:", errUsers);
+      
+      const dbStudents = MOCK_STUDENTS.map(mapStudentToDb);
+      const { error: errStudents } = await supabase.from('students').insert(dbStudents);
+      if (errStudents) console.error("Error seeding students:", errStudents);
+    }
+  } catch (err) {
+    console.error("Failed to seed database:", err);
+  }
+}
+
 export const api = {
   // Berlangganan perubahan antrean (untuk UI)
   subscribe(cb: (length: number, isSyncing: boolean, lastError: string | null) => void) {
@@ -357,6 +394,7 @@ export const api = {
   async login(username: string, password: string): Promise<{ success: boolean; data?: User; message?: string }> {
     if (!supabase) return { success: false, message: 'Koneksi database belum dikonfigurasi.' };
     try {
+      await seedIfEmpty();
       const { data, error } = await supabase.rpc('verify_login', {
         p_username: username.trim(),
         p_password: password.trim()
@@ -392,6 +430,7 @@ export const api = {
     if (!supabase) return null;
 
     try {
+      await seedIfEmpty();
       if (!currentUser) {
         // Jika belum login, hanya load list minimal guru menggunakan RPC aman
         const { data: teachersData, error: teachersError } = await supabase.rpc('get_teacher_list');

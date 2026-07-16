@@ -382,9 +382,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
      const fetchData = async (isSilent = false) => {
-        const hasEnv = import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY;
-        const hasLocal = window.localStorage.getItem('sita_supabase_url') && window.localStorage.getItem('sita_supabase_anon_key');
-        if (!hasEnv && !hasLocal) { setConnectionError('no_url'); return; }
+        // api.ts will fall back to default credentials if neither env nor local storage variables are defined
+        // so we don't block the data loading logic.
         if (!isSilent) setIsLoadingData(true);
         try {
             const data = await api.load(user);
@@ -567,13 +566,31 @@ const App: React.FC = () => {
           {renderContent()}
         </Layout>
       )}
-      <SyncStatusWidget queueLength={queueLength} isSyncing={isSyncing} isOnline={isOnline} syncError={syncError} />
+      <SyncStatusWidget 
+        queueLength={queueLength} 
+        isSyncing={isSyncing} 
+        isOnline={isOnline} 
+        syncError={syncError} 
+        onOpenDbConfig={() => setShowDbConfig(true)}
+      />
       {showDbConfig && <DatabaseConfigModal onClose={() => setShowDbConfig(false)} />}
     </>
   );
 };
 
-const SyncStatusWidget = ({ queueLength, isSyncing, isOnline, syncError }: { queueLength: number, isSyncing: boolean, isOnline: boolean, syncError: string | null }) => {
+const SyncStatusWidget = ({ 
+  queueLength, 
+  isSyncing, 
+  isOnline, 
+  syncError,
+  onOpenDbConfig
+}: { 
+  queueLength: number, 
+  isSyncing: boolean, 
+  isOnline: boolean, 
+  syncError: string | null,
+  onOpenDbConfig?: () => void
+}) => {
   const [isOpen, setIsOpen] = useState(false);
 
   if (queueLength === 0) {
@@ -622,9 +639,20 @@ const SyncStatusWidget = ({ queueLength, isSyncing, isOnline, syncError }: { que
                 Ada {queueLength} data baru disimpan lokal.
               </p>
               {syncError && (
-                <p className="text-[10px] text-red-600 bg-red-100/50 p-1.5 rounded-lg mt-1 font-mono break-all leading-normal border border-red-200">
-                  Detail Error: {syncError}
-                </p>
+                <div className="mt-1">
+                  <p className="text-[10px] text-red-600 bg-red-100/50 p-1.5 rounded-lg font-mono break-all leading-normal border border-red-200">
+                    Detail Error: {syncError}
+                  </p>
+                  {syncError === "Supabase belum dikonfigurasi." && onOpenDbConfig && (
+                    <button
+                      type="button"
+                      onClick={onOpenDbConfig}
+                      className="mt-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-800 underline block text-left"
+                    >
+                      Konfigurasi Supabase Sekarang
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -653,14 +681,26 @@ const SyncStatusWidget = ({ queueLength, isSyncing, isOnline, syncError }: { que
               Hapus Antrean
             </button>
             <button
-              onClick={() => api.processQueue()}
+              onClick={() => {
+                if (syncError === "Supabase belum dikonfigurasi." && onOpenDbConfig) {
+                  onOpenDbConfig();
+                } else {
+                  api.processQueue();
+                }
+              }}
               disabled={isSyncing}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-1 shadow-sm disabled:opacity-50"
+              className={`flex-1 font-bold py-1.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-1 shadow-sm disabled:opacity-50 ${
+                syncError === "Supabase belum dikonfigurasi."
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
             >
               {isSyncing ? (
                 <>
                   <RefreshCw size={12} className="animate-spin" /> Menyinkronkan...
                 </>
+              ) : syncError === "Supabase belum dikonfigurasi." ? (
+                'Konfigurasi'
               ) : (
                 'Sinkron'
               )}
