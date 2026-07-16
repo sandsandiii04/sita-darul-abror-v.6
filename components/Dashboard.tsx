@@ -27,9 +27,8 @@ const StatCard = ({ title, value, icon: Icon, color }: any) => (
 
 const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = [], connectionError, onNavigate }) => {
   // Check connection status based on URL config AND actual fetch result
-  const hasEnv = import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const hasLocal = typeof window !== 'undefined' && window.localStorage.getItem('sita_supabase_url') && window.localStorage.getItem('sita_supabase_anon_key');
-  const isOnline = !!(hasEnv || hasLocal) && !connectionError;
+  // isOnline is true if there's no connectionError, meaning the database connected successfully
+  const isOnline = !connectionError;
 
   // Simple data processing for chart
   const weeklyData = [
