@@ -368,7 +368,19 @@ export const api = {
           if (tableName === 'attendanceopenrequests') {
             tableName = 'attendance_open_requests';
           }
-          const { error: err } = await supabase.rpc('delete_data_secure', { p_table: tableName, p_id: item.data.id });
+          
+          let err = null;
+          if (tableName === 'attendance_open_requests') {
+            const { error: deleteErr } = await supabase.from('attendance_open_requests').delete().eq('id', item.data.id);
+            err = deleteErr;
+          } else {
+            const { data: deleteRes, error: deleteErr } = await supabase.rpc('delete_data_secure', { p_table: tableName, p_id: item.data.id });
+            if (deleteErr) {
+              err = deleteErr;
+            } else if (deleteRes && deleteRes.success === false) {
+              err = new Error(deleteRes.message || 'Gagal menghapus data secara aman.');
+            }
+          }
           error = err;
         }
 
