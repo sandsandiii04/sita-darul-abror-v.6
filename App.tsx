@@ -442,6 +442,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteOpenRequest = (id: string) => {
+    if (confirm('Hapus permohonan buka absen terlambat ini?')) {
+      setAttendanceOpenRequests(prev => prev.filter(r => r.id !== id));
+      api.send('deleteData', { id, sheetName: 'AttendanceOpenRequests' });
+    }
+  };
+
   const handleMarkAttendance = (newAtt: Attendance) => {
     setAttendance(prev => {
         const exists = prev.findIndex(a => a.userId === newAtt.userId && a.date === newAtt.date && a.type === newAtt.type && a.session === newAtt.session);
@@ -527,9 +534,9 @@ const App: React.FC = () => {
       case 'ziyadah': return <TahfidzLog key="ziyadah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabaq" allowedTabs={['sabaq']} />;
       case 'murojaah': return <TahfidzLog key="murojaah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabqi" allowedTabs={['sabqi', 'manzil']} />;
       case 'master_data': return <AdminPanel users={users} students={students} onAddUser={(u) => { setUsers(prev => [...prev, u]); api.send('addUser', u); }} onDeleteUser={handleDeleteUser} onUpdateUser={handleUpdateUser} onAddStudent={(s) => { setStudents(prev => [...prev, s]); api.send('addStudent', s); }} onDeleteStudent={handleDeleteStudent} onUpdateStudent={handleUpdateStudent} onBulkAddStudents={(s) => { setStudents(prev => [...prev, ...s]); s.forEach(item => api.send('addStudent', item)); }} onBulkAddUsers={(u) => { setUsers(prev => [...prev, ...u]); u.forEach(item => api.send('addUser', item)); }} onBulkAddRecords={(r) => { setRecords(prev => [...r, ...prev]); r.forEach(item => { const student = students.find(st => st.id === item.studentId); api.send('addRecord', { ...item, studentId: student ? `${student.id} | ${student.name}` : item.studentId, class: student?.class || '-' }); }); }} />;
-      case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} />;
-      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} />;
-      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} />;
+      case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} onDeleteOpenRequest={handleDeleteOpenRequest} />;
+      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} />;
+      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} />;
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
       case 'tutorial': return <TutorialGuide />;

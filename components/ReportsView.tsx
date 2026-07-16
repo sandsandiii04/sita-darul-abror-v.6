@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, Student, TahfidzRecord, Grade, Attendance, AttendanceOpenRequest } from '../types';
-import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download } from 'lucide-react';
+import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download, Trash2 } from 'lucide-react';
 import { LOGO_URL, getLocalMonthString } from '../constants';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -13,12 +13,13 @@ interface ReportsViewProps {
   users?: User[];
   attendance: Attendance[];
   openRequests?: AttendanceOpenRequest[];
+  onDeleteOpenRequest?: (id: string) => void;
 }
 
 type Period = 'weekly' | 'monthly' | 'semester' | 'yearly';
 type ReportType = 'student' | 'teacher';
 
-const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, users, attendance, openRequests = [] }) => {
+const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, users, attendance, openRequests = [], onDeleteOpenRequest }) => {
   const [period, setPeriod] = useState<Period>('monthly');
   const [reportType, setReportType] = useState<ReportType>('student');
   const [studentTab, setStudentTab] = useState<'hafalan' | 'absen'>('hafalan');
@@ -746,17 +747,32 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                         <th className="p-2.5 border border-gray-300 w-16 text-center">Sesi</th>
                         <th className="p-2.5 border border-gray-300 w-28 text-center">Tipe Absen</th>
                         <th className="p-2.5 border border-gray-300">Keterangan / Alasan Terlambat</th>
+                        {user.role === 'admin' && (
+                          <th className="p-2.5 border border-gray-300 w-16 text-center print:hidden">Aksi</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="text-xs">
                       {allLateDetails.map((item, idx) => (
-                        <tr key={idx} className="print:text-black">
+                        <tr key={item.id || idx} className="print:text-black">
                           <td className="p-2.5 border border-gray-300 text-center">{idx + 1}</td>
                           <td className="p-2.5 border border-gray-300 font-semibold">{item.teacherName}</td>
                           <td className="p-2.5 border border-gray-300 text-center">{item.date}</td>
                           <td className="p-2.5 border border-gray-300 text-center capitalize">{item.session}</td>
                           <td className="p-2.5 border border-gray-300 text-center">{item.type === 'student' ? 'Absen Santri' : 'Absen Diri'}</td>
                           <td className="p-2.5 border border-gray-300 italic text-gray-600 print:text-black">"{item.lateReason}"</td>
+                          {user.role === 'admin' && (
+                            <td className="p-2.5 border border-gray-300 text-center print:hidden">
+                              <button
+                                type="button"
+                                onClick={() => onDeleteOpenRequest && onDeleteOpenRequest(item.id)}
+                                className="text-rose-600 hover:text-rose-800 transition-colors p-1"
+                                title="Hapus Permohonan"
+                              >
+                                <Trash2 size={14} className="inline" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

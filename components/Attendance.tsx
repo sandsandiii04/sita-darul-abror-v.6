@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { User, Student, Attendance, AttendanceOpenRequest } from '../types';
-import { CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, Lock, QrCode, Camera, Printer, Download, Key } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, Lock, QrCode, Camera, Printer, Download, Key, History, Trash2 } from 'lucide-react';
 import { ADMIN_PHONE, getLocalDateString } from '../constants';
 import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
@@ -17,6 +17,7 @@ interface AttendanceProps {
   type: 'student' | 'teacher';
   openRequests?: AttendanceOpenRequest[];
   onMarkOpenRequest?: (req: AttendanceOpenRequest) => void;
+  onDeleteOpenRequest?: (id: string) => void;
 }
 
 const formatWhatsAppPhone = (phone: string | undefined): string => {
@@ -32,7 +33,7 @@ const formatWhatsAppPhone = (phone: string | undefined): string => {
 
 const AttendanceView: React.FC<AttendanceProps> = ({ 
   user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type,
-  openRequests = [], onMarkOpenRequest
+  openRequests = [], onMarkOpenRequest, onDeleteOpenRequest
 }) => {
   const adminUser = (users || []).find(u => u.role === 'admin');
   const adminPhone = adminUser?.phoneNumber ? formatWhatsAppPhone(adminUser.phoneNumber) : formatWhatsAppPhone(ADMIN_PHONE);
@@ -44,6 +45,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [lateReason, setLateReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showRequestHistory, setShowRequestHistory] = useState(false);
 
   // Fungsi pengecekan apakah guru terlambat
   const checkIsLate = (sess: 'pagi' | 'malam', targetDate: string) => {
@@ -518,6 +520,83 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                     );
                 })}
             </div>
+        </div>
+      )}
+
+      {user.role === 'admin' && (
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 space-y-3">
+          <button 
+            type="button"
+            onClick={() => setShowRequestHistory(!showRequestHistory)}
+            className="w-full flex justify-between items-center text-left"
+          >
+            <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
+                <History className="text-gray-500" size={18} />
+                Riwayat Pengajuan Buka Absen Terlambat ({openRequests.length})
+            </h3>
+            <span className="text-xs text-emerald-600 font-bold">{showRequestHistory ? 'Sembunyikan' : 'Tampilkan'}</span>
+          </button>
+          
+          {showRequestHistory && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse border border-gray-200">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-700 text-[10px] uppercase font-bold">
+                    <th className="p-2 border border-gray-200">Guru</th>
+                    <th className="p-2 border border-gray-200 text-center">Tanggal</th>
+                    <th className="p-2 border border-gray-200 text-center">Sesi</th>
+                    <th className="p-2 border border-gray-200 text-center">Tipe</th>
+                    <th className="p-2 border border-gray-200">Alasan</th>
+                    <th className="p-2 border border-gray-200 text-center">Status</th>
+                    <th className="p-2 border border-gray-200 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs">
+                  {openRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-4 text-center text-gray-400">Tidak ada riwayat pengajuan.</td>
+                    </tr>
+                  ) : (
+                    openRequests.map(req => {
+                      const teacher = users.find(u => u.id === req.teacherId);
+                      return (
+                        <tr key={req.id} className="hover:bg-gray-50">
+                          <td className="p-2 border border-gray-200 font-semibold">{teacher?.name || 'Guru'}</td>
+                          <td className="p-2 border border-gray-200 text-center">{req.date}</td>
+                          <td className="p-2 border border-gray-200 text-center capitalize">{req.session}</td>
+                          <td className="p-2 border border-gray-200 text-center">{req.type === 'student' ? 'Absen Santri' : 'Absen Diri'}</td>
+                          <td className="p-2 border border-gray-200 italic">"{req.lateReason}"</td>
+                          <td className="p-2 border border-gray-200 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                              req.status === 'approved' ? 'bg-emerald-100 text-emerald-800' :
+                              req.status === 'rejected' ? 'bg-rose-100 text-rose-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {req.status}
+                            </span>
+                          </td>
+                          <td className="p-2 border border-gray-200 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onDeleteOpenRequest) {
+                                  onDeleteOpenRequest(req.id);
+                                }
+                              }}
+                              className="text-rose-600 hover:text-rose-800 p-1"
+                              title="Hapus Pengajuan"
+                            >
+                              <Trash2 size={14} className="inline" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

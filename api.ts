@@ -327,7 +327,10 @@ export const api = {
           const { error: err } = await supabase.rpc('upsert_data', { p_table: 'users', p_data: mapUserToDb(item.data) });
           error = err;
         } else if (item.action === 'deleteData') {
-          const tableName = item.data.sheetName.toLowerCase();
+          let tableName = item.data.sheetName.toLowerCase();
+          if (tableName === 'attendanceopenrequests') {
+            tableName = 'attendance_open_requests';
+          }
           const { error: err } = await supabase.rpc('delete_data_secure', { p_table: tableName, p_id: item.data.id });
           error = err;
         }
