@@ -479,13 +479,18 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
            </table>
         </div>
 
-        <div className="flex justify-end mt-auto pt-8 mb-10">
-           <div className="text-center w-48">
-              <p className="text-sm text-gray-600 mb-16">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-              <p className="font-bold underline text-gray-800">{teacherName}</p>
-              <p className="text-xs text-gray-500">Guru Halaqah</p>
-           </div>
-        </div>
+        <div className="flex justify-between mt-auto pt-8 mb-10 px-4">
+            <div className="text-center w-48">
+               <p className="text-sm text-gray-600 mb-16">Mengetahui,</p>
+               <p className="font-bold underline text-gray-800">...................................</p>
+               <p className="text-xs text-gray-500 font-semibold">Kabag Tahfiz Al Qur'an</p>
+            </div>
+            <div className="text-center w-48">
+               <p className="text-sm text-gray-600 mb-16">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+               <p className="font-bold underline text-gray-800">{teacherName}</p>
+               <p className="text-xs text-gray-500 font-semibold">Guru Halaqah</p>
+            </div>
+         </div>
       </div>
     );
   };
@@ -530,7 +535,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
-        <div className="hidden print:block w-full mb-6">
+        <div className={`${isExporting ? 'block' : 'hidden print:block'} w-full mb-6`}>
           <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
              <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
              <div className="flex-1 text-center">
@@ -626,12 +631,18 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
              </table>
            )}
 
-            <div className="hidden print:flex justify-end mt-16 px-10">
-               <div className="text-center">
-                   <p className="mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-                   <p className="font-bold underline">{user.name}</p>
-               </div>
-            </div>
+            <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
+                <div className="text-center w-48">
+                    <p className="text-sm text-gray-600 mb-20">Mengetahui,</p>
+                    <p className="font-bold underline">...................................</p>
+                    <p className="text-xs text-gray-500 font-semibold">Kabag Tahfiz Al Qur'an</p>
+                </div>
+                <div className="text-center w-48">
+                    <p className="text-sm text-gray-600 mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                    <p className="font-bold underline">{user.name}</p>
+                    <p className="text-xs text-gray-500 font-semibold">Guru Halaqah</p>
+                </div>
+             </div>
          </div>
       </div>
     );
@@ -684,7 +695,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
-        <div className="hidden print:block w-full mb-6">
+        <div className={`${isExporting ? 'block' : 'hidden print:block'} w-full mb-6`}>
           <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
              <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
              <div className="flex-1 text-center">
@@ -708,7 +719,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                     <tr className="bg-gray-100 text-gray-700 text-sm print:bg-gray-200 print:text-black">
                        <th className="p-3 border border-gray-300 text-center w-12">No</th>
                        <th className="p-3 border border-gray-300">Nama Guru</th>
-                       <th className="p-3 border border-gray-300">Kontak</th>
+                       {!isExporting && <th className="p-3 border border-gray-300 print:hidden">Kontak</th>}
                        <th className="p-3 border border-gray-300 text-center bg-green-50">Hadir</th>
                        <th className="p-3 border border-gray-300 text-center bg-yellow-50">Sakit</th>
                        <th className="p-3 border border-gray-300 text-center bg-blue-50">Izin</th>
@@ -719,13 +730,13 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                  </thead>
                  <tbody className="text-sm">
                     {data.length === 0 ? (
-                       <tr><td colSpan={9} className="p-8 text-center text-gray-400">Tidak ada data guru.</td></tr>
+                       <tr><td colSpan={isExporting ? 8 : 9} className="p-8 text-center text-gray-400">Tidak ada data guru.</td></tr>
                     ) : (
                        data.map((row, idx) => (
                           <tr key={idx} className="print:text-black">
                              <td className="p-3 border border-gray-300 text-center">{idx + 1}</td>
                              <td className="p-3 border border-gray-300 font-medium">{row.name}</td>
-                             <td className="p-3 border border-gray-300 text-xs">{row.phone}</td>
+                             {!isExporting && <td className="p-3 border border-gray-300 text-xs print:hidden">{row.phone}</td>}
                              <td className="p-3 border border-gray-300 text-center font-bold text-green-700 bg-green-50 print:bg-transparent print:text-black">{row.present}</td>
                              <td className="p-3 border border-gray-300 text-center text-yellow-700 bg-yellow-50 print:bg-transparent print:text-black">{row.sick}</td>
                              <td className="p-3 border border-gray-300 text-center text-blue-700 bg-blue-50 print:bg-transparent print:text-black">{row.permission}</td>
@@ -741,8 +752,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
               </table>
 
               {/* Tabel Detail Keterangan Keterlambatan Guru */}
-              {allLateDetails.length > 0 && (
-                <div className="mt-8 print:mt-12 border-t pt-6">
+              {allLateDetails.length > 0 && !isExporting && (
+                <div className="mt-8 print:mt-12 border-t pt-6 print:hidden">
                   <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-1.5">
                     <AlertTriangle className="text-amber-500" size={16} />
                     Detail Alasan Keterlambatan Mengabsen Guru
@@ -789,11 +800,17 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                 </div>
               )}
 
-              <div className="hidden print:flex justify-end mt-16 px-10">
-                 <div className="text-center">
-                     <p className="mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-                     <p className="font-bold underline">Kepala Pondok</p>
-                 </div>
+             <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
+                <div className="text-center w-52">
+                    <p className="text-sm text-gray-600 mb-20">Mengetahui,</p>
+                    <p className="font-bold underline">...................................</p>
+                    <p className="text-xs text-gray-500 font-semibold">Kepala Pondok</p>
+                </div>
+                <div className="text-center w-52">
+                    <p className="text-sm text-gray-600 mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                    <p className="font-bold underline">...................................</p>
+                    <p className="text-xs text-gray-500 font-semibold">Kabag Tahfiz Al Qur'an</p>
+                </div>
              </div>
           </div>
       </div>
