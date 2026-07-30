@@ -674,6 +674,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
   const TeacherAttendanceRecap = () => {
     const teachers = users?.filter(u => u.role === 'teacher') || [];
+    const maxAttendance = period === 'weekly' ? 10 : period === 'monthly' ? 40 : period === 'semester' ? 240 : period === 'yearly' ? 480 : 40;
+    const periodLabelSmall = period === 'weekly' ? 'pekan' : period === 'monthly' ? 'bulan' : period === 'semester' ? 'semester' : 'tahun';
     
     const data = teachers.map(t => {
        const teacherAtt = attendance.filter(a => {
@@ -777,31 +779,39 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                        <th className="p-3 border border-gray-300 text-center bg-blue-50">Izin</th>
                        <th className="p-3 border border-gray-300 text-center bg-red-50">Alpha</th>
                        <th className="p-3 border border-gray-300 text-center bg-amber-50">Terlambat</th>
-                       <th className="p-3 border border-gray-300 text-center">Ket</th>
+                       <th className="p-3 border border-gray-300 text-center font-bold text-indigo-700">Persentase</th>
                     </tr>
                  </thead>
                  <tbody className="text-sm">
                     {slicedData.length === 0 ? (
                        <tr><td colSpan={isExporting ? 8 : 9} className="p-8 text-center text-gray-400">Tidak ada data guru.</td></tr>
                     ) : (
-                       slicedData.map((row, idx) => (
-                          <tr key={idx} className="print:text-black">
-                             <td className="p-3 border border-gray-300 text-center">{idx + 1}</td>
-                             <td className="p-3 border border-gray-300 font-medium">{row.name}</td>
-                             {!isExporting && <td className="p-3 border border-gray-300 text-xs print:hidden">{row.phone}</td>}
-                             <td className="p-3 border border-gray-300 text-center font-bold text-green-700 bg-green-50 print:bg-transparent print:text-black">{row.present}</td>
-                             <td className="p-3 border border-gray-300 text-center text-yellow-700 bg-yellow-50 print:bg-transparent print:text-black">{row.sick}</td>
-                             <td className="p-3 border border-gray-300 text-center text-blue-700 bg-blue-50 print:bg-transparent print:text-black">{row.permission}</td>
-                             <td className="p-3 border border-gray-300 text-center text-red-700 bg-red-50 print:bg-transparent print:text-black">{row.alpha}</td>
-                             <td className="p-3 border border-gray-300 text-center text-amber-700 bg-amber-50 font-bold print:bg-transparent print:text-black">{row.lateCount}x</td>
-                             <td className="p-3 border border-gray-300 text-center text-xs">
-                                 {row.present > 0 ? `${Math.round((row.present / (row.present + row.sick + row.permission + row.alpha)) * 100)}%` : '-'}
-                             </td>
-                          </tr>
-                       ))
+                       slicedData.map((row, idx) => {
+                          const totalDays = row.present + row.sick + row.permission + row.alpha;
+                          const attendancePercent = Math.min(Math.round((row.present / maxAttendance) * 100), 100);
+                          return (
+                             <tr key={idx} className="print:text-black">
+                                <td className="p-3 border border-gray-300 text-center">{idx + 1}</td>
+                                <td className="p-3 border border-gray-300 font-medium">{row.name}</td>
+                                {!isExporting && <td className="p-3 border border-gray-300 text-xs print:hidden">{row.phone}</td>}
+                                <td className="p-3 border border-gray-300 text-center font-bold text-green-700 bg-green-50 print:bg-transparent print:text-black">{row.present}</td>
+                                <td className="p-3 border border-gray-300 text-center text-yellow-700 bg-yellow-50 print:bg-transparent print:text-black">{row.sick}</td>
+                                <td className="p-3 border border-gray-300 text-center text-blue-700 bg-blue-50 print:bg-transparent print:text-black">{row.permission}</td>
+                                <td className="p-3 border border-gray-300 text-center text-red-700 bg-red-50 print:bg-transparent print:text-black">{row.alpha}</td>
+                                <td className="p-3 border border-gray-300 text-center text-amber-700 bg-amber-50 font-bold print:bg-transparent print:text-black">{row.lateCount}x</td>
+                                <td className="p-3 border border-gray-300 text-center font-bold text-indigo-700 bg-indigo-50/30">
+                                   {totalDays > 0 ? `${attendancePercent}%` : '-'}
+                                </td>
+                             </tr>
+                          );
+                       })
                     )}
                  </tbody>
               </table>
+
+              <div className="mt-3 text-[11px] text-gray-500 italic print:text-gray-700">
+                * Catatan: Persentase kehadiran dihitung berdasarkan target kehadiran maksimal ({maxAttendance} kali hadir per {periodLabelSmall}). Kehadiran di atas target dihitung 100%.
+              </div>
 
               {filteredLateDetails.length > 0 && !isExporting && (
                 <div className="mt-8 print:mt-12 border-t pt-6 print:hidden">
