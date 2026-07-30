@@ -98,7 +98,8 @@ BEGIN
         'password', v_user.password,
         'phoneNumber', v_user.phone_number,
         'email', v_user.email,
-        'avatar', v_user.avatar
+        'avatar', v_user.avatar,
+        'gender', v_user.gender
       )
     );
   END IF;
