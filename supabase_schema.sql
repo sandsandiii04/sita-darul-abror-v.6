@@ -146,3 +146,85 @@ CREATE TABLE IF NOT EXISTS attendance_open_requests (
 
 -- Tambahkan kolom gender ke tabel users jika belum ada
 ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('L', 'P'));
+
+-- 8. Fungsi RPC untuk mengambil list minimal guru sebelum login
+CREATE OR REPLACE FUNCTION get_teacher_list()
+RETURNS JSON AS $$
+DECLARE
+  v_list JSON;
+BEGIN
+  SELECT json_agg(t) INTO v_list FROM (
+    SELECT id, name, role, gender FROM users WHERE role = 'teacher'
+  ) t;
+  RETURN COALESCE(v_list, '[]'::json);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 9. Fungsi RPC untuk memuat semua data secara aman berdasarkan hak akses
+CREATE OR REPLACE FUNCTION load_secure_data(p_username TEXT, p_password TEXT)
+RETURNS JSON AS $$
+DECLARE
+  v_user RECORD;
+  v_users JSON;
+  v_students JSON;
+  v_records JSON;
+  v_attendance JSON;
+  v_exams JSON;
+BEGIN
+  -- 1. Verifikasi kredensial user
+  SELECT * INTO v_user FROM users WHERE username = p_username AND password = p_password;
+  IF NOT FOUND THEN
+     RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial login salah');
+  END IF;
+
+  -- 2. Kumpulkan data berdasarkan role
+  IF v_user.role = 'admin' THEN
+     -- Admin mendapat semua data
+     SELECT json_agg(u) INTO v_users FROM (
+       SELECT id, name, role, username, password, phone_number, child_id, email, avatar, gender FROM users
+     ) u;
+     SELECT json_agg(s) INTO v_students FROM students s;
+     SELECT json_agg(r) INTO v_records FROM records r;
+     SELECT json_agg(a) INTO v_attendance FROM attendance a;
+     SELECT json_agg(e) INTO v_exams FROM exams e;
+  ELSIF v_user.role = 'teacher' THEN
+     -- Guru mendapat data semua guru (minimal untuk list/absen), santri bimbingannya, log tahfidz, absen, & ujian bimbingannya
+     SELECT json_agg(u) INTO v_users FROM (
+       SELECT id, name, role, phone_number, gender FROM users
+     ) u;
+     SELECT json_agg(s) INTO v_students FROM students s WHERE s.teacher_id = v_user.id;
+     
+     SELECT json_agg(r) INTO v_records FROM records r 
+     WHERE r.student_id IN (SELECT id FROM students WHERE teacher_id = v_user.id);
+     
+     SELECT json_agg(a) INTO v_attendance FROM attendance a; -- Absen guru & santri
+     
+     SELECT json_agg(e) INTO v_exams FROM exams e
+     WHERE e.student_id IN (SELECT id FROM students WHERE teacher_id = v_user.id);
+  ELSE
+     -- Wali santri (parent) mendapat data santri miliknya saja, log tahfidz, absen, & ujian anaknya
+     SELECT json_agg(u) INTO v_users FROM (
+       SELECT id, name, role, phone_number, gender FROM users WHERE id = v_user.id OR role = 'teacher'
+     ) u;
+     SELECT json_agg(s) INTO v_students FROM students s WHERE s.id = v_user.child_id;
+     
+     SELECT json_agg(r) INTO v_records FROM records r 
+     WHERE r.student_id = v_user.child_id;
+     
+     SELECT json_agg(a) INTO v_attendance FROM attendance a 
+     WHERE a.user_id = v_user.child_id;
+     
+     SELECT json_agg(e) INTO v_exams FROM exams e 
+     WHERE e.student_id = v_user.child_id;
+  END IF;
+
+  RETURN json_build_object(
+    'success', true,
+    'users', COALESCE(v_users, '[]'::json),
+    'students', COALESCE(v_students, '[]'::json),
+    'records', COALESCE(v_records, '[]'::json),
+    'attendance', COALESCE(v_attendance, '[]'::json),
+    'exams', COALESCE(v_exams, '[]'::json)
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
