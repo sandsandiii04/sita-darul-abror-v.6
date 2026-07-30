@@ -33,7 +33,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Form States
   const [newStudent, setNewStudent] = useState({ name: '', nis: '', class: '', halaqah: '', teacherId: '', username: '', password: '' });
-  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', childId: '', phoneNumber: '' });
+  const [newUser, setNewUser] = useState({ name: '', username: '', password: '', childId: '', phoneNumber: '', gender: '' });
 
   const teachers = users.filter(u => u.role === 'teacher');
 
@@ -221,10 +221,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       role: 'teacher',
       username: newUser.username,
       password: newUser.password,
-      phoneNumber: newUser.phoneNumber
+      phoneNumber: newUser.phoneNumber,
+      gender: newUser.gender as 'L' | 'P' || undefined
     };
     onAddUser(teacher);
-    setNewUser({ name: '', username: '', password: '', childId: '', phoneNumber: '' });
+    setNewUser({ name: '', username: '', password: '', childId: '', phoneNumber: '', gender: '' });
     alert("Guru berhasil ditambahkan");
   };
 
@@ -352,6 +353,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div><label className="text-xs font-bold text-gray-500">Username</label><input type="text" className="w-full border rounded-lg p-2 text-sm" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} required /></div>
                     <div><label className="text-xs font-bold text-gray-500">Password</label><input type="text" className="w-full border rounded-lg p-2 text-sm" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required /></div>
                     <div><label className="text-xs font-bold text-gray-500">WhatsApp (628..)</label><input type="text" className="w-full border rounded-lg p-2 text-sm" value={newUser.phoneNumber} onChange={e => setNewUser({...newUser, phoneNumber: e.target.value})} placeholder="6281234567890" /></div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500">Gender</label>
+                      <select 
+                        value={newUser.gender || ''} 
+                        onChange={e => setNewUser({...newUser, gender: e.target.value})} 
+                        className="w-full border rounded-lg p-2 text-sm bg-white animate-fade-in"
+                      >
+                        <option value="">Deteksi Otomatis (Nama)</option>
+                        <option value="L">Laki-laki (Ust.)</option>
+                        <option value="P">Perempuan (Ustz.)</option>
+                      </select>
+                    </div>
                     <button type="submit" className="w-full bg-emerald-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-emerald-700 mt-2">Simpan Data Guru</button>
                     </form>
                 )}
@@ -406,9 +419,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                      </tr>
                    ))
                  ) : (
-                   users.filter(u => u.role === 'teacher').map(user => (
-                     <tr key={user.id} className="hover:bg-gray-50">
-                       <td className="p-3 font-medium">{user.name}</td>
+                    users.filter(u => u.role === 'teacher').map(user => (
+                      <tr key={user.id} className="hover:bg-gray-50">
+                        <td className="p-3 font-medium">
+                          {user.name}
+                          {user.gender && (
+                            <span className="ml-2 text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase">
+                              {user.gender === 'L' ? 'L' : 'P'}
+                            </span>
+                          )}
+                        </td>
                        <td className="p-3 text-gray-600">
                            <div className="text-xs text-green-600">{user.phoneNumber || '-'}</div>
                        </td>
@@ -481,6 +501,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="w-full border rounded-lg p-2 text-sm" 
                   placeholder="6281234..." 
                 />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Gender</label>
+                <select 
+                  value={editingTeacher.gender || ''} 
+                  onChange={e => setEditingTeacher({...editingTeacher, gender: e.target.value as 'L' | 'P'})} 
+                  className="w-full border rounded-lg p-2 text-sm bg-white"
+                >
+                  <option value="">Deteksi Otomatis (Nama)</option>
+                  <option value="L">Laki-laki (Ust.)</option>
+                  <option value="P">Perempuan (Ustz.)</option>
+                </select>
               </div>
               <div className="flex gap-2 justify-end pt-4 border-t">
                 <button 

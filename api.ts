@@ -89,7 +89,8 @@ const mapUserFromDb = (row: any): User => ({
   phoneNumber: decryptPhone(row.phone_number),
   childId: row.child_id,
   email: row.email,
-  avatar: row.avatar
+  avatar: row.avatar,
+  gender: row.gender
 });
 
 const mapUserToDb = (model: User): any => ({
@@ -101,7 +102,8 @@ const mapUserToDb = (model: User): any => ({
   phone_number: model.phoneNumber ? encryptPhone(model.phoneNumber) : null,
   child_id: model.childId || null,
   email: model.email || null,
-  avatar: model.avatar || null
+  avatar: model.avatar || null,
+  gender: model.gender || null
 });
 
 const mapStudentFromDb = (row: any): Student => ({

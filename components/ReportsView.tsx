@@ -696,12 +696,14 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
        return {
             name: t.name,
             phone: t.phoneNumber || '-',
-            present, sick, permission, alpha, lateCount
+            present, sick, permission, alpha, lateCount,
+            gender: t.gender
        };
     });
 
-    const getTeacherGender = (name: string): 'L' | 'P' => {
-      const lowerName = name.toLowerCase();
+    const getTeacherGender = (row: any): 'L' | 'P' => {
+      if (row.gender) return row.gender;
+      const lowerName = row.name.toLowerCase();
       if (
         lowerName.includes('ustadzah') || 
         lowerName.includes('ustz') || 
@@ -718,7 +720,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
     let filteredData = data;
     if (filterTeacherGender) {
-       filteredData = filteredData.filter(row => getTeacherGender(row.name) === filterTeacherGender);
+       filteredData = filteredData.filter(row => getTeacherGender(row) === filterTeacherGender);
     }
 
     const startNum = parseInt(filterStartNo) || 1;

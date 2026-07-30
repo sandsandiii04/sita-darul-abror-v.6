@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     child_id TEXT,
     email TEXT,
     avatar TEXT,
+    gender TEXT CHECK (gender IN ('L', 'P')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -141,3 +142,6 @@ CREATE TABLE IF NOT EXISTS attendance_open_requests (
     late_reason TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Tambahkan kolom gender ke tabel users jika belum ada
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('L', 'P'));

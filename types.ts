@@ -17,6 +17,7 @@ export interface User {
   email?: string; // Added for Profile Settings
   avatar?: string;
   childId?: string; // For parents linked to a student
+  gender?: 'L' | 'P'; // L for Laki-laki, P for Perempuan
 }
 
 export interface Student {
