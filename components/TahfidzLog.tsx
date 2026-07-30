@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, TahfidzRecord, Grade } from '../types';
 import { SURAH_LIST, QURAN_CHAPTERS, getLocalDateString } from '../constants';
-import { PlusCircle, Search, Filter, Trash2, X, Calendar, BookOpen, Layers, RotateCcw, Award } from 'lucide-react';
+import { PlusCircle, Search, Filter, Trash2, X, Calendar, BookOpen, Layers, RotateCcw, Award, Edit2 } from 'lucide-react';
 
 interface TahfidzLogProps {
   user: User;
@@ -10,6 +10,7 @@ interface TahfidzLogProps {
   records: TahfidzRecord[];
   onAddRecord: (record: TahfidzRecord) => void;
   onDeleteRecord: (id: string) => void;
+  onUpdateRecord?: (record: TahfidzRecord) => void;
   onUpdateStudent?: (student: Student) => void;
   defaultTab?: 'sabaq' | 'sabqi' | 'manzil';
   allowedTabs?: ('sabaq' | 'sabqi' | 'manzil')[];
@@ -21,6 +22,7 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
   records, 
   onAddRecord, 
   onDeleteRecord,
+  onUpdateRecord,
   onUpdateStudent,
   defaultTab = 'sabaq',
   allowedTabs = ['sabaq', 'sabqi', 'manzil']
@@ -59,10 +61,43 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
   const [grade, setGrade] = useState<string>('100');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [pagesCount, setPagesCount] = useState<string>('1');
+  const [recordDate, setRecordDate] = useState(getLocalDateString());
+  const [editingRecord, setEditingRecord] = useState<TahfidzRecord | null>(null);
 
   // PERMISSIONS
   const canAdd = user.role === 'teacher';
   const canDelete = user.role === 'teacher' || user.role === 'admin';
+  const canEdit = user.role === 'teacher' || user.role === 'admin';
+
+  const handleEditClick = (record: TahfidzRecord) => {
+    setEditingRecord(record);
+    setSelectedStudent(record.studentId);
+    setSelectedSurah(record.surah);
+    setAyahStart(record.ayahStart);
+    setAyahEnd(record.ayahEnd);
+    setGrade(record.grade);
+    setRecordDate(record.date);
+    if (record.notes && (record.type === 'manzil' || record.type === 'murojaah')) {
+      const parsedPages = record.notes.replace(' Halaman', '');
+      setPagesCount(parsedPages);
+    } else {
+      setPagesCount('1');
+    }
+    setIsFormOpen(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRecord(null);
+    setIsFormOpen(false);
+    setSelectedStudent('');
+    setSelectedSurah(activeTab === 'manzil' ? 'Juz 1' : SURAH_LIST[0]);
+    setAyahStart(1);
+    setAyahEnd(1);
+    setPagesCount('1');
+    setGrade('100');
+    setRecordDate(getLocalDateString());
+  };
 
   // Derived Data for Filters
   const distinctClasses = Array.from(new Set(students.map(s => s.class))).sort();
@@ -140,24 +175,41 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
     const validAyahStart = activeTab === 'manzil' ? 0 : (ayahStart || 1);
     const validAyahEnd = activeTab === 'manzil' ? 0 : Math.max(validAyahStart, ayahEnd || 1);
 
-    const newRecord: TahfidzRecord = {
-      id: Math.random().toString(36).substr(2, 9),
-      studentId: user.role === 'parent' ? user.childId! : selectedStudent,
-      date: getLocalDateString(),
-      type: activeTab,
-      surah: selectedSurah,
-      ayahStart: validAyahStart,
-      ayahEnd: validAyahEnd,
-      grade,
-      notes: activeTab === 'manzil' && pagesCount ? `${pagesCount} Halaman` : undefined
-    };
+    if (editingRecord) {
+      const updatedRecord: TahfidzRecord = {
+        ...editingRecord,
+        studentId: user.role === 'parent' ? user.childId! : selectedStudent,
+        date: recordDate,
+        surah: selectedSurah,
+        ayahStart: validAyahStart,
+        ayahEnd: validAyahEnd,
+        grade,
+        notes: activeTab === 'manzil' && pagesCount ? `${pagesCount} Halaman` : undefined
+      };
+      if (onUpdateRecord) onUpdateRecord(updatedRecord);
+      setEditingRecord(null);
+    } else {
+      const newRecord: TahfidzRecord = {
+        id: Math.random().toString(36).substr(2, 9),
+        studentId: user.role === 'parent' ? user.childId! : selectedStudent,
+        date: recordDate,
+        type: activeTab,
+        surah: selectedSurah,
+        ayahStart: validAyahStart,
+        ayahEnd: validAyahEnd,
+        grade,
+        notes: activeTab === 'manzil' && pagesCount ? `${pagesCount} Halaman` : undefined
+      };
+      onAddRecord(newRecord);
+    }
 
-    onAddRecord(newRecord);
     setIsFormOpen(false);
+    setSelectedStudent('');
     setAyahStart(1);
     setAyahEnd(1);
     setPagesCount('1');
     setGrade('100');
+    setRecordDate(getLocalDateString());
   };
 
   const clearFilters = () => {
@@ -238,7 +290,13 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
                     <Award size={16} /> Capaian Juz
                   </button>
                   <button
-                    onClick={() => setIsFormOpen(!isFormOpen)}
+                    onClick={() => {
+                      if (isFormOpen) {
+                        handleCancelEdit();
+                      } else {
+                        setIsFormOpen(true);
+                      }
+                    }}
                     className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-emerald-800 transition-colors shadow-sm"
                   >
                     <PlusCircle size={18} />
@@ -290,10 +348,24 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
       {/* Input Form */}
       {isFormOpen && canAdd && (
         <div className="bg-white p-6 rounded-xl shadow-md border border-emerald-100 animate-fade-in">
-          <h3 className="font-bold text-gray-800 mb-4">Input Setoran {activeTab === 'sabaq' ? 'Sabaq (Baru)' : activeTab === 'sabqi' ? 'Sabqi (Ulang Baru)' : 'Manzil (Ulang Pekan)'}</h3>
+          <h3 className="font-bold text-gray-800 mb-4">
+            {editingRecord ? 'Edit Setoran' : 'Input Setoran'}{' '}
+            {activeTab === 'sabaq' ? 'Sabaq (Baru)' : activeTab === 'sabqi' ? 'Sabqi (Ulang Baru)' : 'Manzil (Ulang Pekan)'}
+          </h3>
 
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-500">Tanggal Setoran</label>
+              <input 
+                type="date"
+                value={recordDate}
+                onChange={(e) => setRecordDate(e.target.value || getLocalDateString())}
+                className="w-full p-2.5 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+                required
+              />
+            </div>
+
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-500">Nama Santri</label>
               <select 
@@ -408,12 +480,21 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
               </div>
             )}
 
-            <div className="md:col-span-2 lg:col-span-4 flex justify-end">
+            <div className="md:col-span-2 lg:col-span-4 flex justify-end gap-2">
+              {editingRecord && (
+                <button 
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2.5 rounded-lg font-medium transition-colors"
+                >
+                  Batal
+                </button>
+              )}
               <button 
                 type="submit" 
                 className="bg-primary hover:bg-emerald-800 text-white px-8 py-2.5 rounded-lg font-medium transition-colors"
               >
-                Simpan Data
+                {editingRecord ? 'Perbarui Data' : 'Simpan Data'}
               </button>
             </div>
           </form>
@@ -446,13 +527,13 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
                 <th className="p-4 font-semibold">Nama Santri</th>
                 <th className="p-4 font-semibold">Surat & Ayat</th>
                 <th className="p-4 font-semibold">Kualitas</th>
-                {canDelete && <th className="p-4 font-semibold text-center">Aksi</th>}
+                {(canDelete || canEdit) && <th className="p-4 font-semibold text-center w-28">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={canDelete ? 5 : 4} className="p-8 text-center text-gray-400">
+                  <td colSpan={(canDelete || canEdit) ? 5 : 4} className="p-8 text-center text-gray-400">
                     Tidak ada data yang sesuai filter.
                   </td>
                 </tr>
@@ -527,14 +608,28 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
                           );
                         })()}
                       </td>
-                      {canDelete && (
+                      {(canDelete || canEdit) && (
                         <td className="p-4 text-center">
-                          <button 
-                            onClick={() => onDeleteRecord(record.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          <div className="flex items-center justify-center gap-2">
+                            {canEdit && (
+                              <button 
+                                onClick={() => handleEditClick(record)}
+                                className="text-gray-400 hover:text-indigo-600 transition-colors"
+                                title="Edit Data"
+                              >
+                                <Edit2 size={18} />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button 
+                                onClick={() => onDeleteRecord(record.id)}
+                                className="text-gray-400 hover:text-red-500 transition-colors"
+                                title="Hapus Data"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
