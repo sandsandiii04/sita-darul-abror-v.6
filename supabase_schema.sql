@@ -228,3 +228,137 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 10. Fungsi RPC untuk insert/update data (upsert) secara aman dari frontend
+CREATE OR REPLACE FUNCTION upsert_data(p_table TEXT, p_data JSONB)
+RETURNS JSON AS $$
+DECLARE
+  v_cols TEXT;
+  v_vals TEXT;
+  v_upsert TEXT;
+BEGIN
+  IF p_table = 'users' THEN
+     INSERT INTO users (id, name, role, username, password, phone_number, child_id, email, avatar, gender)
+     VALUES (
+       p_data->>'id',
+       p_data->>'name',
+       p_data->>'role',
+       p_data->>'username',
+       p_data->>'password',
+       p_data->>'phone_number',
+       p_data->>'child_id',
+       p_data->>'email',
+       p_data->>'avatar',
+       p_data->>'gender'
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       name = EXCLUDED.name,
+       role = EXCLUDED.role,
+       username = EXCLUDED.username,
+       password = EXCLUDED.password,
+       phone_number = EXCLUDED.phone_number,
+       child_id = EXCLUDED.child_id,
+       email = EXCLUDED.email,
+       avatar = EXCLUDED.avatar,
+       gender = EXCLUDED.gender;
+  ELSIF p_table = 'students' THEN
+     INSERT INTO students (id, name, nis, class, halaqah, teacher_id, total_juz, username, password)
+     VALUES (
+       p_data->>'id',
+       p_data->>'name',
+       p_data->>'nis',
+       p_data->>'class',
+       p_data->>'halaqah',
+       p_data->>'teacher_id',
+       (p_data->>'total_juz')::NUMERIC,
+       p_data->>'username',
+       p_data->>'password'
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       name = EXCLUDED.name,
+       nis = EXCLUDED.nis,
+       class = EXCLUDED.class,
+       halaqah = EXCLUDED.halaqah,
+       teacher_id = EXCLUDED.teacher_id,
+       total_juz = EXCLUDED.total_juz,
+       username = EXCLUDED.username,
+       password = EXCLUDED.password;
+  ELSIF p_table = 'records' THEN
+     INSERT INTO records (id, student_id, date, type, surah, ayah_start, ayah_end, grade, notes, class)
+     VALUES (
+       p_data->>'id',
+       p_data->>'student_id',
+       (p_data->>'date')::DATE,
+       p_data->>'type',
+       p_data->>'surah',
+       (p_data->>'ayah_start')::INTEGER,
+       (p_data->>'ayah_end')::INTEGER,
+       p_data->>'grade',
+       p_data->>'notes',
+       p_data->>'class'
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       student_id = EXCLUDED.student_id,
+       date = EXCLUDED.date,
+       type = EXCLUDED.type,
+       surah = EXCLUDED.surah,
+       ayah_start = EXCLUDED.ayah_start,
+       ayah_end = EXCLUDED.ayah_end,
+       grade = EXCLUDED.grade,
+       notes = EXCLUDED.notes,
+       class = EXCLUDED.class;
+  ELSIF p_table = 'attendance' THEN
+     INSERT INTO attendance (id, user_id, date, session, status, approval_status, type, class, late_reason)
+     VALUES (
+       p_data->>'id',
+       p_data->>'user_id',
+       (p_data->>'date')::DATE,
+       p_data->>'session',
+       p_data->>'status',
+       p_data->>'approval_status',
+       p_data->>'type',
+       p_data->>'class',
+       p_data->>'late_reason'
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       user_id = EXCLUDED.user_id,
+       date = EXCLUDED.date,
+       session = EXCLUDED.session,
+       status = EXCLUDED.status,
+       approval_status = EXCLUDED.approval_status,
+       type = EXCLUDED.type,
+       class = EXCLUDED.class,
+       late_reason = EXCLUDED.late_reason;
+  ELSIF p_table = 'exams' THEN
+     INSERT INTO exams (id, student_id, student_name, date, category, score, examiner, status, notes, juz, class, details)
+     VALUES (
+       p_data->>'id',
+       p_data->>'student_id',
+       p_data->>'student_name',
+       (p_data->>'date')::DATE,
+       p_data->>'category',
+       (p_data->>'score')::NUMERIC,
+       p_data->>'examiner',
+       p_data->>'status',
+       p_data->>'notes',
+       p_data->>'juz',
+       p_data->>'class',
+       (p_data->'details')
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       student_id = EXCLUDED.student_id,
+       student_name = EXCLUDED.student_name,
+       date = EXCLUDED.date,
+       category = EXCLUDED.category,
+       score = EXCLUDED.score,
+       examiner = EXCLUDED.examiner,
+       status = EXCLUDED.status,
+       notes = EXCLUDED.notes,
+       juz = EXCLUDED.juz,
+       class = EXCLUDED.class,
+       details = EXCLUDED.details;
+  END IF;
+
+  RETURN json_build_object('success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
