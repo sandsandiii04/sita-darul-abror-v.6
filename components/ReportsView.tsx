@@ -642,7 +642,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
              </table>
            )}
 
-            <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
+            {studentTab === 'hafalan' ? (
+              <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
                 <div className="text-center w-48">
                     <p className="text-sm text-gray-600 mb-20">Mengetahui,</p>
                     <p className="font-bold underline">...................................</p>
@@ -653,7 +654,16 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                     <p className="font-bold underline">{user.name}</p>
                     <p className="text-xs text-gray-500 font-semibold">Guru Halaqah</p>
                 </div>
-             </div>
+              </div>
+            ) : (
+              <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-end mt-16 px-10`}>
+                <div className="text-center w-64">
+                    <p className="text-sm text-gray-600 mb-12">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                    <p className="font-bold text-gray-800 text-sm">Kabag Tahfiz Al Qur'an</p>
+                    <p className="text-xs text-gray-500 font-semibold mt-0.5">Ma'had Darul Abror IBS</p>
+                </div>
+              </div>
+            )}
          </div>
       </div>
     );
@@ -811,16 +821,11 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                 </div>
               )}
 
-             <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
-                <div className="text-center w-52">
-                    <p className="text-sm text-gray-600 mb-20">Mengetahui,</p>
-                    <p className="font-bold underline">...................................</p>
-                    <p className="text-xs text-gray-500 font-semibold">Kepala Pondok</p>
-                </div>
-                <div className="text-center w-52">
-                    <p className="text-sm text-gray-600 mb-20">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-                    <p className="font-bold underline">...................................</p>
-                    <p className="text-xs text-gray-500 font-semibold">Kabag Tahfiz Al Qur'an</p>
+             <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-end mt-16 px-10`}>
+                <div className="text-center w-64">
+                    <p className="text-sm text-gray-600 mb-12">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                    <p className="font-bold text-gray-800 text-sm">Kabag Tahfiz Al Qur'an</p>
+                    <p className="text-xs text-gray-500 font-semibold mt-0.5">Ma'had Darul Abror IBS</p>
                 </div>
              </div>
           </div>
