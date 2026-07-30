@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Student, TahfidzRecord, Grade, Attendance, AttendanceOpenRequest } from '../types';
 import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download, Trash2 } from 'lucide-react';
 import { LOGO_URL, getLocalMonthString } from '../constants';
@@ -159,54 +159,65 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
   const [isExporting, setIsExporting] = useState(false);
 
-  const handleDownloadPDF = async () => {
-    const element = document.querySelector('.printable-area') as HTMLElement;
-    if (!element) return;
+  useEffect(() => {
+    if (!isExporting) return;
 
-    setIsExporting(true);
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff'
-      });
+    const timer = setTimeout(async () => {
+      const element = document.querySelector('.printable-area') as HTMLElement;
+      if (!element) {
+        setIsExporting(false);
+        return;
+      }
+      try {
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff'
+        });
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210;
-      const pageHeight = 295;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const imgWidth = 210;
+        const pageHeight = 295;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let heightLeft = imgHeight;
+        let position = 0;
 
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
-      }
 
-      // Tentukan nama file PDF yang disesuaikan
-      let fileName = `Laporan_SITA_${periodLabel.replace(/\s+/g, '_')}.pdf`;
-      
-      const isSingleStudent = user.role === 'parent' || !!filterStudentId;
-      if (isSingleStudent && myStudents.length > 0) {
-        const cleanStudentName = myStudents[0].name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_');
-        const cleanPeriodLabel = periodLabel.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_');
-        fileName = `Laporan_SITA_${cleanStudentName}_${cleanPeriodLabel}.pdf`;
-      }
+        while (heightLeft >= 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
 
-      pdf.save(fileName);
-    } catch (error) {
-      console.error("Gagal mendownload PDF:", error);
-      alert("Gagal mengunduh PDF. Silakan gunakan tombol 'Cetak / Print' lalu pilih 'Simpan sebagai PDF'.");
-    } finally {
-      setIsExporting(false);
-    }
+        // Tentukan nama file PDF yang disesuaikan
+        let fileName = `Laporan_SITA_${periodLabel.replace(/\s+/g, '_')}.pdf`;
+        
+        const isSingleStudent = user.role === 'parent' || !!filterStudentId;
+        if (isSingleStudent && myStudents.length > 0) {
+          const cleanStudentName = myStudents[0].name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_');
+          const cleanPeriodLabel = periodLabel.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_');
+          fileName = `Laporan_SITA_${cleanStudentName}_${cleanPeriodLabel}.pdf`;
+        }
+
+        pdf.save(fileName);
+      } catch (error) {
+        console.error("Gagal mendownload PDF:", error);
+        alert("Gagal mengunduh PDF. Silakan gunakan tombol 'Cetak / Print' lalu pilih 'Simpan sebagai PDF'.");
+      } finally {
+        setIsExporting(false);
+      }
+    }, 150); // Delay 150ms to guarantee DOM re-render and paint before capturing
+
+    return () => clearTimeout(timer);
+  }, [isExporting, periodLabel, user.role, filterStudentId, myStudents]);
+
+  const handleDownloadPDF = () => {
+    setIsExporting(true);
   };
 
   // --- SUB COMPONENTS ---
