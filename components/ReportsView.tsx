@@ -28,6 +28,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
   const [filterClass, setFilterClass] = useState('');
   const [filterHalaqah, setFilterHalaqah] = useState('');
   const [filterStudentId, setFilterStudentId] = useState('');
+  const [filterTeacherGender, setFilterTeacherGender] = useState<'' | 'L' | 'P'>('');
+  const [filterStartNo, setFilterStartNo] = useState('');
+  const [filterEndNo, setFilterEndNo] = useState('');
   
   // Default to current month
   const today = new Date();
@@ -683,7 +686,6 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
        const permission = teacherAtt.filter(a => a.status === 'permission').length;
        const alpha = teacherAtt.filter(a => a.status === 'alpha').length;
 
-       // Hitung jumlah keterlambatan yang disetujui
        const lateCount = (openRequests || []).filter(r => 
            r.teacherId === t.id && 
            r.status === 'approved' && 
@@ -698,7 +700,31 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
        };
     });
 
-    // Kumpulkan seluruh detail alasan keterlambatan untuk guru-guru pada periode terpilih
+    const getTeacherGender = (name: string): 'L' | 'P' => {
+      const lowerName = name.toLowerCase();
+      if (
+        lowerName.includes('ustadzah') || 
+        lowerName.includes('ustz') || 
+        lowerName.includes('usth') || 
+        lowerName.includes('ibu') || 
+        lowerName.includes('hj') ||
+        lowerName.includes('hjh') ||
+        lowerName.includes('perempuan')
+      ) {
+        return 'P';
+      }
+      return 'L';
+    };
+
+    let filteredData = data;
+    if (filterTeacherGender) {
+       filteredData = filteredData.filter(row => getTeacherGender(row.name) === filterTeacherGender);
+    }
+
+    const startNum = parseInt(filterStartNo) || 1;
+    const endNum = parseInt(filterEndNo) || filteredData.length;
+    const slicedData = filteredData.slice(startNum - 1, endNum);
+
     const allLateDetails = (openRequests || [])
       .filter(r => 
          r.status === 'approved' && 
@@ -713,6 +739,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
          };
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const visibleTeacherNames = new Set(slicedData.map(row => row.name));
+    const filteredLateDetails = allLateDetails.filter(d => visibleTeacherNames.has(d.teacherName));
 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
@@ -750,10 +779,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                     </tr>
                  </thead>
                  <tbody className="text-sm">
-                    {data.length === 0 ? (
+                    {slicedData.length === 0 ? (
                        <tr><td colSpan={isExporting ? 8 : 9} className="p-8 text-center text-gray-400">Tidak ada data guru.</td></tr>
                     ) : (
-                       data.map((row, idx) => (
+                       slicedData.map((row, idx) => (
                           <tr key={idx} className="print:text-black">
                              <td className="p-3 border border-gray-300 text-center">{idx + 1}</td>
                              <td className="p-3 border border-gray-300 font-medium">{row.name}</td>
@@ -772,8 +801,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                  </tbody>
               </table>
 
-              {/* Tabel Detail Keterangan Keterlambatan Guru */}
-              {allLateDetails.length > 0 && !isExporting && (
+              {filteredLateDetails.length > 0 && !isExporting && (
                 <div className="mt-8 print:mt-12 border-t pt-6 print:hidden">
                   <h3 className="font-bold text-gray-800 text-sm mb-3 flex items-center gap-1.5">
                     <AlertTriangle className="text-amber-500" size={16} />
@@ -794,7 +822,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                       </tr>
                     </thead>
                     <tbody className="text-xs">
-                      {allLateDetails.map((item, idx) => (
+                      {filteredLateDetails.map((item, idx) => (
                         <tr key={item.id || idx} className="print:text-black">
                           <td className="p-2.5 border border-gray-300 text-center">{idx + 1}</td>
                           <td className="p-2.5 border border-gray-300 font-semibold">{item.teacherName}</td>
@@ -1068,6 +1096,48 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                     </div>
                  </>
              )}
+
+              {/* Teacher Filters */}
+              {reportType === 'teacher' && (
+                  <>
+                     <div className="flex flex-col gap-1">
+                         <label className="text-xs font-bold text-gray-500">Gender Guru</label>
+                         <select 
+                           value={filterTeacherGender}
+                           onChange={(e) => setFilterTeacherGender(e.target.value as '' | 'L' | 'P')}
+                           className="w-full px-3 py-2 border rounded-lg text-sm bg-white h-9 focus:ring-2 focus:ring-primary outline-none animate-fade-in"
+                         >
+                           <option value="">Semua Gender</option>
+                           <option value="L">Laki-laki (Ust.)</option>
+                           <option value="P">Perempuan (Ustz.)</option>
+                         </select>
+                     </div>
+
+                     <div className="flex flex-col gap-1">
+                         <label className="text-xs font-bold text-gray-500">No. Urut Mulai</label>
+                         <input 
+                           type="number"
+                           min="1"
+                           placeholder="1"
+                           value={filterStartNo}
+                           onChange={(e) => setFilterStartNo(e.target.value)}
+                           className="w-full px-3 py-2 border rounded-lg text-sm bg-white h-9 focus:ring-2 focus:ring-primary outline-none animate-fade-in"
+                         />
+                     </div>
+
+                     <div className="flex flex-col gap-1">
+                         <label className="text-xs font-bold text-gray-500">No. Urut Selesai</label>
+                         <input 
+                           type="number"
+                           min="1"
+                           placeholder="Semua"
+                           value={filterEndNo}
+                           onChange={(e) => setFilterEndNo(e.target.value)}
+                           className="w-full px-3 py-2 border rounded-lg text-sm bg-white h-9 focus:ring-2 focus:ring-primary outline-none animate-fade-in"
+                         />
+                     </div>
+                  </>
+              )}
          </div>
       </div>
 
