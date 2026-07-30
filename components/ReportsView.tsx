@@ -190,7 +190,16 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         heightLeft -= pageHeight;
       }
 
-      const fileName = `Laporan_SITA_${periodLabel.replace(/\s+/g, '_')}.pdf`;
+      // Tentukan nama file PDF yang disesuaikan
+      let fileName = `Laporan_SITA_${periodLabel.replace(/\s+/g, '_')}.pdf`;
+      
+      const isSingleStudent = user.role === 'parent' || !!filterStudentId;
+      if (isSingleStudent && myStudents.length > 0) {
+        const cleanStudentName = myStudents[0].name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_');
+        const cleanPeriodLabel = periodLabel.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_');
+        fileName = `Laporan_SITA_${cleanStudentName}_${cleanPeriodLabel}.pdf`;
+      }
+
       pdf.save(fileName);
     } catch (error) {
       console.error("Gagal mendownload PDF:", error);
