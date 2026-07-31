@@ -24,6 +24,11 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
   const [reportType, setReportType] = useState<ReportType>('student');
   const [studentTab, setStudentTab] = useState<'hafalan' | 'absen'>('hafalan');
   
+  // Bulk PDF Export States
+  const [isBulkExporting, setIsBulkExporting] = useState(false);
+  const [bulkStudentId, setBulkStudentId] = useState<string | null>(null);
+  const [bulkExportProgress, setBulkExportProgress] = useState(0);
+  
   // Filters
   const [filterClass, setFilterClass] = useState('');
   const [filterHalaqah, setFilterHalaqah] = useState('');
@@ -182,7 +187,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
         const imgWidth = 210;
-        const pageHeight = 295;
+        const pageHeight = 297;
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
         let position = 0;
@@ -190,7 +195,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
 
-        while (heightLeft >= 0) {
+        while (heightLeft > 2) {
           position = heightLeft - imgHeight;
           pdf.addPage();
           pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
@@ -223,10 +228,75 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     setIsExporting(true);
   };
 
+  const handleDownloadBulkPDF = async () => {
+    if (myStudents.length === 0) return;
+    setIsBulkExporting(true);
+    setBulkExportProgress(0);
+
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const imgWidth = 210;
+    const pageHeight = 297;
+
+    try {
+      for (let i = 0; i < myStudents.length; i++) {
+        const currentStudent = myStudents[i];
+        setBulkStudentId(currentStudent.id);
+        setBulkExportProgress(i + 1);
+
+        // Wait for rendering and charts to load (e.g. 250ms)
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        const element = document.getElementById('bulk-pdf-container');
+        if (!element) continue;
+
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff'
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        while (heightLeft > 2) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
+
+        // If it's not the last student, add a page for the next student
+        if (i < myStudents.length - 1) {
+          pdf.addPage();
+        }
+      }
+
+      // Tentukan nama file PDF yang disesuaikan
+      let label = periodLabel.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_');
+      let halaqahName = filterHalaqah ? filterHalaqah.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_') : 'Halaqah';
+      let fileName = `Laporan_SITA_Bulk_${halaqahName}_${label}.pdf`;
+      pdf.save(fileName);
+
+    } catch (error) {
+      console.error("Gagal mendownload PDF Masal:", error);
+      alert("Gagal mengunduh PDF Masal. Silakan coba lagi.");
+    } finally {
+      setIsBulkExporting(false);
+      setBulkStudentId(null);
+      setBulkExportProgress(0);
+    }
+  };
+
   // --- SUB COMPONENTS ---
 
-  const ParentReportCard = () => {
-    const student = myStudents[0];
+  const ParentReportCard = ({ studentOverride }: { studentOverride?: Student } = {}) => {
+    const student = studentOverride || myStudents[0];
     if (!student) return <div className="p-8 text-center text-gray-500">Data santri tidak ditemukan atau filter tidak sesuai.</div>;
 
     const getTargetForClass = (className: string) => {
@@ -293,167 +363,167 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     const predikat = getPredikat(avgScore);
 
     return (
-      <div className="bg-white text-gray-800 p-8 md:p-12 max-w-4xl mx-auto shadow-lg print:shadow-none print:max-w-none print:w-full print:p-0 min-h-[297mm] relative flex flex-col">
-        <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
-           <img src={LOGO_URL} alt="Logo" className="w-20 h-20 object-contain" />
+      <div className="parent-report-card bg-white text-gray-800 p-8 md:p-12 max-w-4xl mx-auto shadow-lg print:shadow-none print:max-w-none print:w-full print:p-0 min-h-[297mm] relative flex flex-col">
+        <div className="border-b-2 border-gray-800 pb-3 mb-4 flex items-center gap-4">
+           <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
            <div className="flex-1 text-center">
-              <h1 className="text-3xl font-bold uppercase tracking-widest text-emerald-900">Ponpes Darul Abror IBS</h1>
-              <p className="text-sm font-semibold tracking-wide mt-1">Lajnah Tahfidz Al-Qur'an</p>
-              <p className="text-xs text-gray-500 mt-1">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</p>
+              <h1 className="text-2xl font-bold uppercase tracking-widest text-emerald-900">Ponpes Darul Abror IBS</h1>
+              <p className="text-xs font-semibold tracking-wide mt-0.5">Lajnah Tahfidz Al-Qur'an</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</p>
            </div>
-           <div className="w-20"></div> 
+           <div className="w-16"></div> 
         </div>
 
-        <div className="text-center mb-8">
-           <h2 className="text-xl font-bold uppercase underline decoration-2 underline-offset-4">Laporan Capaian Tahfidz</h2>
-           <p className="text-gray-600 mt-2 font-medium">{periodLabel}</p>
+        <div className="text-center mb-4">
+           <h2 className="text-lg font-bold uppercase underline decoration-2 underline-offset-4">Laporan Capaian Tahfidz</h2>
+           <p className="text-xs text-gray-600 mt-1 font-medium">{periodLabel}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-12 gap-y-2 mb-8 text-sm">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 mb-4 text-xs">
            <div className="flex">
-             <span className="w-32 font-bold text-gray-600">Nama Santri</span>
+             <span className="w-28 font-bold text-gray-600">Nama Santri</span>
              <span className="font-semibold">: {student.name}</span>
            </div>
            <div className="flex">
-             <span className="w-32 font-bold text-gray-600">Kelas</span>
+             <span className="w-28 font-bold text-gray-600">Kelas</span>
              <span className="font-semibold">: {student.class}</span>
            </div>
            <div className="flex">
-             <span className="w-32 font-bold text-gray-600">Nomor Induk</span>
+             <span className="w-28 font-bold text-gray-600">Nomor Induk</span>
              <span className="font-semibold">: {student.nis}</span>
            </div>
            <div className="flex">
-             <span className="w-32 font-bold text-gray-600">Halaqah</span>
+             <span className="w-28 font-bold text-gray-600">Halaqah</span>
              <span className="font-semibold">: {student.halaqah}</span>
            </div>
         </div>
 
         {/* Informasi Target & Capaian Tahfidz */}
-        <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl mb-6 print:border-gray-300 print:bg-white">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+        <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-lg mb-4 print:border-gray-300 print:bg-white">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
             <div>
-              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider print:text-black">Target Kelulusan Akumulatif</span>
-              <h4 className="text-xs font-bold text-gray-800 mt-0.5">{targetInfo.label}</h4>
+              <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider print:text-black">Target Kelulusan Akumulatif</span>
+              <h4 className="text-[11px] font-bold text-gray-800 mt-0.5">{targetInfo.label}</h4>
             </div>
             <div className="text-left sm:text-right">
-              <span className="text-[10px] text-gray-500 font-bold">Pencapaian:</span>
+              <span className="text-[9px] text-gray-500 font-bold">Pencapaian:</span>
               <span className="text-xs font-bold text-emerald-700 ml-1.5 print:text-black">{currentJuz} / {targetInfo.target} Juz</span>
             </div>
           </div>
           
           {/* Visual Progress Bar */}
-          <div className="w-full bg-gray-200 rounded-full h-3 print:border print:border-gray-300 overflow-hidden">
+          <div className="w-full bg-gray-200 rounded-full h-2 print:border print:border-gray-300 overflow-hidden">
             <div 
-              className="bg-emerald-600 h-3 rounded-full transition-all duration-500 print:bg-gray-700" 
+              className="bg-emerald-600 h-2 rounded-full transition-all duration-500 print:bg-gray-700" 
               style={{ width: `${progressPercent}%` }}
             ></div>
           </div>
           
-          <div className="flex justify-between items-center mt-1.5 text-[9px] font-bold text-gray-500">
+          <div className="flex justify-between items-center mt-1 text-[8px] font-bold text-gray-500">
             <span>0 Juz</span>
             <span className="text-emerald-700 print:text-black">{progressPercent}% Tercapai</span>
             <span>{targetInfo.target} Juz</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 mb-4">
-           <div className="border border-emerald-100 bg-emerald-50 p-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-emerald-700 print:text-black">{sabaqRecs.length}</div>
-              <div className="text-xs font-bold text-emerald-900 uppercase mt-1">Sabaq</div>
+        <div className="grid grid-cols-4 gap-3 mb-3">
+           <div className="border border-emerald-100 bg-emerald-50 p-2.5 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-emerald-700 print:text-black">{sabaqRecs.length}</div>
+              <div className="text-[10px] font-bold text-emerald-900 uppercase mt-0.5">Sabaq</div>
            </div>
-           <div className="border border-blue-100 bg-blue-50 p-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-blue-700 print:text-black">{sabqiRecs.length}</div>
-              <div className="text-xs font-bold text-blue-900 uppercase mt-1">Sabqi</div>
+           <div className="border border-blue-100 bg-blue-50 p-2.5 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-blue-700 print:text-black">{sabqiRecs.length}</div>
+              <div className="text-[10px] font-bold text-blue-900 uppercase mt-0.5">Sabqi</div>
            </div>
-           <div className="border border-orange-100 bg-orange-50 p-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-orange-700 print:text-black">{manzilRecs.length}</div>
-              <div className="text-xs font-bold text-orange-900 uppercase mt-1">Manzil</div>
+           <div className="border border-orange-100 bg-orange-50 p-2.5 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-orange-700 print:text-black">{manzilRecs.length}</div>
+              <div className="text-[10px] font-bold text-orange-900 uppercase mt-0.5">Manzil</div>
            </div>
-           <div className="border border-purple-100 bg-purple-50 p-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-purple-700 print:text-black">{predikat}</div>
-              <div className="text-xs font-bold text-purple-900 uppercase mt-1">Predikat</div>
+           <div className="border border-purple-100 bg-purple-50 p-2.5 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-purple-700 print:text-black">{predikat}</div>
+              <div className="text-[10px] font-bold text-purple-900 uppercase mt-0.5">Predikat</div>
            </div>
         </div>
 
         {/* Attendance Stats Grid */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-           <div className="border border-green-100 bg-green-50 py-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-green-700 print:text-black">{present}</div>
-              <div className="text-[10px] font-bold text-green-900 uppercase mt-1">Hadir</div>
+        <div className="grid grid-cols-4 gap-3 mb-4">
+           <div className="border border-green-100 bg-green-50 py-2 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-green-700 print:text-black">{present}</div>
+              <div className="text-[9px] font-bold text-green-900 uppercase mt-0.5">Hadir</div>
            </div>
-           <div className="border border-yellow-100 bg-yellow-50 py-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-yellow-700 print:text-black">{sick}</div>
-              <div className="text-[10px] font-bold text-yellow-900 uppercase mt-1">Sakit</div>
+           <div className="border border-yellow-100 bg-yellow-50 py-2 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-yellow-700 print:text-black">{sick}</div>
+              <div className="text-[9px] font-bold text-yellow-900 uppercase mt-0.5">Sakit</div>
            </div>
-           <div className="border border-indigo-100 bg-indigo-50 py-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-indigo-700 print:text-black">{permission}</div>
-              <div className="text-[10px] font-bold text-indigo-900 uppercase mt-1">Izin</div>
+           <div className="border border-indigo-100 bg-indigo-50 py-2 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-indigo-700 print:text-black">{permission}</div>
+              <div className="text-[9px] font-bold text-indigo-900 uppercase mt-0.5">Izin</div>
            </div>
-           <div className="border border-red-100 bg-red-50 py-3 rounded-lg text-center print:border-gray-300 print:bg-white">
-              <div className="text-2xl font-bold text-red-700 print:text-black">{alpha}</div>
-              <div className="text-[10px] font-bold text-red-900 uppercase mt-1">Alpha</div>
+           <div className="border border-red-100 bg-red-50 py-2 rounded-lg text-center print:border-gray-300 print:bg-white">
+              <div className="text-xl font-bold text-red-700 print:text-black">{alpha}</div>
+              <div className="text-[9px] font-bold text-red-900 uppercase mt-0.5">Alpha</div>
            </div>
         </div>
 
         {/* Grafik Capaian Mingguan Santri */}
-        <div className="bg-white p-4 rounded-xl border border-gray-100 mb-6 print:border-gray-300">
-          <h3 className="text-sm font-bold text-gray-700 mb-3 text-center print:text-black">Grafik Capaian Setoran Bulanan (Frekuensi)</h3>
-          <div className="h-48 w-full">
+        <div className="bg-white p-3 rounded-lg border border-gray-100 mb-4 print:border-gray-300">
+          <h3 className="text-xs font-bold text-gray-700 mb-2 text-center print:text-black">Grafik Capaian Setoran Bulanan (Frekuensi)</h3>
+          <div className="h-36 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weeklyData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} />
-                <YAxis axisLine={false} tickLine={false} fontSize={10} allowDecimals={false} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={9} />
+                <YAxis axisLine={false} tickLine={false} fontSize={9} allowDecimals={false} />
                 <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '11px' }}
+                  contentStyle={{ borderRadius: '6px', border: 'none', boxShadow: '0 2px 4px -1px rgb(0 0 0 / 0.05)', fontSize: '10px' }}
                 />
-                <Legend wrapperStyle={{ fontSize: '10px' }} />
-                <Bar name="Sabaq (Setoran Baru)" dataKey="sabaq" fill="#10b981" radius={[3, 3, 0, 0]} />
-                <Bar name="Muroja'ah (Ulang)" dataKey="murojaah" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                <Legend wrapperStyle={{ fontSize: '9px' }} />
+                <Bar name="Sabaq (Setoran Baru)" dataKey="sabaq" fill="#10b981" radius={[2, 2, 0, 0]} />
+                <Bar name="Muroja'ah (Ulang)" dataKey="murojaah" fill="#3b82f6" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="mb-6 flex-1">
-           <h3 className="font-bold text-gray-800 mb-3 border-b pb-1">
+        <div className="mb-4 flex-1">
+           <h3 className="text-xs font-bold text-gray-800 mb-2 border-b pb-1">
               Riwayat Setoran {period === 'weekly' || period === 'monthly' ? '(Terbaru)' : '(Lengkap)'}
            </h3>
-           <table className="w-full text-sm border-collapse border border-gray-300">
+           <table className="w-full text-xs border-collapse border border-gray-300">
              <thead>
-               <tr className="bg-gray-100 print:bg-gray-200">
-                 <th className="border border-gray-300 p-2 text-center w-10">No</th>
-                 <th className="border border-gray-300 p-2 w-24">Tanggal</th>
-                 <th className="border border-gray-300 p-2 w-20 text-center">Jenis</th>
-                 <th className="border border-gray-300 p-2">Hafalan</th>
-                 <th className="border border-gray-300 p-2 text-center w-24">Predikat</th>
+               <tr className="bg-gray-50 print:bg-gray-100 text-[11px]">
+                 <th className="border border-gray-300 p-1.5 text-center w-8">No</th>
+                 <th className="border border-gray-300 p-1.5 w-20">Tanggal</th>
+                 <th className="border border-gray-300 p-1.5 w-16 text-center">Jenis</th>
+                 <th className="border border-gray-300 p-1.5">Hafalan</th>
+                 <th className="border border-gray-300 p-1.5 text-center w-24">Predikat</th>
                </tr>
              </thead>
              <tbody>
                {studentRecords.length === 0 ? (
-                 <tr><td colSpan={5} className="p-6 text-center text-gray-400">Tidak ada setoran pada periode ini.</td></tr>
+                 <tr><td colSpan={5} className="p-4 text-center text-gray-400">Tidak ada setoran pada periode ini.</td></tr>
                ) : (
                  (() => {
-                   const displayRecords = (period === 'weekly' || period === 'monthly') ? studentRecords.slice(-15) : studentRecords;
+                   const displayRecords = (period === 'weekly' || period === 'monthly') ? studentRecords.slice(-12) : studentRecords;
                    return displayRecords.map((rec, idx) => (
                      <tr key={rec.id}>
-                       <td className="border border-gray-300 p-2 text-center">{idx + 1}</td>
-                       <td className="border border-gray-300 p-2">{new Date(rec.date).toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit'})}</td>
-                       <td className="border border-gray-300 p-2 text-center capitalize">{rec.type}</td>
-                       <td className="border border-gray-300 p-2">
+                       <td className="border border-gray-300 p-1.5 text-center">{idx + 1}</td>
+                       <td className="border border-gray-300 p-1.5">{new Date(rec.date).toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit'})}</td>
+                       <td className="border border-gray-300 p-1.5 text-center capitalize">{rec.type}</td>
+                       <td className="border border-gray-300 p-1.5">
                           {rec.ayahStart > 0 ? (
                             <>
                               <span className="font-semibold">{rec.surah}</span>: {rec.ayahStart}-{rec.ayahEnd}
-                              {rec.notes && <span className="text-xs text-gray-500 font-medium ml-2">({rec.notes})</span>}
+                              {rec.notes && <span className="text-[11px] text-gray-500 font-medium ml-1.5">({rec.notes})</span>}
                             </>
                           ) : (
                             <>
                               <span className="font-semibold">{rec.surah}</span>
-                              {rec.notes && <span className="text-xs text-gray-500 font-medium ml-2">({rec.notes})</span>}
+                              {rec.notes && <span className="text-[11px] text-gray-500 font-medium ml-1.5">({rec.notes})</span>}
                             </>
                           )}
                         </td>
-                       <td className="border border-gray-300 p-2 text-center">
+                       <td className="border border-gray-300 p-1.5 text-center">
                           {(() => {
                             const score = parseFloat(rec.grade);
                             if (!isNaN(score)) {
@@ -464,7 +534,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                               else if (score >= 60) arabic = 'مقبول';
                               
                               return (
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border print:bg-transparent print:text-black print:border-none ${
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border print:bg-transparent print:text-black print:border-none ${
                                   score >= 90 ? 'bg-green-50 text-green-700 border-green-200' :
                                   score >= 80 ? 'bg-blue-50 text-blue-700 border-blue-200' :
                                   score >= 70 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
@@ -476,7 +546,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                               );
                             }
                             return (
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium border print:bg-transparent print:text-black print:border-none ${
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border print:bg-transparent print:text-black print:border-none ${
                                 rec.grade === 'Lancar' ? 'bg-green-50 text-green-700 border-green-200' : 
                                 rec.grade === 'Lancar Bersyarat' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 
                                 'bg-red-50 text-red-700 border-red-200'}`}>
@@ -493,16 +563,16 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
            </table>
         </div>
 
-        <div className="flex justify-between mt-auto pt-8 mb-10 px-4">
+        <div className="flex justify-between mt-auto pt-4 mb-4 px-2">
             <div className="text-center w-48">
-               <p className="text-sm text-gray-600 mb-16">Mengetahui,</p>
-               <p className="font-bold underline text-gray-800">...................................</p>
-               <p className="text-xs text-gray-500 font-semibold">Kabag Tahfiz Al Qur'an</p>
+               <p className="text-xs text-gray-600 mb-12">Mengetahui,</p>
+               <p className="font-bold underline text-gray-800 text-xs">...................................</p>
+               <p className="text-[10px] text-gray-500 font-semibold">Kabag Tahfiz Al Qur'an</p>
             </div>
             <div className="text-center w-48">
-               <p className="text-sm text-gray-600 mb-16">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
-               <p className="font-bold underline text-gray-800">{teacherName}</p>
-               <p className="text-xs text-gray-500 font-semibold">Guru Halaqah</p>
+               <p className="text-xs text-gray-600 mb-12">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+               <p className="font-bold underline text-gray-800 text-xs">{teacherName}</p>
+               <p className="text-[10px] text-gray-500 font-semibold">Guru Halaqah</p>
             </div>
          </div>
       </div>
@@ -548,7 +618,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     });
 
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
+      <div className="teacher-recap-table bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
         <div className={`${isExporting ? 'block' : 'hidden print:block'} w-full mb-6`}>
           <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
              <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
@@ -748,7 +818,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     const filteredLateDetails = allLateDetails.filter(d => visibleTeacherNames.has(d.teacherName));
 
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
+      <div className="teacher-attendance-recap bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-none print:rounded-none">
         <div className={`${isExporting ? 'block' : 'hidden print:block'} w-full mb-6`}>
           <div className="border-b-4 border-double border-gray-800 pb-4 mb-6 flex items-center gap-6">
              <img src={LOGO_URL} alt="Logo" className="w-16 h-16 object-contain" />
@@ -877,6 +947,52 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     <div className="space-y-6">
       {/* CSS Khusus untuk Merapihkan Tampilan Print / PDF */}
       <style>{`
+        @media screen {
+          .printable-area.exporting {
+            width: 210mm !important;
+            max-width: 210mm !important;
+            min-height: 297mm !important;
+            background: white !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+          }
+          .printable-area.exporting .parent-report-card {
+            width: 210mm !important;
+            max-width: 210mm !important;
+            min-height: 297mm !important;
+            padding: 20mm 15mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            box-sizing: border-box !important;
+          }
+          .printable-area.exporting .teacher-recap-table,
+          .printable-area.exporting .teacher-attendance-recap {
+            width: 210mm !important;
+            max-width: 210mm !important;
+            padding: 15mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            box-sizing: border-box !important;
+          }
+          #bulk-pdf-container {
+            width: 210mm !important;
+            max-width: 210mm !important;
+            background: white !important;
+          }
+          #bulk-pdf-container .parent-report-card {
+            width: 210mm !important;
+            max-width: 210mm !important;
+            min-height: 297mm !important;
+            padding: 20mm 15mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            box-sizing: border-box !important;
+          }
+        }
         @media print {
           /* Sembunyikan sidebar, navbar, tombol, filter, dan elemen UI lainnya */
           body * {
@@ -945,9 +1061,19 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                 <p className="text-sm text-gray-500">Unduh atau cetak laporan berkala</p>
              </div>
              <div className="flex flex-wrap gap-2">
+                 {reportType === 'student' && (user.role === 'teacher' || user.role === 'admin') && myStudents.length > 0 && (
+                    <button 
+                       onClick={handleDownloadBulkPDF}
+                       disabled={isBulkExporting || isExporting}
+                       className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-5 py-2 rounded-lg transition-colors shadow font-medium text-sm disabled:opacity-50"
+                    >
+                       <Download size={16} />
+                       {isBulkExporting ? `Membuat PDF (${bulkExportProgress}/${myStudents.length})...` : 'Unduh PDF Semua Santri'}
+                    </button>
+                 )}
                  <button 
                     onClick={handleDownloadPDF}
-                    disabled={isExporting}
+                    disabled={isExporting || isBulkExporting}
                     className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg transition-colors shadow font-medium text-sm disabled:opacity-50"
                  >
                     <Download size={16} />
@@ -955,7 +1081,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                  </button>
                  <button 
                     onClick={handlePrint}
-                    className="flex items-center gap-2 bg-gray-800 text-white px-5 py-2 rounded-lg hover:bg-black transition-colors shadow font-medium text-sm"
+                    disabled={isExporting || isBulkExporting}
+                    className="flex items-center gap-2 bg-gray-800 text-white px-5 py-2 rounded-lg hover:bg-black transition-colors shadow font-medium text-sm disabled:opacity-50"
                  >
                     <Printer size={16} />
                     Cetak / Print
@@ -1174,13 +1301,25 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         </div>
       )}
 
-      <div className="min-h-screen print:h-auto printable-area">
+      <div className={`min-h-screen print:h-auto printable-area ${isExporting ? 'exporting' : ''}`}>
         {reportType === 'teacher' && user.role === 'admin' ? (
             <TeacherAttendanceRecap />
         ) : (
             (user.role === 'parent' || filterStudentId) ? <ParentReportCard /> : <TeacherRecapTable />
         )}
       </div>
+
+      {/* Off-screen container for Bulk PDF Export */}
+      {isBulkExporting && bulkStudentId && (
+        <div 
+          id="bulk-pdf-container" 
+          style={{ position: 'absolute', left: '-9999px', top: 0 }}
+        >
+          <ParentReportCard 
+            studentOverride={students.find(s => s.id === bulkStudentId)} 
+          />
+        </div>
+      )}
     </div>
   );
 };
