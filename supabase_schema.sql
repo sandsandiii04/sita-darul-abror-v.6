@@ -375,3 +375,33 @@ BEGIN
   RETURN json_build_object('success', true);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 11. Fungsi RPC untuk menghapus data secara aman
+CREATE OR REPLACE FUNCTION delete_data_secure(p_table TEXT, p_id TEXT)
+RETURNS JSON AS $$
+BEGIN
+  -- Validasi tabel yang diperbolehkan untuk dihapus agar mencegah SQL Injection
+  IF p_table NOT IN ('users', 'students', 'records', 'attendance', 'exams', 'attendance_open_requests') THEN
+    RETURN json_build_object('success', false, 'message', 'Nama tabel tidak valid');
+  END IF;
+
+  -- Eksekusi penghapusan dinamis secara aman
+  EXECUTE format('DELETE FROM %I WHERE id = $1', p_table) USING p_id;
+  
+  RETURN json_build_object('success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 12. Mengaktifkan Row Level Security (RLS) pada Semua Tabel
+-- ============================================================
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+ALTER TABLE records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_open_requests ENABLE ROW LEVEL SECURITY;
+
+-- Catatan: RLS diaktifkan TANPA membuat policy SELECT/INSERT/UPDATE/DELETE publik.
+-- Hal ini membuat semua akses langsung dari frontend (melalui Client SDK) akan ditolak secara default.
+-- Akses data hanya diperbolehkan melalui fungsi RPC yang didefinisikan dengan SECURITY DEFINER.
