@@ -255,6 +255,16 @@ const notifyCallbacks = () => {
   queueChangeCallbacks.forEach(cb => cb(len, isProcessing, lastSyncError));
 };
 
+const getLoggedUser = (): User | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const u = localStorage.getItem('sita_current_user_v1');
+    return u ? JSON.parse(u) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
 async function seedIfEmpty() {
   if (!supabase) return;
   try {
@@ -343,27 +353,68 @@ export const api = {
 
       try {
         let error = null;
+        
+        // Ambil akun login aktif saat ini untuk otorisasi RPC
+        const userCreds = getLoggedUser();
+        const uName = userCreds?.username || '';
+        const uPass = userCreds?.password || '';
 
         if (item.action === 'addUser') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'users', p_data: mapUserToDb(item.data) });
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'users', 
+            p_data: mapUserToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'addStudent') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'students', p_data: mapStudentToDb(item.data) });
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'students', 
+            p_data: mapStudentToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'addRecord') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'records', p_data: mapRecordToDb(item.data) });
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'records', 
+            p_data: mapRecordToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'markAttendance') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'attendance', p_data: mapAttendanceToDb(item.data) });
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'attendance', 
+            p_data: mapAttendanceToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'addAttendanceOpenRequest') {
-          const { error: err } = await supabase.from('attendance_open_requests').upsert(mapAttendanceOpenRequestToDb(item.data));
+          // Ganti dari direct upsert ke secure upsert RPC
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'attendance_open_requests', 
+            p_data: mapAttendanceOpenRequestToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'addExam') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'exams', p_data: mapExamToDb(item.data) });
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'exams', 
+            p_data: mapExamToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'updateUser') {
-          const { error: err } = await supabase.rpc('upsert_data', { p_table: 'users', p_data: mapUserToDb(item.data) });
+          const { error: err } = await supabase.rpc('upsert_data', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: 'users', 
+            p_data: mapUserToDb(item.data) 
+          });
           error = err;
         } else if (item.action === 'deleteData') {
           let tableName = item.data.sheetName.toLowerCase();
@@ -372,16 +423,17 @@ export const api = {
           }
           
           let err = null;
-          if (tableName === 'attendance_open_requests') {
-            const { error: deleteErr } = await supabase.from('attendance_open_requests').delete().eq('id', item.data.id);
+          // Menggunakan delete_data_secure RPC untuk semua tabel demi keamanan penuh
+          const { data: deleteRes, error: deleteErr } = await supabase.rpc('delete_data_secure', { 
+            p_username: uName, 
+            p_password: uPass, 
+            p_table: tableName, 
+            p_id: item.data.id 
+          });
+          if (deleteErr) {
             err = deleteErr;
-          } else {
-            const { data: deleteRes, error: deleteErr } = await supabase.rpc('delete_data_secure', { p_table: tableName, p_id: item.data.id });
-            if (deleteErr) {
-              err = deleteErr;
-            } else if (deleteRes && deleteRes.success === false) {
-              err = new Error(deleteRes.message || 'Gagal menghapus data secara aman.');
-            }
+          } else if (deleteRes && deleteRes.success === false) {
+            err = new Error(deleteRes.message || 'Gagal menghapus data secara aman.');
           }
           error = err;
         }

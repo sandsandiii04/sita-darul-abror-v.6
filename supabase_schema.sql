@@ -243,13 +243,34 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 10. Fungsi RPC untuk insert/update data (upsert) secara aman dari frontend
-CREATE OR REPLACE FUNCTION upsert_data(p_table TEXT, p_data JSONB)
+CREATE OR REPLACE FUNCTION upsert_data(p_username TEXT, p_password TEXT, p_table TEXT, p_data JSONB)
 RETURNS JSON AS $$
 DECLARE
-  v_cols TEXT;
-  v_vals TEXT;
-  v_upsert TEXT;
+  v_role TEXT;
+  v_user_id TEXT;
 BEGIN
+  -- 1. Verifikasi kredensial pengirim (harus guru atau admin)
+  SELECT id, role INTO v_user_id, v_role FROM users 
+  WHERE username = p_username AND (password = p_password OR password = crypt(p_password, password));
+  
+  IF NOT FOUND THEN
+    RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial tidak valid');
+  END IF;
+
+  -- 2. Validasi Hak Akses (Otorisasi)
+  IF v_role = 'admin' THEN
+    -- Admin boleh edit/input apa saja
+  ELSIF v_role = 'teacher' THEN
+    -- Guru hanya boleh menulis data harian operasional
+    IF p_table NOT IN ('records', 'attendance', 'exams', 'attendance_open_requests') THEN
+      RETURN json_build_object('success', false, 'message', 'Akses ditolak: Anda tidak memiliki izin untuk mengedit tabel ini');
+    END IF;
+  ELSE
+    -- Wali / Lainnya tidak boleh menulis data apa pun
+    RETURN json_build_object('success', false, 'message', 'Akses ditolak: Izin tidak mencukupi');
+  END IF;
+
+  -- 3. Eksekusi Inserts/Updates
   IF p_table = 'users' THEN
      INSERT INTO users (id, name, role, username, password, phone_number, child_id, email, avatar, gender)
      VALUES (
@@ -342,6 +363,24 @@ BEGIN
        type = EXCLUDED.type,
        class = EXCLUDED.class,
        late_reason = EXCLUDED.late_reason;
+  ELSIF p_table = 'attendance_open_requests' THEN
+     INSERT INTO attendance_open_requests (id, teacher_id, date, session, type, status, late_reason)
+     VALUES (
+       p_data->>'id',
+       p_data->>'teacher_id',
+       (p_data->>'date')::DATE,
+       p_data->>'session',
+       p_data->>'type',
+       p_data->>'status',
+       p_data->>'late_reason'
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       teacher_id = EXCLUDED.teacher_id,
+       date = EXCLUDED.date,
+       session = EXCLUDED.session,
+       type = EXCLUDED.type,
+       status = EXCLUDED.status,
+       late_reason = EXCLUDED.late_reason;
   ELSIF p_table = 'exams' THEN
      INSERT INTO exams (id, student_id, student_name, date, category, score, examiner, status, notes, juz, class, details)
      VALUES (
@@ -377,10 +416,34 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 11. Fungsi RPC untuk menghapus data secara aman
-CREATE OR REPLACE FUNCTION delete_data_secure(p_table TEXT, p_id TEXT)
+CREATE OR REPLACE FUNCTION delete_data_secure(p_username TEXT, p_password TEXT, p_table TEXT, p_id TEXT)
 RETURNS JSON AS $$
+DECLARE
+  v_role TEXT;
+  v_user_id TEXT;
 BEGIN
-  -- Validasi tabel yang diperbolehkan untuk dihapus agar mencegah SQL Injection
+  -- 1. Verifikasi kredensial pengirim
+  SELECT id, role INTO v_user_id, v_role FROM users 
+  WHERE username = p_username AND (password = p_password OR password = crypt(p_password, password));
+  
+  IF NOT FOUND THEN
+    RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial tidak valid');
+  END IF;
+
+  -- 2. Validasi Hak Akses (Otorisasi)
+  IF v_role = 'admin' THEN
+    -- Admin boleh menghapus apa saja
+  ELSIF v_role = 'teacher' THEN
+    -- Guru hanya boleh menghapus records harian
+    IF p_table NOT IN ('records', 'attendance', 'exams', 'attendance_open_requests') THEN
+      RETURN json_build_object('success', false, 'message', 'Akses ditolak: Anda tidak memiliki izin untuk menghapus tabel ini');
+    END IF;
+  ELSE
+    -- Wali / Lainnya tidak boleh menghapus data
+    RETURN json_build_object('success', false, 'message', 'Akses ditolak: Izin tidak mencukupi');
+  END IF;
+
+  -- Validasi nama tabel mencegah SQL injection
   IF p_table NOT IN ('users', 'students', 'records', 'attendance', 'exams', 'attendance_open_requests') THEN
     RETURN json_build_object('success', false, 'message', 'Nama tabel tidak valid');
   END IF;
