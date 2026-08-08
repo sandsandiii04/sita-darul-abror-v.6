@@ -13,21 +13,20 @@ interface DashboardProps {
   onNavigate?: (tab: string) => void;
 }
 
-const StatCard = ({ title, value, icon: Icon, color }: any) => (
-  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-    <div className={`p-4 rounded-lg ${color} text-white`}>
+const StatCard = ({ title, value, icon: Icon, gradient, shadowColor }: any) => (
+  <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-premium hover:-translate-y-1 transition-all duration-300 flex items-center gap-4">
+    <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${gradient} text-white flex items-center justify-center shadow-lg ${shadowColor} shrink-0`}>
       <Icon size={24} />
     </div>
-    <div>
-      <p className="text-sm text-gray-500 mb-1">{title}</p>
-      <h3 className="text-2xl font-bold text-gray-800">{value}</h3>
+    <div className="min-w-0">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{title}</p>
+      <h3 className="text-2xl font-extrabold text-slate-800 tracking-tight mt-0.5">{value}</h3>
     </div>
   </div>
 );
 
 const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = [], connectionError, onNavigate }) => {
   // Check connection status based on URL config AND actual fetch result
-  // isOnline is true if there's no connectionError, meaning the database connected successfully
   const isOnline = !connectionError;
 
   // Simple data processing for chart
@@ -65,68 +64,91 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
     .slice(0, 5);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in font-sans">
       {/* Connection Status Banner */}
-      <div className={`flex items-center justify-between px-4 py-2 rounded-lg border gap-3 ${isOnline ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+      <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl border gap-3 ${isOnline ? 'bg-emerald-50/50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
         <div className="flex items-center gap-2">
-            {isOnline ? <Wifi size={16} className="text-blue-600" /> : <WifiOff size={16} className="text-red-600" />}
-            <span className="font-bold text-xs">
-                {isOnline ? "Mode Online" : "Mode Offline"}
+            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="font-bold text-xs tracking-wide">
+                {isOnline ? "Server Terhubung (Cloud Terintegrasi)" : "Koneksi Bermasalah (Offline Mode)"}
             </span>
         </div>
         {!isOnline && user.role === 'admin' && (
             <button 
                 onClick={() => onNavigate && onNavigate('tutorial')}
-                className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-md text-[10px] font-bold border border-red-200 shadow-sm text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg text-[10px] font-bold border border-red-200 shadow-sm text-red-600 hover:bg-red-50 transition-all active:scale-95 whitespace-nowrap"
             >
                 <AlertTriangle size={12} />
-                Setup Database <ArrowRight size={12} />
+                <span>Konfigurasi Supabase</span>
+                <ArrowRight size={12} />
             </button>
         )}
       </div>
 
       {/* Stat Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <StatCard 
           title="Total Santri" 
           value={displayStudents.length} 
           icon={Users} 
-          color="bg-blue-500" 
+          gradient="from-blue-500 to-indigo-600"
+          shadowColor="shadow-blue-500/10" 
         />
         <StatCard 
           title="Rata-rata Juz" 
-          value={averageJuz} 
+          value={`${averageJuz} Juz`} 
           icon={Book} 
-          color="bg-emerald-500" 
+          gradient="from-emerald-500 to-teal-600"
+          shadowColor="shadow-emerald-500/10" 
         />
         <StatCard 
           title="Setoran Sabaq" 
           value={totalSabaq} 
           icon={TrendingUp} 
-          color="bg-purple-500" 
+          gradient="from-purple-500 to-indigo-600"
+          shadowColor="shadow-purple-500/10" 
         />
         <StatCard 
           title="Muroja'ah (Sabqi & Manzil)" 
           value={totalMurojaah} 
           icon={Calendar} 
-          color="bg-orange-500" 
+          gradient="from-orange-500 to-amber-600"
+          shadowColor="shadow-orange-500/10" 
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Chart (Left Column) */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800 mb-4">Grafik Capaian Mingguan (Halaman)</h3>
+        <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+          <h3 className="text-base font-extrabold text-slate-800 mb-6 flex items-center gap-2">
+            <span className="w-1.5 h-4 bg-emerald-600 rounded-full" />
+            Grafik Capaian Mingguan (Halaman)
+          </h3>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weeklyData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                <YAxis axisLine={false} tickLine={false} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
                 />
-                <Bar dataKey="pages" fill="#10b981" radius={[4, 4, 0, 0]} barSize={40} />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    borderRadius: '16px', 
+                    border: '1px solid #f1f5f9', 
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)',
+                    fontFamily: 'Outfit, sans-serif',
+                    fontSize: '12px'
+                  }}
+                />
+                <Bar dataKey="pages" fill="#10b981" radius={[6, 6, 0, 0]} barSize={36} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -136,71 +158,77 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
         <div className="space-y-6">
             
             {/* Top Students */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <Trophy className="text-yellow-500" size={20} />
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+              <h3 className="text-base font-extrabold text-slate-800 mb-5 flex items-center gap-2">
+                <Trophy className="text-amber-500" size={18} />
                 Santri Terbaik Pekan Ini
               </h3>
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {displayStudents.slice(0, 3).map((s, idx) => (
-                  <div key={s.id} className="flex items-center gap-3 pb-3 border-b last:border-0 last:pb-0">
+                  <div key={s.id} className="flex items-center gap-3 pb-3 border-b border-slate-100 last:border-0 last:pb-0">
                     <div className={`
-                      w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm
-                      ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}
+                      w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0
+                      ${idx === 0 
+                        ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                        : idx === 1 
+                        ? 'bg-slate-100 text-slate-700 border border-slate-200/50' 
+                        : 'bg-orange-50/50 text-orange-700 border border-orange-200/30'}
                     `}>
                       {idx + 1}
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-sm text-gray-800">{s.name}</p>
-                      <p className="text-xs text-gray-500">{s.class} - {s.totalJuz} Juz</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-xs text-slate-800 truncate leading-snug">{s.name}</p>
+                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Kelas {s.class} • <span className="text-emerald-600 font-bold">{s.totalJuz} Juz</span></p>
                     </div>
                   </div>
                 ))}
                 {displayStudents.length === 0 && (
-                    <p className="text-sm text-gray-400 text-center py-4">Belum ada data santri.</p>
+                    <p className="text-xs text-slate-400 text-center py-6 font-medium">Belum ada data santri.</p>
                 )}
               </div>
             </div>
 
-            {/* Recent Exams (NEW) */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <Award className="text-purple-500" size={20} />
+            {/* Recent Exams */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+              <h3 className="text-base font-extrabold text-slate-800 mb-5 flex items-center gap-2">
+                <Award className="text-purple-500" size={18} />
                 Hasil Ujian Terbaru
               </h3>
               <div className="space-y-4">
                 {recentExams.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">Belum ada data ujian.</p>
+                    <p className="text-xs text-slate-400 text-center py-6 font-medium">Belum ada data ujian.</p>
                 ) : (
                     recentExams.map(exam => {
                         const s = students.find(st => st.id === exam.studentId);
                         
-                        // Handle display when details might be missing (data from cloud)
-                        // Priority: 1. Full Details 2. Flat Juz & Category 3. Just Category
                         const displayLabel = exam.details 
                           ? `${exam.details.surat || exam.details.halaman}`
                           : exam.category;
                         
-                        // Menampilkan Juz dan Kelas
                         const juzLabel = exam.juz || exam.details?.juz || '-';
                         const classLabel = s?.class || exam.class || '-';
+                        const isPassed = exam.score >= 70;
 
                         return (
-                            <div key={exam.id} className="border-b pb-3 last:border-0 last:pb-0">
-                                <div className="flex justify-between items-start mb-1">
-                                    <div>
-                                      <p className="font-bold text-sm text-gray-800 truncate w-36">{s?.name}</p>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 border font-medium">Kelas {classLabel}</span>
-                                        <span className="text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600 border border-indigo-100 font-medium">{juzLabel}</span>
+                            <div key={exam.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                                <div className="flex justify-between items-start gap-2 mb-1">
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-xs text-slate-800 truncate leading-snug">{s?.name}</p>
+                                      <div className="flex items-center gap-1.5 mt-1">
+                                        <span className="text-[9px] bg-slate-50 px-1.5 py-0.5 rounded-md text-slate-500 border border-slate-200/60 font-bold uppercase">Kelas {classLabel}</span>
+                                        <span className="text-[9px] bg-indigo-50 px-1.5 py-0.5 rounded-md text-indigo-700 border border-indigo-100/80 font-bold uppercase">{juzLabel}</span>
                                       </div>
                                     </div>
-                                    <span className={`text-xs font-bold px-2 py-1 rounded ${exam.score >= 70 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                    <span className={`text-xs font-extrabold px-2.5 py-1 rounded-xl shrink-0 ${
+                                      isPassed 
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                                        : 'bg-red-50 text-red-700 border border-red-100'
+                                    }`}>
                                         {exam.score}
                                     </span>
                                 </div>
-                                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                                    Materi: {displayLabel}
+                                <p className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 mt-1.5 truncate">
+                                    Materi: <span className="text-slate-600">{displayLabel}</span>
                                 </p>
                             </div>
                         )

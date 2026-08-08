@@ -50,10 +50,14 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-950 flex items-center justify-center p-4 relative overflow-hidden font-sans">
+      {/* Decorative Blur Orbs */}
+      <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-teal-500/10 blur-[120px] pointer-events-none" />
+
+      <div className="bg-white/95 backdrop-blur-xl p-8 md:p-10 rounded-3xl shadow-premium shadow-black/20 w-full max-w-md border border-white/20 relative z-10 transition-all duration-300 hover:shadow-glow/10">
         <div className="text-center mb-8">
-          <div className="w-24 h-24 mx-auto mb-4 relative bg-gray-50 rounded-full p-2 flex items-center justify-center border border-gray-100 shadow-sm overflow-hidden">
+          <div className="w-20 h-20 mx-auto mb-4 relative bg-slate-50/50 rounded-2xl p-2 flex items-center justify-center border border-slate-100 shadow-sm overflow-hidden">
              <img 
                 src={LOGO_URL} 
                 alt="Logo" 
@@ -61,22 +65,23 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                 onError={(e) => { (e.target as HTMLImageElement).src = 'https://cdn-icons-png.flaticon.com/512/3063/3063206.png'; }} 
              />
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">Darul Abror IBS</h1>
-          <p className="text-emerald-600 font-medium text-sm mt-1">Sistem Informasi Tahfidz</p>
+          <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Darul Abror IBS</h1>
+          <p className="text-emerald-600 font-semibold text-xs tracking-wider uppercase mt-1">Sistem Informasi Tahfidz</p>
         </div>
+
         {connectionError && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6 flex items-start gap-3">
-                <WifiOff className="text-orange-500 shrink-0 mt-0.5" size={20} />
+            <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 mb-6 flex items-start gap-3">
+                <WifiOff className="text-orange-500 shrink-0 mt-0.5" size={18} />
                 <div className="flex-1">
-                    <h3 className="font-bold text-orange-700 text-sm">Mode Offline</h3>
-                    <p className="text-xs text-orange-600 mt-1 leading-relaxed">
+                    <h3 className="font-bold text-orange-800 text-xs">Mode Offline</h3>
+                    <p className="text-[11px] text-orange-600 mt-0.5 leading-relaxed">
                       {connectionError === 'no_url' ? "Database belum dikonfigurasi." : "Gagal sinkron data cloud."}
                     </p>
                     {connectionError === 'no_url' && (
                       <button 
                         type="button"
                         onClick={onOpenDbConfig}
-                        className="mt-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline block text-left"
+                        className="mt-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline block text-left"
                       >
                         Hubungkan ke Supabase Sekarang
                       </button>
@@ -84,47 +89,83 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                 </div>
             </div>
         )}
+
         <form onSubmit={handleLogin} className="space-y-4">
             <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username / NIS</label>
-                <div className="relative">
-                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Username atau NIS Santri" required />
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Username / NIS</label>
+                <div className="relative group">
+                <UserIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
+                <input 
+                  type="text" 
+                  value={username} 
+                  onChange={(e) => setUsername(e.target.value)} 
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all duration-200 text-sm placeholder:text-slate-400 font-medium" 
+                  placeholder="Username atau NIS" 
+                  required 
+                />
                 </div>
             </div>
             <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Masukkan password" required />
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Password</label>
+                <div className="relative group">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
+                <input 
+                  type="password" 
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)} 
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all duration-200 text-sm placeholder:text-slate-400 font-medium" 
+                  placeholder="Password" 
+                  required 
+                />
                 </div>
             </div>
-            {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertCircle size={16} />{error}</div>}
-            <button type="submit" disabled={isLoadingData && !users.length} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 mt-4 disabled:opacity-70">
-                {isLoadingData && !users.length ? <><Loader2 size={20} className="animate-spin" /> Memuat...</> : <>Masuk Sistem <ArrowRight size={20} /></>}
+
+            {error && (
+              <div className="bg-red-50 text-red-600 border border-red-100 p-3 rounded-xl text-xs flex items-center gap-2 animate-fade-in font-medium">
+                <AlertCircle size={14} className="shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <button 
+              type="submit" 
+              disabled={isLoadingData && !users.length} 
+              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-3.5 rounded-xl transition-all duration-300 transform hover:scale-[1.01] active:scale-[0.99] hover:shadow-lg hover:shadow-emerald-600/20 flex items-center justify-center gap-2 mt-6 disabled:opacity-70 disabled:hover:scale-100"
+            >
+                {isLoadingData && !users.length ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" /> 
+                    <span>Memuat...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Masuk Sistem</span> 
+                    <ArrowRight size={18} />
+                  </>
+                )}
             </button>
         </form>
 
         <div className="relative flex py-5 items-center">
-            <div className="flex-grow border-t border-gray-100"></div>
-            <span className="flex-shrink-0 mx-4 text-xs text-gray-400 font-medium">Atau</span>
-            <div className="flex-grow border-t border-gray-100"></div>
+            <div className="flex-grow border-t border-slate-100"></div>
+            <span className="flex-shrink-0 mx-4 text-[10px] text-slate-400 font-bold tracking-widest uppercase">Atau</span>
+            <div className="flex-grow border-t border-slate-100"></div>
         </div>
 
         <button 
             type="button" 
             onClick={() => { setShowQuickScan(true); setScanStep(0); }}
-            className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+            className="w-full bg-indigo-50/50 hover:bg-indigo-50 active:bg-indigo-100/70 text-indigo-700 border border-indigo-100 font-bold py-3.5 rounded-xl transition-all duration-300 transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
         >
-            <Camera size={20} /> Absen Cepat (Scan QR)
+            <Camera size={18} /> Absen Cepat (Scan QR)
         </button>
 
-        <div className="mt-8 text-center border-t border-gray-100 pt-6">
-          <p className="text-xs text-gray-400 font-medium">© 2025. Darul Abror IBS V.1</p>
+        <div className="mt-8 text-center border-t border-slate-100 pt-6">
+          <p className="text-[10px] text-slate-400 font-bold tracking-wider uppercase">© 2025. Darul Abror IBS V.1</p>
           <button 
             type="button"
             onClick={onOpenDbConfig}
-            className="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold mt-2.5 hover:underline transition-all block mx-auto"
+            className="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold mt-2.5 hover:underline transition-all block mx-auto py-1 px-3 rounded-lg hover:bg-emerald-50/50 w-fit"
           >
             ⚙️ Pengaturan Database (Supabase)
           </button>
@@ -133,38 +174,45 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
 
       {/* QUICK SCAN MODAL */}
       {showQuickScan && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl relative animate-fade-in">
-                <button onClick={() => setShowQuickScan(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10"><X size={20}/></button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl relative animate-fade-in border border-slate-100">
+                <button 
+                  onClick={() => setShowQuickScan(false)} 
+                  className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
+                >
+                  <X size={18}/>
+                </button>
                 
                 {scanStep === 0 && (
                     <>
-                        <h3 className="font-bold text-lg text-gray-800 mb-4 text-center">Scan QR Code Absensi</h3>
-                        <QRScanner 
-                            onScanSuccess={(text) => {
-                                console.log("Berhasil scan:", text);
-                                if (text.trim() === "SITA_ABSENSI_GURU_TETAP" || text.includes("absen=guru")) {
-                                    setScanStep(1); // Proceed to form
-                                } else {
-                                    alert(`QR Code tidak valid: ${text}`);
-                                }
-                            }} 
-                        />
+                        <h3 className="font-extrabold text-lg text-slate-800 mb-4 text-center">Scan QR Code Absensi</h3>
+                        <div className="overflow-hidden rounded-2xl border border-slate-100">
+                          <QRScanner 
+                              onScanSuccess={(text) => {
+                                  console.log("Berhasil scan:", text);
+                                  if (text.trim() === "SITA_ABSENSI_GURU_TETAP" || text.includes("absen=guru")) {
+                                      setScanStep(1); // Proceed to form
+                                  } else {
+                                      alert(`QR Code tidak valid: ${text}`);
+                                  }
+                              }} 
+                          />
+                        </div>
                     </>
                 )}
 
                 {scanStep === 1 && (
                     <div className="space-y-4">
                         <div className="text-center mb-4">
-                            <CheckCircle2 size={48} className="mx-auto text-green-500 mb-2" />
-                            <h3 className="font-bold text-lg text-gray-800">QR Code Valid!</h3>
-                            <p className="text-sm text-gray-500">Silakan pilih nama Anda untuk hadir.</p>
+                            <CheckCircle2 size={44} className="mx-auto text-green-500 mb-2" />
+                            <h3 className="font-extrabold text-lg text-slate-800">QR Code Valid!</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Silakan pilih nama Anda untuk absensi hadir.</p>
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Nama Guru</label>
+                            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Nama Guru</label>
                             <select 
-                                className="w-full border border-gray-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-sm font-medium focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 focus:bg-white outline-none transition-all"
                                 value={quickUserId}
                                 onChange={(e) => setQuickUserId(e.target.value)}
                             >
@@ -176,23 +224,27 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                         </div>
 
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Sesi Halaqah</label>
+                            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Sesi Halaqah</label>
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setQuickSession('pagi')}
-                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
-                                        quickSession === 'pagi' ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-bold transition-all border ${
+                                        quickSession === 'pagi' 
+                                          ? 'bg-orange-50 text-orange-600 border-orange-200 shadow-sm' 
+                                          : 'bg-slate-50 text-slate-500 border-slate-200/60 hover:bg-slate-100'
                                     }`}
                                 >
-                                    <Sun size={16} /> Pagi
+                                    <Sun size={14} /> Pagi
                                 </button>
                                 <button
                                     onClick={() => setQuickSession('malam')}
-                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
-                                        quickSession === 'malam' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-bold transition-all border ${
+                                        quickSession === 'malam' 
+                                          ? 'bg-indigo-50 text-indigo-600 border-indigo-200 shadow-sm' 
+                                          : 'bg-slate-50 text-slate-500 border-slate-200/60 hover:bg-slate-100'
                                     }`}
                                 >
-                                    <Moon size={16} /> Malam
+                                    <Moon size={14} /> Malam
                                 </button>
                             </div>
                         </div>
@@ -220,9 +272,9 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                                 alert("Berhasil! Kehadiran Anda telah dicatat.");
                             }}
                             disabled={!quickUserId}
-                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 disabled:opacity-50 mt-4"
+                            className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-3.5 rounded-xl transition-all duration-300 flex justify-center items-center gap-2 disabled:opacity-50 disabled:hover:from-emerald-600 shadow-lg shadow-emerald-600/10 mt-4"
                         >
-                            <Check size={20} /> Simpan Kehadiran
+                            <Check size={18} /> Simpan Kehadiran
                         </button>
                     </div>
                 )}
@@ -250,9 +302,20 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() => window.localStorage.getItem('sita_active_tab_v1') || 'dashboard');
 
   useEffect(() => {
-    if (user) window.localStorage.setItem('sita_current_user_v1', JSON.stringify(user));
-    else window.localStorage.removeItem('sita_current_user_v1');
-  }, [user]);
+    if (user) {
+      window.localStorage.setItem('sita_current_user_v1', JSON.stringify(user));
+      const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile'];
+      const teacherTabs = ['dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'exam', 'reports', 'attendance_self', 'profile'];
+      
+      if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
+        setActiveTab('dashboard');
+      } else if (user.role === 'teacher' && !teacherTabs.includes(activeTab)) {
+        setActiveTab('dashboard');
+      }
+    } else {
+      window.localStorage.removeItem('sita_current_user_v1');
+    }
+  }, [user, activeTab]);
 
   useEffect(() => { window.localStorage.setItem('sita_active_tab_v1', activeTab); }, [activeTab]);
   
@@ -753,63 +816,67 @@ const DatabaseConfigModal = ({ onClose }: { onClose: () => void }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl relative animate-fade-in border border-gray-100">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-          <X size={20}/>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl relative animate-fade-in border border-slate-100 font-sans">
+        <button 
+          onClick={onClose} 
+          className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 transition-colors bg-slate-50 hover:bg-slate-100 p-1.5 rounded-full"
+        >
+          <X size={18}/>
         </button>
         
-        <h3 className="font-bold text-lg text-gray-800 mb-2 flex items-center gap-2">
+        <h3 className="font-extrabold text-lg text-slate-800 mb-2 flex items-center gap-2">
           ⚙️ Pengaturan Koneksi Supabase
         </h3>
-        <p className="text-xs text-gray-500 mb-4">
-          Masukkan kredensial API Supabase Anda untuk menghubungkan aplikasi secara langsung.
+        <p className="text-xs text-slate-500 mb-5 leading-relaxed font-medium">
+          Masukkan kredensial API Supabase Anda untuk menghubungkan aplikasi secara langsung ke cloud data.
         </p>
 
         {isSaved ? (
-          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-center font-bold text-sm animate-pulse">
-            ✓ Berhasil Disimpan! Memuat ulang sistem...
+          <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 p-5 rounded-2xl text-center font-bold text-sm animate-pulse flex items-center justify-center gap-2">
+            <CheckCircle2 size={18} className="text-emerald-600" />
+            <span>Berhasil Disimpan! Memuat ulang sistem...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
                 VITE_SUPABASE_URL
               </label>
               <input 
                 type="url" 
                 value={url} 
                 onChange={(e) => setUrl(e.target.value)} 
-                className="w-full border border-gray-300 rounded-xl p-3 text-xs font-mono focus:ring-2 focus:ring-emerald-500 outline-none" 
+                className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-500 rounded-xl p-3 text-xs font-mono focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all" 
                 placeholder="https://your-project-id.supabase.co" 
                 required 
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
                 VITE_SUPABASE_ANON_KEY (Anon Key / Publishable Key)
               </label>
               <textarea 
                 value={key} 
                 onChange={(e) => setKey(e.target.value)} 
-                className="w-full border border-gray-300 rounded-xl p-3 text-xs font-mono h-24 focus:ring-2 focus:ring-emerald-500 outline-none" 
+                className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-500 rounded-xl p-3 text-xs font-mono h-24 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all leading-normal resize-none" 
                 placeholder="Paste Publishable Key (anon) di sini" 
                 required 
               />
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-3 pt-2">
               <button 
                 type="button" 
                 onClick={handleReset}
-                className="flex-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold py-2.5 rounded-xl text-xs transition-all"
+                className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-3 rounded-xl text-xs transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99]"
               >
                 Reset Default
               </button>
               <button 
                 type="submit" 
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition-all"
+                className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-3 rounded-xl text-xs transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] hover:shadow-lg hover:shadow-emerald-600/15"
               >
                 Simpan & Hubungkan
               </button>

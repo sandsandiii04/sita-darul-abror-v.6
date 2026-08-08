@@ -15,39 +15,80 @@
               primary: '#047857', // Emerald 700
               secondary: '#10b981', // Emerald 500
               accent: '#d1fae5', // Emerald 100
+              emerald: {
+                50: '#f0fdf4',
+                100: '#dcfce7',
+                200: '#bbf7d0',
+                300: '#86efac',
+                400: '#4ade80',
+                500: '#22c55e',
+                600: '#16a34a',
+                700: '#15803d',
+                800: '#166534',
+                900: '#14532d',
+                950: '#022c22',
+              },
+              dark: {
+                950: '#070b0e',
+              }
+            },
+            fontFamily: {
+              sans: ['Outfit', 'Inter', 'sans-serif'],
+            },
+            boxShadow: {
+              'premium': '0 12px 40px -12px rgba(4, 120, 87, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.02)',
+              'glow': '0 0 20px 2px rgba(16, 185, 129, 0.15)',
             }
           }
         }
       }
     </script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
       body {
-        font-family: 'Inter', sans-serif;
-        background-color: #f3f4f6;
+        font-family: 'Outfit', 'Inter', sans-serif;
+        background-color: #f8fafc;
+        color: #1e293b;
       }
       /* Custom scrollbar for better aesthetics */
       ::-webkit-scrollbar {
         width: 8px;
+        height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #f1f1f1;
+        background: #f1f5f9;
       }
       ::-webkit-scrollbar-thumb {
         background: #cbd5e1;
-        border-radius: 4px;
+        border-radius: 6px;
+        border: 2px solid #f1f5f9;
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #94a3b8;
       }
       
       .animate-fade-in {
-        animation: fadeIn 0.5s ease-in-out;
+        animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
       }
       
       @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
+        from { opacity: 0; transform: translateY(8px); }
         to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Premium Glassmorphism Utilities */
+      .glass-card {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+      }
+      
+      .glass-card-dark {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
       }
 
       /* Print styles */

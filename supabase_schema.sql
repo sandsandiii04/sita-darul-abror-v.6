@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS exams (
 );
 
 -- 6. Fungsi RPC untuk verifikasi login secara aman
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE OR REPLACE FUNCTION verify_login(p_username TEXT, p_password TEXT)
 RETURNS JSON AS $$
 DECLARE
@@ -85,7 +87,7 @@ DECLARE
   v_student RECORD;
 BEGIN
   -- 1. Cari di tabel users (Guru / Admin)
-  SELECT * INTO v_user FROM users WHERE username = p_username AND password = p_password;
+  SELECT * INTO v_user FROM users WHERE username = p_username AND (password = p_password OR password = crypt(p_password, password));
   IF FOUND THEN
     RETURN json_build_object(
       'success', true,
@@ -105,7 +107,7 @@ BEGIN
   END IF;
 
   -- 2. Cari di tabel students (Orang Tua menggunakan NIS / Username)
-  SELECT * INTO v_student FROM students WHERE (username = p_username OR nis = p_username) AND password = p_password;
+  SELECT * INTO v_student FROM students WHERE (username = p_username OR nis = p_username) AND (password = p_password OR password = crypt(p_password, password));
   IF FOUND THEN
     RETURN json_build_object(
       'success', true,
@@ -115,7 +117,8 @@ BEGIN
         'name', v_student.name,
         'role', 'parent',
         'childId', v_student.id,
-        'username', v_student.username
+        'username', v_student.username,
+        'password', v_student.password
       )
     );
   END IF;
@@ -164,21 +167,31 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION load_secure_data(p_username TEXT, p_password TEXT)
 RETURNS JSON AS $$
 DECLARE
-  v_user RECORD;
   v_users JSON;
   v_students JSON;
   v_records JSON;
   v_attendance JSON;
   v_exams JSON;
+  v_role TEXT;
+  v_user_id TEXT;
+  v_child_id TEXT;
 BEGIN
-  -- 1. Verifikasi kredensial user
-  SELECT * INTO v_user FROM users WHERE username = p_username AND password = p_password;
+  -- 1. Verifikasi kredensial di tabel users
+  SELECT id, role, child_id INTO v_user_id, v_role, v_child_id FROM users WHERE username = p_username AND (password = p_password OR password = crypt(p_password, password));
+  
   IF NOT FOUND THEN
-     RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial login salah');
+     -- Coba verifikasi di tabel students (wali santri login menggunakan username/nis santri)
+     SELECT id INTO v_user_id FROM students WHERE (username = p_username OR nis = p_username) AND (password = p_password OR password = crypt(p_password, password));
+     IF FOUND THEN
+        v_role := 'parent';
+        v_child_id := v_user_id; -- Wali/santri login memiliki child_id yang sama dengan id santri
+     ELSE
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial login salah');
+     END IF;
   END IF;
 
   -- 2. Kumpulkan data berdasarkan role
-  IF v_user.role = 'admin' THEN
+  IF v_role = 'admin' THEN
      -- Admin mendapat semua data
      SELECT json_agg(u) INTO v_users FROM (
        SELECT id, name, role, username, password, phone_number, child_id, email, avatar, gender FROM users
@@ -187,35 +200,35 @@ BEGIN
      SELECT json_agg(r) INTO v_records FROM records r;
      SELECT json_agg(a) INTO v_attendance FROM attendance a;
      SELECT json_agg(e) INTO v_exams FROM exams e;
-  ELSIF v_user.role = 'teacher' THEN
+  ELSIF v_role = 'teacher' THEN
      -- Guru mendapat data semua guru (minimal untuk list/absen), santri bimbingannya, log tahfidz, absen, & ujian bimbingannya
      SELECT json_agg(u) INTO v_users FROM (
        SELECT id, name, role, phone_number, gender FROM users
      ) u;
-     SELECT json_agg(s) INTO v_students FROM students s WHERE s.teacher_id = v_user.id;
+     SELECT json_agg(s) INTO v_students FROM students s WHERE s.teacher_id = v_user_id;
      
      SELECT json_agg(r) INTO v_records FROM records r 
-     WHERE r.student_id IN (SELECT id FROM students WHERE teacher_id = v_user.id);
+     WHERE r.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
      
      SELECT json_agg(a) INTO v_attendance FROM attendance a; -- Absen guru & santri
      
      SELECT json_agg(e) INTO v_exams FROM exams e
-     WHERE e.student_id IN (SELECT id FROM students WHERE teacher_id = v_user.id);
+     WHERE e.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
   ELSE
      -- Wali santri (parent) mendapat data santri miliknya saja, log tahfidz, absen, & ujian anaknya
      SELECT json_agg(u) INTO v_users FROM (
-       SELECT id, name, role, phone_number, gender FROM users WHERE id = v_user.id OR role = 'teacher'
+       SELECT id, name, role, phone_number, gender FROM users WHERE id = v_user_id OR role = 'teacher'
      ) u;
-     SELECT json_agg(s) INTO v_students FROM students s WHERE s.id = v_user.child_id;
+     SELECT json_agg(s) INTO v_students FROM students s WHERE s.id = v_child_id;
      
      SELECT json_agg(r) INTO v_records FROM records r 
-     WHERE r.student_id = v_user.child_id;
+     WHERE r.student_id = v_child_id;
      
      SELECT json_agg(a) INTO v_attendance FROM attendance a 
-     WHERE a.user_id = v_user.child_id;
+     WHERE a.user_id = v_child_id;
      
      SELECT json_agg(e) INTO v_exams FROM exams e 
-     WHERE e.student_id = v_user.child_id;
+     WHERE e.student_id = v_child_id;
   END IF;
 
   RETURN json_build_object(
