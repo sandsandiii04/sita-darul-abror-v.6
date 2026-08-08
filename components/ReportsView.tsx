@@ -565,7 +565,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
            </table>
         </div>
 
-        <div className="flex justify-between mt-auto pt-4 mb-4 px-2">
+        <div className="signature-section flex justify-between mt-auto pt-4 mb-4 px-2">
             <div className="text-center w-48">
                <p className="text-xs text-gray-600 mb-12">Mengetahui,</p>
                <p className="font-bold underline text-gray-800 text-xs">...................................</p>
@@ -718,7 +718,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
            )}
 
             {studentTab === 'hafalan' ? (
-              <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
+              <div className={`signature-section ${isExporting ? 'flex' : 'hidden print:flex'} justify-between mt-16 px-10`}>
                 <div className="text-center w-48">
                     <p className="text-sm text-gray-600 mb-20">Mengetahui,</p>
                     <p className="font-bold underline">...................................</p>
@@ -731,7 +731,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                 </div>
               </div>
             ) : (
-              <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-end mt-16 px-10`}>
+              <div className={`signature-section ${isExporting ? 'flex' : 'hidden print:flex'} justify-end mt-16 px-10`}>
                 <div className="text-center w-64">
                     <p className="text-sm text-gray-600 mb-12">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
                     <p className="font-bold text-gray-800 text-sm">Kabag Tahfiz Al Qur'an</p>
@@ -933,7 +933,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                 </div>
               )}
 
-             <div className={`${isExporting ? 'flex' : 'hidden print:flex'} justify-end mt-16 px-10`}>
+             <div className={`signature-section ${isExporting ? 'flex' : 'hidden print:flex'} justify-end mt-16 px-10`}>
                 <div className="text-center w-64">
                     <p className="text-sm text-gray-600 mb-12">Garut, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
                     <p className="font-bold text-gray-800 text-sm">Kabag Tahfiz Al Qur'an</p>
@@ -962,8 +962,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           .printable-area.exporting .parent-report-card {
             width: 210mm !important;
             max-width: 210mm !important;
-            min-height: 0 !important;
-            height: 275mm !important;
+            min-height: 275mm !important;
+            height: auto !important;
             padding: 8mm 10mm !important;
             box-shadow: none !important;
             border: none !important;
@@ -988,8 +988,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           #bulk-pdf-container .parent-report-card {
             width: 210mm !important;
             max-width: 210mm !important;
-            min-height: 0 !important;
-            height: 275mm !important;
+            min-height: 275mm !important;
+            height: auto !important;
             padding: 8mm 10mm !important;
             box-shadow: none !important;
             border: none !important;
@@ -1046,8 +1046,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             display: none !important;
           }
           
-          /* Bersihkan layout pembungkus */
-          html, body, #root, .h-screen, .flex, .overflow-hidden {
+          /* Bersihkan layout pembungkus - JANGAN sertakan .flex agar layout horizontal tidak rusak */
+          html, body, #root, [class*="h-screen"], [class*="overflow-y-auto"] {
             height: auto !important;
             overflow: visible !important;
             display: block !important;
@@ -1075,8 +1075,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             box-shadow: none !important;
             border: none !important;
             background: white !important;
-            min-height: 0 !important;
-            height: 265mm !important;
+            min-height: 265mm !important;
+            height: auto !important;
             box-sizing: border-box !important;
           }
           
@@ -1175,6 +1175,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           /* Sembunyikan tombol tab laporan santri saat cetak */
           .flex.bg-gray-100.p-1.rounded-xl {
             display: none !important;
+          }
+          /* Menghindari tanda tangan terbelah halaman */
+          .signature-section {
+            page-break-inside: avoid !important;
           }
         }
       `}</style>
