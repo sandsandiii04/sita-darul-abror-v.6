@@ -185,38 +185,54 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           backgroundColor: '#ffffff'
         });
 
-        const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
-        const leftMargin = 15;
-        const topMargin = 20;
-        const bottomMargin = 20;
         
-        const imgWidth = 180; // 210mm - 30mm margins
-        const pageHeight = 297;
-        const contentHeight = pageHeight - topMargin - bottomMargin; // 257mm printable height per page
+        // Pixel-perfect canvas slicing
+        const pageHeightPx = 1123;
+        const pageWidthPx = 794;
+        const paddingY = 60; // 16mm top/bottom margin
+        const paddingX = 45; // 12mm left/right margin
         
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let heightLeft = imgHeight;
-        let position = topMargin;
+        const contentWidthPx = pageWidthPx - paddingX * 2;
+        const contentHeightPx = pageHeightPx - paddingY * 2;
+        
+        const totalHeight = canvas.height;
+        const totalWidth = canvas.width;
+        const scale = contentWidthPx / totalWidth;
+        
+        let yOffset = 0;
+        let pageNum = 0;
 
-        pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
-        
-        // Masker putih untuk menutup margin bawah halaman 1
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
-        
-        heightLeft -= contentHeight;
-
-        while (heightLeft > 0) {
-          position = topMargin - (imgHeight - heightLeft);
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+        while (yOffset < totalHeight) {
+          if (pageNum > 0) pdf.addPage();
           
-          // Masker putih untuk menutup margin bawah halaman baru
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = pageWidthPx;
+          pageCanvas.height = pageHeightPx;
+          const ctx = pageCanvas.getContext('2d')!;
           
-          heightLeft -= contentHeight;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
+          
+          const sourceHeight = contentHeightPx / scale;
+          
+          ctx.drawImage(
+            canvas,
+            0,
+            yOffset,
+            totalWidth,
+            Math.min(sourceHeight, totalHeight - yOffset),
+            paddingX,
+            paddingY,
+            contentWidthPx,
+            Math.min(contentHeightPx, (totalHeight - yOffset) * scale)
+          );
+          
+          const pageImgData = pageCanvas.toDataURL('image/png');
+          pdf.addImage(pageImgData, 'PNG', 0, 0, 210, 297);
+          
+          yOffset += sourceHeight;
+          pageNum++;
         }
 
         // Tentukan nama file PDF yang disesuaikan
@@ -274,37 +290,52 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           backgroundColor: '#ffffff'
         });
 
-        const imgData = canvas.toDataURL('image/png');
-        const leftMargin = 15;
-        const topMargin = 20;
-        const bottomMargin = 20;
+        // Pixel-perfect canvas slicing
+        const pageHeightPx = 1123;
+        const pageWidthPx = 794;
+        const paddingY = 60; // 16mm top/bottom margin
+        const paddingX = 45; // 12mm left/right margin
         
-        const imgWidth = 180; // 210mm - 30mm margins
-        const pageHeight = 297;
-        const contentHeight = pageHeight - topMargin - bottomMargin; // 257mm printable height per page
+        const contentWidthPx = pageWidthPx - paddingX * 2;
+        const contentHeightPx = pageHeightPx - paddingY * 2;
         
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-        let heightLeft = imgHeight;
-        let position = topMargin;
+        const totalHeight = canvas.height;
+        const totalWidth = canvas.width;
+        const scale = contentWidthPx / totalWidth;
+        
+        let yOffset = 0;
+        let pageNum = 0;
 
-        pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
-        
-        // Masker putih untuk menutup margin bawah halaman 1
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
-        
-        heightLeft -= contentHeight;
-
-        while (heightLeft > 0) {
-          position = topMargin - (imgHeight - heightLeft);
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+        while (yOffset < totalHeight) {
+          if (pageNum > 0) pdf.addPage();
           
-          // Masker putih untuk menutup margin bawah halaman baru
-          pdf.setFillColor(255, 255, 255);
-          pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = pageWidthPx;
+          pageCanvas.height = pageHeightPx;
+          const ctx = pageCanvas.getContext('2d')!;
           
-          heightLeft -= contentHeight;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
+          
+          const sourceHeight = contentHeightPx / scale;
+          
+          ctx.drawImage(
+            canvas,
+            0,
+            yOffset,
+            totalWidth,
+            Math.min(sourceHeight, totalHeight - yOffset),
+            paddingX,
+            paddingY,
+            contentWidthPx,
+            Math.min(contentHeightPx, (totalHeight - yOffset) * scale)
+          );
+          
+          const pageImgData = pageCanvas.toDataURL('image/png');
+          pdf.addImage(pageImgData, 'PNG', 0, 0, 210, 297);
+          
+          yOffset += sourceHeight;
+          pageNum++;
         }
 
         // If it's not the last student, add a page for the next student
