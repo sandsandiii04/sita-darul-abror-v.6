@@ -187,20 +187,26 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
-        const imgWidth = 210;
+        const leftMargin = 10;
+        const topMargin = 12;
+        const bottomMargin = 12;
+        
+        const imgWidth = 190; // 210mm - 20mm margins
         const pageHeight = 297;
+        const contentHeight = pageHeight - topMargin - bottomMargin; // 273mm printable height
+        
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
-        let position = 0;
+        let position = topMargin;
 
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+        heightLeft -= contentHeight;
 
-        while (heightLeft > 2) {
-          position = heightLeft - imgHeight;
+        while (heightLeft > 0) {
+          position = topMargin - (imgHeight - heightLeft);
           pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          heightLeft -= pageHeight;
+          pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+          heightLeft -= contentHeight;
         }
 
         // Tentukan nama file PDF yang disesuaikan
@@ -259,18 +265,26 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         });
 
         const imgData = canvas.toDataURL('image/png');
+        const leftMargin = 10;
+        const topMargin = 12;
+        const bottomMargin = 12;
+        
+        const imgWidth = 190; // 210mm - 20mm margins
+        const pageHeight = 297;
+        const contentHeight = pageHeight - topMargin - bottomMargin; // 273mm printable height
+        
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
-        let position = 0;
+        let position = topMargin;
 
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+        pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+        heightLeft -= contentHeight;
 
-        while (heightLeft > 2) {
-          position = heightLeft - imgHeight;
+        while (heightLeft > 0) {
+          position = topMargin - (imgHeight - heightLeft);
           pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          heightLeft -= pageHeight;
+          pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+          heightLeft -= contentHeight;
         }
 
         // If it's not the last student, add a page for the next student
@@ -1186,8 +1200,11 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
       <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 print:hidden flex flex-col justify-between gap-4">
          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
              <div className="flex-1">
-                <h2 className="text-lg font-bold text-gray-800">Laporan & Rekapitulasi</h2>
-                <p className="text-sm text-gray-500">Unduh atau cetak laporan berkala</p>
+                 <h2 className="text-lg font-bold text-gray-800">Laporan & Rekapitulasi</h2>
+                 <p className="text-sm text-gray-500">Unduh atau cetak laporan berkala</p>
+                 <p className="text-[10px] text-amber-600 font-semibold mt-1 print:hidden flex items-center gap-1">
+                    💡 Tips Cetak Bersih: Hilangkan centang "Headers and footers" di opsi printer browser untuk menyembunyikan URL & tanggal.
+                 </p>
              </div>
              <div className="flex flex-wrap gap-2">
                  {reportType === 'student' && (user.role === 'teacher' || user.role === 'admin') && myStudents.length > 0 && (
