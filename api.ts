@@ -653,3 +653,51 @@ export const api = {
     }
   }
 };
+
+export const validation = {
+  formatWhatsApp(phone: string): string {
+    let cleaned = phone.replace(/\D/g, '');
+    if (!cleaned) return '';
+    if (cleaned.startsWith('08')) {
+      cleaned = '628' + cleaned.substring(2);
+    } else if (cleaned.startsWith('8')) {
+      cleaned = '628' + cleaned.substring(1);
+    } else if (!cleaned.startsWith('62') && cleaned.length >= 9) {
+      cleaned = '62' + cleaned;
+    }
+    return cleaned;
+  },
+
+  validatePhone(phone: string): { isValid: boolean; formatted: string; error?: string } {
+    if (!phone) {
+      return { isValid: true, formatted: '' };
+    }
+    const formatted = this.formatWhatsApp(phone);
+    if (formatted.length < 10 || formatted.length > 15) {
+      return { 
+        isValid: false, 
+        formatted, 
+        error: 'Nomor WhatsApp tidak valid. Panjang nomor harus antara 10-15 digit (contoh: 6281234567890).' 
+      };
+    }
+    if (!formatted.startsWith('628')) {
+      return {
+        isValid: false,
+        formatted,
+        error: 'Nomor WhatsApp Indonesia harus diawali dengan 628... atau 08...'
+      };
+    }
+    return { isValid: true, formatted };
+  },
+
+  validateName(name: string): { isValid: boolean; error?: string } {
+    if (!name || name.trim().length < 2) {
+      return { isValid: false, error: 'Nama harus memiliki minimal 2 karakter.' };
+    }
+    const forbidden = /[<>{}@$%*\[\]]/;
+    if (forbidden.test(name)) {
+      return { isValid: false, error: 'Nama tidak boleh mengandung karakter khusus seperti < > { } @ $ % * [ ]' };
+    }
+    return { isValid: true };
+  }
+};

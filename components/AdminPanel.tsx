@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { User, Student, TahfidzRecord, Grade } from '../types';
 import { UserPlus, Trash2, Users, GraduationCap, School, Upload, FileText, Download, Clipboard, ListPlus, BookOpen, Edit2 } from 'lucide-react';
+import { validation } from '../api';
 
 interface AdminPanelProps {
   users: User[];
@@ -54,85 +55,163 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     const lines = rawData.split('\n');
     let successCount = 0;
     
-    // Arrays to hold batch data
     const batchStudents: Student[] = [];
     const batchUsers: User[] = [];
     const batchRecords: TahfidzRecord[] = [];
     
-    // Filter empty lines
     const dataRows = lines.filter(line => line.trim() !== '');
+    const startIdx = (dataRows[0]?.toLowerCase().includes('nama') || dataRows[0]?.toLowerCase().includes('username') || dataRows[0]?.toLowerCase().includes('nis')) ? 1 : 0;
 
-    // Skip header if it looks like a header (contains 'Nama' or 'Username')
-    const startIdx = (dataRows[0]?.toLowerCase().includes('nama') || dataRows[0]?.toLowerCase().includes('username')) ? 1 : 0;
+    const errors: string[] = [];
 
-    dataRows.slice(startIdx).forEach(row => {
-      // Split by comma, semicolon, OR tab (for Excel copy-paste)
+    dataRows.slice(startIdx).forEach((row, index) => {
+      const lineNum = startIdx + index + 1;
       const cols = row.split(/[,;\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
       
-      if (cols.length < 2) return; // Skip invalid rows
+      if (cols.length < 2) return; // Skip baris kosong/tidak valid
 
       if (activeTab === 'santri') {
         // Format: Nama, NIS, Kelas, Halaqah, UsernameGuru, (Optional: Password)
-        if (cols.length >= 2) {
-            // Find teacher by username, or default to first teacher, or admin
-            const teacherUsername = cols[4];
-            const teacher = teachers.find(t => t.username === teacherUsername);
-            
-            const student: Student = {
-                id: 's' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 5),
-                name: cols[0] || 'Tanpa Nama',
-                nis: cols[1] || '-',
-                class: cols[2] || '-',
-                halaqah: cols[3] || '-',
-                teacherId: teacher ? teacher.id : (teachers[0]?.id || 'admin'),
-                totalJuz: 0,
-                // Default credential is NIS if not provided
-                username: cols[1] || `user${Math.floor(Math.random()*1000)}`,
-                password: cols[5] || '123'
-            };
-            batchStudents.push(student);
-            successCount++;
+        const name = cols[0];
+        const nis = cols[1];
+        if (!name || name.length < 2) {
+          errors.push(`Baris ${lineNum}: Nama santri '${name}' minimal 2 karakter.`);
+          return;
         }
+        const nameCheck = validation.validateName(name);
+        if (!nameCheck.isValid) {
+          errors.push(`Baris ${lineNum}: ${nameCheck.error}`);
+          return;
+        }
+        if (!nis || !/^\d+$/.test(nis)) {
+          errors.push(`Baris ${lineNum}: NIS '${nis}' harus berupa angka.`);
+          return;
+        }
+
+        const teacherUsername = cols[4];
+        const teacher = teachers.find(t => t.username === teacherUsername);
+        
+        const student: Student = {
+            id: 's' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 5),
+            name,
+            nis,
+            class: cols[2] || '-',
+            halaqah: cols[3] || '-',
+            teacherId: teacher ? teacher.id : (teachers[0]?.id || 'admin'),
+            totalJuz: 0,
+            username: cols[1] || `user${Math.floor(Math.random()*1000)}`,
+            password: cols[5] || '123'
+        };
+        batchStudents.push(student);
+        successCount++;
+
       } else if (activeTab === 'guru') {
         // Format: Nama, Username, Password, NoHP
-        if (cols.length >= 3) {
-          const teacher: User = {
-            id: 'u' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 5),
-            name: cols[0],
-            role: 'teacher',
-            username: cols[1],
-            password: cols[2],
-            phoneNumber: cols[3] || ''
-          };
-          batchUsers.push(teacher);
-          successCount++;
+        const name = cols[0];
+        const username = cols[1];
+        const password = cols[2];
+        const rawPhone = cols[3] || '';
+
+        if (!name || name.length < 2) {
+          errors.push(`Baris ${lineNum}: Nama guru '${name}' minimal 2 karakter.`);
+          return;
         }
-      } else if (activeTab === 'hafalan') {
-        // Format: NIS, Tanggal, Tipe(ziyadah/murojaah), Surah, Ayat Mulai, Ayat Selesai, Nilai(Lancar/Lancar Bersyarat/Belum Lancar/Ulang), Catatan
-        if (cols.length >= 7) {
-          const student = students.find(s => s.nis === cols[0]);
-          if (student) {
-             const record: TahfidzRecord = {
-                 id: 'r' + Math.random().toString(36).substr(2, 9),
-                 studentId: student.id,
-                 date: cols[1],
-                 type: (['sabaq', 'sabqi', 'manzil', 'murojaah', 'ziyadah'].includes(cols[2].toLowerCase()) 
-                   ? (cols[2].toLowerCase() as any) 
-                   : 'sabaq'),
-                 surah: cols[3],
-                 ayahStart: parseInt(cols[4]) || 1,
-                 ayahEnd: parseInt(cols[5]) || 1,
-                 grade: cols[6] ? cols[6].trim() : '100',
-                 notes: cols[7] || ''
-             };
-             batchRecords.push(record);
-             successCount++;
+        const nameCheck = validation.validateName(name);
+        if (!nameCheck.isValid) {
+          errors.push(`Baris ${lineNum}: ${nameCheck.error}`);
+          return;
+        }
+        if (!username || username.length < 2) {
+          errors.push(`Baris ${lineNum}: Username '${username}' minimal 2 karakter.`);
+          return;
+        }
+        if (!password || password.length < 3) {
+          errors.push(`Baris ${lineNum}: Password harus minimal 3 karakter.`);
+          return;
+        }
+
+        let phoneFormatted = '';
+        if (rawPhone) {
+          const phoneCheck = validation.validatePhone(rawPhone);
+          if (!phoneCheck.isValid) {
+            errors.push(`Baris ${lineNum}: ${phoneCheck.error}`);
+            return;
           }
+          phoneFormatted = phoneCheck.formatted;
         }
+
+        const teacher: User = {
+          id: 'u' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 5),
+          name,
+          role: 'teacher',
+          username,
+          password,
+          phoneNumber: phoneFormatted
+        };
+        batchUsers.push(teacher);
+        successCount++;
+
+      } else if (activeTab === 'hafalan') {
+        // Format: NIS, Tanggal, Tipe, Surah, Ayat Mulai, Ayat Selesai, Nilai, Catatan
+        const nis = cols[0];
+        const dateVal = cols[1];
+        const typeVal = cols[2]?.toLowerCase() || '';
+        const surah = cols[3];
+        const start = parseInt(cols[4]);
+        const end = parseInt(cols[5]);
+
+        if (!nis) {
+          errors.push(`Baris ${lineNum}: NIS kosong.`);
+          return;
+        }
+        const student = students.find(s => s.nis === nis);
+        if (!student) {
+          errors.push(`Baris ${lineNum}: Santri dengan NIS '${nis}' tidak ditemukan.`);
+          return;
+        }
+        if (!dateVal || !/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) {
+          errors.push(`Baris ${lineNum}: Format tanggal '${dateVal}' salah (harus YYYY-MM-DD).`);
+          return;
+        }
+        if (!['sabaq', 'sabqi', 'manzil', 'murojaah', 'ziyadah'].includes(typeVal)) {
+          errors.push(`Baris ${lineNum}: Tipe hafalan '${typeVal}' tidak valid. Harus sabaq/sabqi/manzil/murojaah/ziyadah.`);
+          return;
+        }
+        if (!surah) {
+          errors.push(`Baris ${lineNum}: Nama surat kosong.`);
+          return;
+        }
+        if (isNaN(start) || start <= 0) {
+          errors.push(`Baris ${lineNum}: Ayat Mulai harus berupa angka positif.`);
+          return;
+        }
+        if (isNaN(end) || end < start) {
+          errors.push(`Baris ${lineNum}: Ayat Akhir tidak boleh lebih kecil dari Ayat Mulai.`);
+          return;
+        }
+
+        const record: TahfidzRecord = {
+            id: 'r' + Math.random().toString(36).substr(2, 9),
+            studentId: student.id,
+            date: dateVal,
+            type: typeVal as any,
+            surah,
+            ayahStart: start,
+            ayahEnd: end,
+            grade: cols[6] ? cols[6].trim() : '100',
+            notes: cols[7] || ''
+        };
+        batchRecords.push(record);
+        successCount++;
       }
     });
 
-    // Perform Batch Update
+    if (errors.length > 0) {
+      alert(`Ditemukan ${errors.length} kesalahan format pada data massal:\n\n` + errors.slice(0, 5).join('\n') + (errors.length > 5 ? `\n...dan ${errors.length - 5} baris bermasalah lainnya.` : '') + `\n\nImpor dibatalkan demi keamanan database.`);
+      return;
+    }
+
+    // Lakukan Batch Update
     if (activeTab === 'santri' && batchStudents.length > 0) {
         onBulkAddStudents(batchStudents);
     } else if (activeTab === 'guru' && batchUsers.length > 0) {
@@ -142,10 +221,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     }
 
     if (successCount > 0) {
-        alert(`Berhasil menambahkan ${successCount} data ${activeTab}. Data akan tampil di tabel sesaat lagi.`);
+        alert(`Berhasil mengimpor ${successCount} data ${activeTab}.`);
         setBulkText('');
     } else {
-        alert("Gagal memproses data. Pastikan format sesuai.");
+        alert("Gagal memproses data. Pastikan format kolom sesuai.");
     }
   };
 
@@ -194,6 +273,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleAddStudent = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStudent.name || !newStudent.teacherId) return alert("Mohon lengkapi data");
+
+    const nameCheck = validation.validateName(newStudent.name);
+    if (!nameCheck.isValid) return alert(nameCheck.error);
+
+    if (newStudent.nis && !/^\d+$/.test(newStudent.nis)) {
+      return alert("NIS harus berupa angka saja.");
+    }
     
     const student: Student = {
       id: 's' + Date.now(),
@@ -215,13 +301,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     e.preventDefault();
     if (!newUser.name || !newUser.username || !newUser.password) return alert("Mohon lengkapi data");
 
+    const nameCheck = validation.validateName(newUser.name);
+    if (!nameCheck.isValid) return alert(nameCheck.error);
+
+    const phoneCheck = validation.validatePhone(newUser.phoneNumber);
+    if (!phoneCheck.isValid) return alert(phoneCheck.error);
+
     const teacher: User = {
       id: 'u' + Date.now(),
       name: newUser.name,
       role: 'teacher',
       username: newUser.username,
       password: newUser.password,
-      phoneNumber: newUser.phoneNumber,
+      phoneNumber: phoneCheck.formatted,
       gender: newUser.gender as 'L' | 'P' || undefined
     };
     onAddUser(teacher);
@@ -458,7 +550,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
             <h3 className="font-bold text-lg text-gray-800 mb-4">Edit Profil Guru</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
-              if (onUpdateUser) onUpdateUser(editingTeacher);
+              const nameCheck = validation.validateName(editingTeacher.name);
+              if (!nameCheck.isValid) return alert(nameCheck.error);
+
+              const phoneCheck = validation.validatePhone(editingTeacher.phoneNumber || '');
+              if (!phoneCheck.isValid) return alert(phoneCheck.error);
+
+              const updated = {
+                ...editingTeacher,
+                phoneNumber: phoneCheck.formatted
+              };
+              if (onUpdateUser) onUpdateUser(updated);
               setEditingTeacher(null);
               alert("Profil guru berhasil diperbarui");
             }} className="space-y-4">
@@ -541,6 +643,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
             <h3 className="font-bold text-lg text-gray-800 mb-4">Edit Profil Santri</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
+              const nameCheck = validation.validateName(editingStudent.name);
+              if (!nameCheck.isValid) return alert(nameCheck.error);
+
+              if (editingStudent.nis && !/^\d+$/.test(editingStudent.nis)) {
+                return alert("NIS harus berupa angka saja.");
+              }
+
               if (onUpdateStudent) onUpdateStudent(editingStudent);
               setEditingStudent(null);
               alert("Profil santri berhasil diperbarui");

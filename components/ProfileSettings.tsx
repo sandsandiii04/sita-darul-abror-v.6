@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { User } from '../types';
 import { Save, Camera, Lock, User as UserIcon, Phone, Mail, AlertCircle, Loader2 } from 'lucide-react';
+import { validation } from '../api';
 
 interface ProfileSettingsProps {
   user: User;
@@ -47,23 +48,34 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onUpdateUser })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+
     if (!formData.name || !formData.username || !formData.password) {
       setError("Nama, Username, dan Password wajib diisi.");
       return;
     }
 
-    setIsLoading(true); // Start loading
+    const nameCheck = validation.validateName(formData.name);
+    if (!nameCheck.isValid) {
+      setError(nameCheck.error || 'Nama tidak valid.');
+      return;
+    }
 
-    // Jika avatar adalah Base64 (data:image...), ini akan dikirim ke backend,
-    // diupload ke Drive, dan backend akan menyimpan URL-nya.
-    // Frontend mengirim 'data:image...', Backend menyimpannya, lalu kita berharap 
-    // sinkronisasi berikutnya akan mengambil URL-nya, atau kita update optimis.
-    
-    // Simulasi delay sedikit agar user tau sedang proses (karena upload drive butuh waktu)
-    // Di aplikasi real, onUpdateUser harus async.
-    
+    const phoneCheck = validation.validatePhone(formData.phoneNumber || '');
+    if (!phoneCheck.isValid) {
+      setError(phoneCheck.error || 'Nomor WhatsApp tidak valid.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    const updatedData = {
+      ...formData,
+      phoneNumber: phoneCheck.formatted
+    };
+
     setTimeout(() => {
-        onUpdateUser(formData);
+        onUpdateUser(updatedData);
         setIsEditing(false);
         setIsLoading(false);
         setError('');
