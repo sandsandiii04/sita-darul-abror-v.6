@@ -953,7 +953,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           .printable-area.exporting {
             width: 210mm !important;
             max-width: 210mm !important;
-            min-height: 297mm !important;
+            min-height: 0 !important;
             background: white !important;
             margin: 0 auto !important;
             padding: 0 !important;
@@ -962,8 +962,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           .printable-area.exporting .parent-report-card {
             width: 210mm !important;
             max-width: 210mm !important;
-            min-height: 297mm !important;
-            padding: 20mm 15mm !important;
+            min-height: 0 !important;
+            height: 275mm !important;
+            padding: 8mm 10mm !important;
             box-shadow: none !important;
             border: none !important;
             background: white !important;
@@ -987,12 +988,54 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           #bulk-pdf-container .parent-report-card {
             width: 210mm !important;
             max-width: 210mm !important;
-            min-height: 297mm !important;
-            padding: 20mm 15mm !important;
+            min-height: 0 !important;
+            height: 275mm !important;
+            padding: 8mm 10mm !important;
             box-shadow: none !important;
             border: none !important;
             background: white !important;
             box-sizing: border-box !important;
+          }
+          
+          /* Kompresi spasi saat mengekspor ke PDF */
+          .printable-area.exporting .parent-report-card .border-b-2 {
+            margin-bottom: 6px !important;
+            padding-bottom: 4px !important;
+          }
+          .printable-area.exporting .parent-report-card .text-center {
+            margin-bottom: 6px !important;
+          }
+          .printable-area.exporting .parent-report-card .grid {
+            margin-bottom: 6px !important;
+            gap: 6px !important;
+          }
+          .printable-area.exporting .parent-report-card div[class*="bg-emerald-50"] {
+            margin-bottom: 6px !important;
+            padding: 6px 10px !important;
+          }
+          .printable-area.exporting .parent-report-card .h-36 {
+            height: 90px !important;
+            margin-bottom: 0 !important;
+          }
+          .printable-area.exporting .parent-report-card .bg-white.p-3 {
+            margin-bottom: 6px !important;
+            padding: 4px !important;
+          }
+          .printable-area.exporting .parent-report-card .mb-4.flex-1 {
+            margin-bottom: 4px !important;
+          }
+          .printable-area.exporting .parent-report-card table th, 
+          .printable-area.exporting .parent-report-card table td {
+            padding: 3px 5px !important;
+            font-size: 10px !important;
+          }
+          .printable-area.exporting .parent-report-card .flex.justify-between.mt-auto {
+            margin-top: 4px !important;
+            padding-top: 4px !important;
+          }
+          .printable-area.exporting .parent-report-card .mb-12,
+          .printable-area.exporting .parent-report-card .mb-20 {
+            margin-bottom: 8mm !important;
           }
         }
         @media print {
@@ -1023,8 +1066,57 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             color: black !important;
           }
           
-          /* Pastikan card laporan memenuhi halaman */
-          .parent-report-card, .teacher-recap-table, .teacher-attendance-recap {
+          /* Pastikan card laporan memenuhi halaman dan dipadatkan */
+          .parent-report-card {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 6mm 8mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            min-height: 0 !important;
+            height: 265mm !important;
+            box-sizing: border-box !important;
+          }
+          
+          /* Kompresi spasi cetak */
+          .parent-report-card .border-b-2 {
+            margin-bottom: 6px !important;
+            padding-bottom: 4px !important;
+          }
+          .parent-report-card .text-center {
+            margin-bottom: 6px !important;
+          }
+          .parent-report-card .grid {
+            margin-bottom: 6px !important;
+            gap: 6px !important;
+          }
+          .parent-report-card div[class*="bg-emerald-50"] {
+            margin-bottom: 6px !important;
+            padding: 6px 10px !important;
+          }
+          .parent-report-card .h-36 {
+            height: 90px !important;
+            margin-bottom: 0 !important;
+          }
+          .parent-report-card .bg-white.p-3 {
+            margin-bottom: 6px !important;
+            padding: 4px !important;
+          }
+          .parent-report-card .mb-4.flex-1 {
+            margin-bottom: 4px !important;
+          }
+          .parent-report-card .flex.justify-between.mt-auto {
+            margin-top: 4px !important;
+            padding-top: 4px !important;
+          }
+          .parent-report-card .mb-12,
+          .parent-report-card .mb-20 {
+            margin-bottom: 8mm !important;
+          }
+
+          .teacher-recap-table, .teacher-attendance-recap {
             width: 100% !important;
             max-width: 100% !important;
             margin: 0 !important;
@@ -1038,7 +1130,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           /* Aturan halaman A4 */
           @page {
             size: A4 portrait;
-            margin: 1.2cm 1.5cm 1.2cm 1.5cm;
+            margin: 1.0cm 1.2cm 1.0cm 1.2cm;
           }
           
           /* Hapus margin atas/bawah browser default */
@@ -1051,7 +1143,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             width: 100% !important;
             border-collapse: collapse !important;
             page-break-inside: auto;
-            margin-top: 15px;
+            margin-top: 12px;
           }
           tr {
             page-break-inside: avoid !important;
@@ -1061,10 +1153,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             display: table-header-group !important;
           }
           th, td {
-            padding: 6px 8px !important;
+            padding: 4px 6px !important;
             border: 1px solid #4b5563 !important;
             color: black !important;
-            font-size: 11px !important;
+            font-size: 10px !important;
           }
           th {
             background-color: #f3f4f6 !important;
