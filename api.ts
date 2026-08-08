@@ -9,6 +9,7 @@ export interface QueueItem {
   action: ActionType;
   data: any;
   timestamp: number;
+  error?: string;
 }
 
 // 1. Inisialisasi Supabase Client
@@ -234,7 +235,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 let isProcessing = false;
 let lastSyncError: string | null = null;
-let queueChangeCallbacks: ((length: number, isSyncing: boolean, lastError: string | null) => void)[] = [];
+let queueChangeCallbacks: ((length: number, isSyncing: boolean, lastError: string | null, failedLength: number) => void)[] = [];
 
 const getQueue = (): QueueItem[] => {
   try {
@@ -250,10 +251,47 @@ const saveQueue = (queue: QueueItem[]) => {
   notifyCallbacks();
 };
 
+const getFailedQueue = (): QueueItem[] => {
+  try {
+    const q = localStorage.getItem('sita_failed_queue_v2');
+    return q ? JSON.parse(q) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveFailedQueue = (queue: QueueItem[]) => {
+  localStorage.setItem('sita_failed_queue_v2', JSON.stringify(queue));
+  notifyCallbacks();
+};
+
 const notifyCallbacks = () => {
   const len = getQueue().length;
-  queueChangeCallbacks.forEach(cb => cb(len, isProcessing, lastSyncError));
+  const failedLen = getFailedQueue().length;
+  queueChangeCallbacks.forEach(cb => cb(len, isProcessing, lastSyncError, failedLen));
 };
+
+function isTemporaryError(error: any): boolean {
+  if (!error) return false;
+  const msg = (error.message || String(error)).toLowerCase();
+  if (
+    msg.includes('fetch') ||
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('connection') ||
+    msg.includes('dns') ||
+    msg.includes('offline') ||
+    msg.includes('cors') ||
+    msg.includes('abort')
+  ) {
+    return true;
+  }
+  const code = error.code || '';
+  if (typeof code === 'string' && (code.startsWith('08') || code.startsWith('57'))) {
+    return true;
+  }
+  return false;
+}
 
 const getLoggedUser = (): User | null => {
   if (typeof window === 'undefined') return null;
@@ -286,9 +324,9 @@ async function seedIfEmpty() {
 
 export const api = {
   // Berlangganan perubahan antrean (untuk UI)
-  subscribe(cb: (length: number, isSyncing: boolean, lastError: string | null) => void) {
+  subscribe(cb: (length: number, isSyncing: boolean, lastError: string | null, failedLength: number) => void) {
     queueChangeCallbacks.push(cb);
-    cb(getQueue().length, isProcessing, lastSyncError);
+    cb(getQueue().length, isProcessing, lastSyncError, getFailedQueue().length);
     return () => {
       queueChangeCallbacks = queueChangeCallbacks.filter(c => c !== cb);
     };
@@ -445,15 +483,61 @@ export const api = {
         saveQueue(updatedQueue);
         lastSyncError = null;
         console.log(`Berhasil sinkronisasi Supabase: ${item.action}`, item.data);
-      } catch (error: any) {
-        console.error(`Gagal sinkronisasi Supabase ${item.id} (${item.action}):`, error);
-        lastSyncError = error?.message || String(error);
-        break;
+      } catch (err: any) {
+        console.error(`Gagal sinkronisasi Supabase ${item.id} (${item.action}):`, err);
+        const errMsg = err?.message || String(err);
+        
+        if (isTemporaryError(err)) {
+          // Error sementara (jaringan/timeout): tangguhkan antrean, coba lagi nanti
+          lastSyncError = errMsg;
+          break;
+        } else {
+          // Error permanen (database constraint/format salah): pindahkan ke failed queue (DLQ) agar tidak memacetkan antrean data lain
+          const failedQueue = getFailedQueue();
+          failedQueue.push({
+            ...item,
+            error: errMsg
+          });
+          saveFailedQueue(failedQueue);
+          
+          // Hapus dari antrean aktif karena tidak bisa diproses
+          const updatedQueue = getQueue().filter(q => q.id !== item.id);
+          saveQueue(updatedQueue);
+          
+          console.warn(`Data dengan error permanen dipindahkan ke DLQ: ${item.action}`, item.data);
+        }
       }
     }
 
     isProcessing = false;
     notifyCallbacks();
+  },
+
+  getFailedQueue(): QueueItem[] {
+    return getFailedQueue();
+  },
+
+  clearFailedQueue() {
+    saveFailedQueue([]);
+  },
+
+  retryFailedQueue() {
+    const failed = getFailedQueue();
+    if (failed.length === 0) return;
+    
+    const active = getQueue();
+    const combined = [...active];
+    failed.forEach(item => {
+      if (!combined.some(c => c.id === item.id)) {
+        const { error, ...cleanItem } = item;
+        combined.push(cleanItem);
+      }
+    });
+    
+    saveQueue(combined);
+    saveFailedQueue([]);
+    
+    this.processQueue();
   },
 
   // Fungsi Login menggunakan RPC

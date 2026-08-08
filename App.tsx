@@ -11,7 +11,7 @@ import AdminPanel from './components/AdminPanel';
 import ReportsView from './components/ReportsView';
 import ProfileSettings from './components/ProfileSettings';
 import TutorialGuide from './components/TutorialGuide';
-import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw } from 'lucide-react';
+import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
 import { api } from './api';
 
@@ -331,15 +331,23 @@ const App: React.FC = () => {
   const [showDbConfig, setShowDbConfig] = useState(false);
 
   const [queueLength, setQueueLength] = useState(api.getQueueLength());
+  const [failedQueueLength, setFailedQueueLength] = useState(0);
   const [isSyncing, setIsSyncing] = useState(api.isSyncing());
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   useEffect(() => {
-    const unsubscribe = api.subscribe((len, syncing, lastError) => {
+    // Ambil jumlah antrean gagal awal
+    try {
+      const q = localStorage.getItem('sita_failed_queue_v2');
+      if (q) setFailedQueueLength(JSON.parse(q).length);
+    } catch (e) {}
+
+    const unsubscribe = api.subscribe((len, syncing, lastError, failedLen) => {
       setQueueLength(len);
       setIsSyncing(syncing);
       setSyncError(lastError);
+      setFailedQueueLength(failedLen);
     });
     return unsubscribe;
   }, []);
@@ -641,6 +649,7 @@ const App: React.FC = () => {
       )}
       <SyncStatusWidget 
         queueLength={queueLength} 
+        failedQueueLength={failedQueueLength}
         isSyncing={isSyncing} 
         isOnline={isOnline} 
         syncError={syncError} 
@@ -653,12 +662,14 @@ const App: React.FC = () => {
 
 const SyncStatusWidget = ({ 
   queueLength, 
+  failedQueueLength,
   isSyncing, 
   isOnline, 
   syncError,
   onOpenDbConfig
 }: { 
   queueLength: number, 
+  failedQueueLength: number,
   isSyncing: boolean, 
   isOnline: boolean, 
   syncError: string | null,
@@ -666,7 +677,7 @@ const SyncStatusWidget = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  if (queueLength === 0) {
+  if (queueLength === 0 && failedQueueLength === 0) {
     if (!isOnline) {
       return (
         <div className="fixed bottom-4 right-4 z-50 pointer-events-auto no-print">
@@ -693,23 +704,32 @@ const SyncStatusWidget = ({
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-xs w-full pointer-events-auto no-print">
       <div className={`border rounded-2xl shadow-xl p-4 transition-all duration-300 animate-fade-in ${
-        !isOnline 
-          ? 'bg-red-50 border-red-200 text-red-800' 
-          : 'bg-orange-50 border-orange-200 text-orange-800'
+        failedQueueLength > 0
+          ? 'bg-rose-50 border-rose-200 text-rose-800'
+          : !isOnline 
+            ? 'bg-red-50 border-red-200 text-red-800' 
+            : 'bg-orange-50 border-orange-200 text-orange-800'
       }`}>
         <div className="flex items-start gap-3 justify-between">
           <div className="flex gap-2">
-            {!isOnline ? (
+            {failedQueueLength > 0 ? (
+              <AlertTriangle className="text-rose-500 shrink-0 mt-0.5" size={18} />
+            ) : !isOnline ? (
               <WifiOff className="text-red-500 shrink-0 mt-0.5" size={18} />
             ) : (
               <RefreshCw className={`text-orange-500 shrink-0 mt-0.5 ${isSyncing ? 'animate-spin' : ''}`} size={18} />
             )}
             <div>
               <h4 className="font-bold text-sm">
-                {!isOnline ? 'Koneksi Terputus (Offline)' : 'Sinkronisasi Tertunda'}
+                {failedQueueLength > 0 
+                  ? 'Sinkronisasi Gagal' 
+                  : !isOnline 
+                    ? 'Koneksi Terputus (Offline)' 
+                    : 'Sinkronisasi Tertunda'}
               </h4>
-              <p className="text-xs mt-1 font-medium opacity-90">
-                Ada {queueLength} data baru disimpan lokal.
+              <p className="text-xs mt-1 font-medium opacity-90 leading-relaxed">
+                {queueLength > 0 && <span>Ada {queueLength} data disimpan lokal.</span>}
+                {failedQueueLength > 0 && <span className="block font-semibold text-rose-700">Terdapat {failedQueueLength} data ditolak server.</span>}
               </p>
               {syncError && (
                 <div className="mt-1">
@@ -736,50 +756,75 @@ const SyncStatusWidget = ({
 
         {isOpen && (
           <div className="mt-3 pt-3 border-t border-black/10 text-[10px] leading-relaxed opacity-80">
-            Aplikasi SITA mendukung penuh mode offline. Anda tetap bisa melakukan absensi QR atau mencatat hafalan secara lokal. Data aman disimpan di perangkat ini dan akan langsung disinkronkan otomatis saat terhubung internet kembali.
+            {failedQueueLength > 0 
+              ? 'Ada data yang ditolak oleh server database Supabase (misalnya karena duplikasi ID data atau ketidakcocokan format). Data gagal ini aman disimpan secara terpisah dan tidak akan menghalangi data baru lainnya.' 
+              : 'Aplikasi SITA mendukung penuh mode offline. Anda tetap bisa melakukan absensi QR atau mencatat hafalan secara lokal. Data aman disimpan di perangkat ini dan akan langsung disinkronkan otomatis saat terhubung internet kembali.'}
           </div>
         )}
 
-        {isOnline && (
-          <div className="flex gap-2 mt-3">
-            <button
-              onClick={() => {
-                if (confirm('Apakah Anda yakin ingin menghapus semua antrean data yang belum tersinkronisasi?')) {
-                  localStorage.setItem('sita_sync_queue_v2', '[]');
-                  window.location.reload();
-                }
-              }}
-              className="flex-1 bg-white hover:bg-red-50 text-red-600 font-bold py-1.5 px-3 rounded-xl border border-red-200 text-xs transition-colors flex items-center justify-center gap-1 shadow-sm"
-            >
-              Hapus Antrean
-            </button>
-            <button
-              onClick={() => {
-                if (syncError === "Supabase belum dikonfigurasi." && onOpenDbConfig) {
-                  onOpenDbConfig();
-                } else {
-                  api.processQueue();
-                }
-              }}
-              disabled={isSyncing}
-              className={`flex-1 font-bold py-1.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-1 shadow-sm disabled:opacity-50 ${
-                syncError === "Supabase belum dikonfigurasi."
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-              }`}
-            >
-              {isSyncing ? (
-                <>
-                  <RefreshCw size={12} className="animate-spin" /> Menyinkronkan...
-                </>
-              ) : syncError === "Supabase belum dikonfigurasi." ? (
-                'Konfigurasi'
-              ) : (
-                'Sinkron'
-              )}
-            </button>
-          </div>
-        )}
+        <div className="flex gap-2 mt-3">
+          {failedQueueLength > 0 ? (
+            <>
+              <button
+                onClick={() => {
+                  if (confirm('Apakah Anda yakin ingin menghapus data gagal? Data ini tidak akan dikirim kembali.')) {
+                    api.clearFailedQueue();
+                  }
+                }}
+                className="flex-1 bg-white hover:bg-rose-100 text-rose-600 font-bold py-1.5 px-3 rounded-xl border border-rose-200 text-xs transition-colors flex items-center justify-center gap-1 shadow-sm"
+              >
+                Hapus Gagal
+              </button>
+              <button
+                onClick={() => {
+                  api.retryFailedQueue();
+                }}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-1 shadow-sm"
+              >
+                Coba Lagi
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  if (confirm('Apakah Anda yakin ingin menghapus semua antrean data yang belum tersinkronisasi?')) {
+                    localStorage.setItem('sita_sync_queue_v2', '[]');
+                    window.location.reload();
+                  }
+                }}
+                className="flex-1 bg-white hover:bg-red-50 text-red-600 font-bold py-1.5 px-3 rounded-xl border border-red-200 text-xs transition-colors flex items-center justify-center gap-1 shadow-sm"
+              >
+                Hapus Antrean
+              </button>
+              <button
+                onClick={() => {
+                  if (syncError === "Supabase belum dikonfigurasi." && onOpenDbConfig) {
+                    onOpenDbConfig();
+                  } else {
+                    api.processQueue();
+                  }
+                }}
+                disabled={isSyncing}
+                className={`flex-1 font-bold py-1.5 px-3 rounded-xl text-xs transition-colors flex items-center justify-center gap-1 shadow-sm disabled:opacity-50 ${
+                  syncError === "Supabase belum dikonfigurasi."
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                }`}
+              >
+                {isSyncing ? (
+                  <>
+                    <RefreshCw size={12} className="animate-spin" /> Menyinkronkan...
+                  </>
+                ) : syncError === "Supabase belum dikonfigurasi." ? (
+                  'Konfigurasi'
+                ) : (
+                  'Sinkron'
+                )}
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
