@@ -187,24 +187,35 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
-        const leftMargin = 10;
-        const topMargin = 12;
+        const leftMargin = 15;
+        const topMargin = 20;
+        const bottomMargin = 20;
         
-        const imgWidth = 190; // 210mm - 20mm margins
+        const imgWidth = 180; // 210mm - 30mm margins
         const pageHeight = 297;
-        const contentHeight = pageHeight - topMargin; // 285mm actual visible content height per page
+        const contentHeight = pageHeight - topMargin - bottomMargin; // 257mm printable height per page
         
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
         let position = topMargin;
 
         pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+        
+        // Masker putih untuk menutup margin bawah halaman 1
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
+        
         heightLeft -= contentHeight;
 
         while (heightLeft > 0) {
           position = topMargin - (imgHeight - heightLeft);
           pdf.addPage();
           pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+          
+          // Masker putih untuk menutup margin bawah halaman baru
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
+          
           heightLeft -= contentHeight;
         }
 
@@ -264,24 +275,35 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         });
 
         const imgData = canvas.toDataURL('image/png');
-        const leftMargin = 10;
-        const topMargin = 12;
+        const leftMargin = 15;
+        const topMargin = 20;
+        const bottomMargin = 20;
         
-        const imgWidth = 190; // 210mm - 20mm margins
+        const imgWidth = 180; // 210mm - 30mm margins
         const pageHeight = 297;
-        const contentHeight = pageHeight - topMargin; // 285mm actual visible content height per page
+        const contentHeight = pageHeight - topMargin - bottomMargin; // 257mm printable height per page
         
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
         let position = topMargin;
 
         pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+        
+        // Masker putih untuk menutup margin bawah halaman 1
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
+        
         heightLeft -= contentHeight;
 
         while (heightLeft > 0) {
           position = topMargin - (imgHeight - heightLeft);
           pdf.addPage();
           pdf.addImage(imgData, 'PNG', leftMargin, position, imgWidth, imgHeight);
+          
+          // Masker putih untuk menutup margin bawah halaman baru
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(0, pageHeight - bottomMargin, 210, bottomMargin, 'F');
+          
           heightLeft -= contentHeight;
         }
 
