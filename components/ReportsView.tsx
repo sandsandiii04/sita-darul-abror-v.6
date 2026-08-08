@@ -180,6 +180,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         const canvas = await html2canvas(element, {
           scale: 2,
           useCORS: true,
+          allowTaint: true,
           logging: false,
           backgroundColor: '#ffffff'
         });
@@ -252,6 +253,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         const canvas = await html2canvas(element, {
           scale: 2,
           useCORS: true,
+          allowTaint: true,
           logging: false,
           backgroundColor: '#ffffff'
         });
@@ -478,8 +480,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                   contentStyle={{ borderRadius: '6px', border: 'none', boxShadow: '0 2px 4px -1px rgb(0 0 0 / 0.05)', fontSize: '10px' }}
                 />
                 <Legend wrapperStyle={{ fontSize: '9px' }} />
-                <Bar name="Sabaq (Setoran Baru)" dataKey="sabaq" fill="#10b981" radius={[2, 2, 0, 0]} />
-                <Bar name="Muroja'ah (Ulang)" dataKey="murojaah" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                <Bar name="Sabaq (Setoran Baru)" dataKey="sabaq" fill="#10b981" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+                <Bar name="Muroja'ah (Ulang)" dataKey="murojaah" fill="#3b82f6" radius={[2, 2, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -994,45 +996,72 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           }
         }
         @media print {
-          /* Sembunyikan sidebar, navbar, tombol, filter, dan elemen UI lainnya */
-          body * {
-            visibility: hidden;
+          /* Sembunyikan seluruh UI luar secara total agar tidak memakan ruang layout */
+          aside, nav, header, footer, button, select, input, 
+          .print-hidden, .print\\:hidden,
+          .bg-white.p-4.md\\:p-6.rounded-xl.print\\:hidden {
+            display: none !important;
           }
-          /* Hanya tampilkan area laporan */
-          .printable-area, .printable-area * {
-            visibility: visible;
+          
+          /* Bersihkan layout pembungkus */
+          html, body, #root, .h-screen, .flex, .overflow-hidden {
+            height: auto !important;
+            overflow: visible !important;
+            display: block !important;
+            background: white !important;
           }
+          
+          /* Halaman utama cetak */
           .printable-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
             background: white !important;
             color: black !important;
-            padding: 0 !important;
-            margin: 0 !important;
           }
+          
+          /* Pastikan card laporan memenuhi halaman */
+          .parent-report-card, .teacher-recap-table, .teacher-attendance-recap {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            min-height: 0 !important;
+          }
+
           /* Aturan halaman A4 */
           @page {
             size: A4 portrait;
-            margin: 1.5cm;
+            margin: 1.2cm 1.5cm 1.2cm 1.5cm;
           }
-          /* Merapikan tabel dan memecah halaman */
+          
+          /* Hapus margin atas/bawah browser default */
+          body {
+            margin: 0 !important;
+          }
+
+          /* Kerapihan tabel */
           table {
             width: 100% !important;
             border-collapse: collapse !important;
             page-break-inside: auto;
-            margin-top: 10px;
+            margin-top: 15px;
           }
           tr {
-            page-break-inside: avoid;
+            page-break-inside: avoid !important;
             page-break-after: auto;
           }
           thead {
-            display: table-header-group;
+            display: table-header-group !important;
           }
           th, td {
-            padding: 8px !important;
+            padding: 6px 8px !important;
             border: 1px solid #4b5563 !important;
             color: black !important;
             font-size: 11px !important;
@@ -1050,6 +1079,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           }
           .rounded-xl, .rounded-lg, .rounded-2xl {
             border-radius: 0 !important;
+          }
+          /* Sembunyikan tombol tab laporan santri saat cetak */
+          .flex.bg-gray-100.p-1.rounded-xl {
+            display: none !important;
           }
         }
       `}</style>
