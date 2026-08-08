@@ -189,11 +189,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         const pdf = new jsPDF('p', 'mm', 'a4');
         const leftMargin = 10;
         const topMargin = 12;
-        const bottomMargin = 12;
         
         const imgWidth = 190; // 210mm - 20mm margins
         const pageHeight = 297;
-        const contentHeight = pageHeight - topMargin - bottomMargin; // 273mm printable height
+        const contentHeight = pageHeight - topMargin; // 285mm actual visible content height per page
         
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
@@ -267,11 +266,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
         const imgData = canvas.toDataURL('image/png');
         const leftMargin = 10;
         const topMargin = 12;
-        const bottomMargin = 12;
         
         const imgWidth = 190; // 210mm - 20mm margins
         const pageHeight = 297;
-        const contentHeight = pageHeight - topMargin - bottomMargin; // 273mm printable height
+        const contentHeight = pageHeight - topMargin; // 285mm actual visible content height per page
         
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
