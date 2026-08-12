@@ -258,7 +258,8 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                                     date: getLocalDateString(),
                                     session: quickSession,
                                     status: 'present',
-                                    type: 'teacher'
+                                    type: 'teacher',
+                                    qrToken: 'SITA_ABSENSI_GURU_TETAP'
                                 };
                                 onQuickAttendance(att);
                                 setShowQuickScan(false);

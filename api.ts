@@ -178,7 +178,8 @@ const mapAttendanceToDb = (model: Attendance): any => ({
   approval_status: model.approvalStatus || null,
   type: model.type,
   class: model.class || null,
-  late_reason: model.lateReason || null
+  late_reason: model.lateReason || null,
+  qr_token: model.qrToken || null
 });
 
 const mapAttendanceOpenRequestFromDb = (row: any): AttendanceOpenRequest => ({
@@ -530,6 +531,10 @@ export const api = {
     failed.forEach(item => {
       if (!combined.some(c => c.id === item.id)) {
         const { error, ...cleanItem } = item;
+        // Inject qrToken for teacher attendance recovery
+        if (cleanItem.action === 'markAttendance' && cleanItem.data && cleanItem.data.type === 'teacher') {
+          cleanItem.data.qrToken = 'SITA_ABSENSI_GURU_TETAP';
+        }
         combined.push(cleanItem);
       }
     });

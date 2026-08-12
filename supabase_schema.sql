@@ -261,7 +261,13 @@ BEGIN
   WHERE username = p_username AND (password = p_password OR password = crypt(p_password, password));
   
   IF NOT FOUND THEN
-    RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial tidak valid');
+     -- Akses Khusus untuk Absen Cepat Guru (tanpa login) menggunakan QR Code yang valid
+     IF p_table = 'attendance' AND p_data->>'type' = 'teacher' AND p_data->>'status' = 'present' AND p_data->>'qr_token' = 'SITA_ABSENSI_GURU_TETAP' THEN
+        v_role := 'teacher';
+        v_user_id := p_data->>'user_id';
+     ELSE
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial tidak valid');
+     END IF;
   END IF;
 
   -- 2. Validasi Hak Akses (Otorisasi)

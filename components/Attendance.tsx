@@ -892,7 +892,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                 <h3 className="font-bold text-lg text-gray-800 mb-4 text-center">Scan QR Code Absensi</h3>
                 <QRScanner 
                     onScanSuccess={(text) => {
-                        if (text === "SITA_ABSENSI_GURU_TETAP") {
+                        if (text.trim() === "SITA_ABSENSI_GURU_TETAP" || text.includes("absen=guru")) {
                             const success = handleStatusClick(user.id, 'present');
                             if (success) {
                                 setShowScanner(false);

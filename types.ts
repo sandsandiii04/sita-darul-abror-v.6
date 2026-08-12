@@ -56,6 +56,7 @@ export interface Attendance {
   type: 'student' | 'teacher';
   class?: string;
   lateReason?: string; // New field for late attendance explanation
+  qrToken?: string; // Add this line
 }
 
 export interface AttendanceOpenRequest {
