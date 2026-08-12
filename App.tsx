@@ -329,6 +329,11 @@ const App: React.FC = () => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [showDbConfig, setShowDbConfig] = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
+
+  useEffect(() => {
+    setHasFetched(false);
+  }, [user]);
 
   const [queueLength, setQueueLength] = useState(api.getQueueLength());
   const [failedQueueLength, setFailedQueueLength] = useState(0);
@@ -358,72 +363,99 @@ const App: React.FC = () => {
     const action = params.get('action');
     const id = params.get('id');
     
-    if ((action === 'approve' || action === 'reject') && id && attendance.length > 0) {
-      if (!user || user.role !== 'admin') {
+    // Magic links untuk persetujuan absensi
+    if ((action === 'approve' || action === 'reject') && id) {
+      if (!user) {
+        // User belum login, tunggu proses login
+        return;
+      }
+      if (user.role !== 'admin') {
         alert("Akses Ditolak: Hanya Admin yang dapat menyetujui atau menolak pengajuan ini! Silakan login sebagai Admin.");
         window.history.replaceState({}, document.title, window.location.pathname);
-      } else {
-        const targetAtt = attendance.find(a => a.id === id);
-        if (targetAtt) {
-          if (targetAtt.approvalStatus !== 'approved' && targetAtt.approvalStatus !== 'rejected') {
-            const updatedStatus = action === 'approve' ? 'approved' : 'rejected';
-            const updatedAtt: Attendance = {
-              ...targetAtt,
-              approvalStatus: updatedStatus
-            };
-            
-            // Update state
-            setAttendance(prev => prev.map(a => a.id === id ? updatedAtt : a));
-            
-            // Sync to cloud
-            const teacher = users.find(u => u.id === targetAtt.userId);
-            api.send('markAttendance', {
-              ...updatedAtt,
-              userId: teacher ? `${teacher.id} | ${teacher.name}` : targetAtt.userId,
-              class: 'GURU'
-            });
-            
-            alert(`Absensi Guru ${params.get('name') || ''} telah berhasil ${action === 'approve' ? 'DISETUJUI' : 'DITOLAK'}!`);
-          }
-          // Clear query parameters
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
+        return;
       }
+      if (!hasFetched) {
+        // Tunggu data selesai dimuat dari Supabase
+        return;
+      }
+
+      const targetAtt = attendance.find(a => a.id === id);
+      if (targetAtt) {
+        if (targetAtt.approvalStatus !== 'approved' && targetAtt.approvalStatus !== 'rejected') {
+          const updatedStatus = action === 'approve' ? 'approved' : 'rejected';
+          const updatedAtt: Attendance = {
+            ...targetAtt,
+            approvalStatus: updatedStatus
+          };
+          
+          // Update state
+          setAttendance(prev => prev.map(a => a.id === id ? updatedAtt : a));
+          
+          // Sync to cloud
+          const teacher = users.find(u => u.id === targetAtt.userId);
+          api.send('markAttendance', {
+            ...updatedAtt,
+            userId: teacher ? `${teacher.id} | ${teacher.name}` : targetAtt.userId,
+            class: 'GURU'
+          });
+          
+          alert(`Absensi Guru ${params.get('name') || ''} telah berhasil ${action === 'approve' ? 'DISETUJUI' : 'DITOLAK'}!`);
+        } else {
+          alert(`Absensi Guru ${params.get('name') || ''} sudah ${targetAtt.approvalStatus === 'approved' ? 'DISETUJUI' : 'DITOLAK'} sebelumnya.`);
+        }
+      } else {
+        alert("Data pengajuan absensi tidak ditemukan!");
+      }
+      // Clear query parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     // Magic links untuk buka akses absen terlambat
-    if ((action === 'approveRequest' || action === 'rejectRequest') && id && attendanceOpenRequests.length > 0) {
-      if (!user || user.role !== 'admin') {
+    if ((action === 'approveRequest' || action === 'rejectRequest') && id) {
+      if (!user) {
+        // User belum login, tunggu proses login
+        return;
+      }
+      if (user.role !== 'admin') {
         alert("Akses Ditolak: Hanya Admin yang dapat menyetujui atau menolak permohonan ini! Silakan login sebagai Admin.");
         window.history.replaceState({}, document.title, window.location.pathname);
-      } else {
-        const targetReq = attendanceOpenRequests.find(r => r.id === id);
-        if (targetReq) {
-          if (targetReq.status === 'pending') {
-            const updatedStatus = action === 'approveRequest' ? 'approved' : 'rejected';
-            const updatedReq: AttendanceOpenRequest = {
-              ...targetReq,
-              status: updatedStatus
-            };
-            
-            // Update state
-            setAttendanceOpenRequests(prev => prev.map(r => r.id === id ? updatedReq : r));
-            
-            // Sync to cloud
-            const teacher = users.find(u => u.id === targetReq.teacherId);
-            api.send('addAttendanceOpenRequest', {
-              ...updatedReq,
-              teacherId: teacher ? `${teacher.id} | ${teacher.name}` : targetReq.teacherId
-            });
-            
-            alert(`Permintaan akses absen Guru ${params.get('name') || ''} telah berhasil ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
-          }
-          // Clear query parameters
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
+        return;
       }
+      if (!hasFetched) {
+        // Tunggu data selesai dimuat dari Supabase
+        return;
+      }
+
+      const targetReq = attendanceOpenRequests.find(r => r.id === id);
+      if (targetReq) {
+        if (targetReq.status === 'pending') {
+          const updatedStatus = action === 'approveRequest' ? 'approved' : 'rejected';
+          const updatedReq: AttendanceOpenRequest = {
+            ...targetReq,
+            status: updatedStatus
+          };
+          
+          // Update state
+          setAttendanceOpenRequests(prev => prev.map(r => r.id === id ? updatedReq : r));
+          
+          // Sync to cloud
+          const teacher = users.find(u => u.id === targetReq.teacherId);
+          api.send('addAttendanceOpenRequest', {
+            ...updatedReq,
+            teacherId: teacher ? `${teacher.id} | ${teacher.name}` : targetReq.teacherId
+          });
+          
+          alert(`Permintaan akses absen Guru ${params.get('name') || ''} telah berhasil ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
+        } else {
+          alert(`Permintaan akses absen Guru ${params.get('name') || ''} sudah ${targetReq.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'} sebelumnya.`);
+        }
+      } else {
+        alert("Data pengajuan buka akses absensi tidak ditemukan!");
+      }
+      // Clear query parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, [attendance, attendanceOpenRequests, user, users]);
+  }, [attendance, attendanceOpenRequests, user, users, hasFetched]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -468,6 +500,7 @@ const App: React.FC = () => {
                setAttendanceOpenRequests(data.openRequests || []);
                
                setConnectionError(null);
+               setHasFetched(true);
             } else if (!isSilent) setConnectionError('fetch_failed');
         } catch (e) {
             if (!isSilent) setConnectionError('fetch_failed');

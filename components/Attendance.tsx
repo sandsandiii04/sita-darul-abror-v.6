@@ -196,17 +196,21 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     }
   }
 
-  const handleStatusClick = (subjectId: string, status: Attendance['status']) => {
-    if (user.role === 'parent') return;
+  const handleStatusClick = (subjectId: string, status: Attendance['status']): boolean => {
+    if (user.role === 'parent') return false;
     if (!date) {
       alert('Mohon pilih tanggal absensi terlebih dahulu!');
-      return;
+      return false;
     }
 
     const currentLock = checkSessionLock(session);
     if (currentLock.locked && user.role !== 'admin') {
-      alert(currentLock.reason);
-      return;
+      // Allow teacher to submit sick or permission request even if locked (late)
+      const isTeacherPermissionOrSick = type === 'teacher' && (status === 'sick' || status === 'permission');
+      if (!isTeacherPermissionOrSick) {
+        alert(currentLock.reason);
+        return false;
+      }
     }
 
     const existing = attendance.find(a => a.userId === subjectId && a.date === date && a.type === type && a.session === session);
@@ -216,7 +220,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       if (onDeleteAttendance) {
         onDeleteAttendance(existing.id);
       }
-      return;
+      return true;
     }
 
     // Tanya alasan izin/sakit jika absensi diri guru
@@ -224,10 +228,10 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     if (type === 'teacher' && (status === 'sick' || status === 'permission')) {
       const promptMsg = status === 'sick' ? 'Masukkan alasan / keterangan Sakit:' : 'Masukkan alasan / keterangan Izin:';
       const userInput = prompt(promptMsg);
-      if (userInput === null) return; // User cancelled
+      if (userInput === null) return false; // User cancelled
       if (!userInput.trim()) {
         alert('Keterangan alasan wajib diisi!');
-        return;
+        return false;
       }
       reasonText = userInput.trim();
     }
@@ -276,6 +280,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
         }
     }
+    return true;
   };
 
   const handleApproval = (record: Attendance, approve: boolean, subjectPhone?: string) => {
@@ -721,8 +726,29 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                {isTeacherSelfLocked || (lockInfo.locked && user.role !== 'admin') ? (
                    // LOCKED VIEW
                    record ? getLockedStatusDisplay(record) : (
-                      <div className="w-full p-2.5 rounded-lg border border-dashed border-gray-200 bg-gray-50 text-gray-400 flex items-center justify-center gap-1.5 font-bold text-xs">
-                          <Lock size={14} /> ABSENSI TERKUNCI (DILUAR JAM)
+                      <div className="flex flex-col gap-2 w-full">
+                          <div className="w-full p-2.5 rounded-lg border border-dashed border-gray-200 bg-gray-50 text-gray-400 flex items-center justify-center gap-1.5 font-bold text-xs">
+                              <Lock size={14} /> ABSENSI HADIR TERKUNCI (DILUAR JAM)
+                          </div>
+                          {/* Show Sick and Permission buttons anyway for Teacher self-attendance */}
+                          {type === 'teacher' && user.role === 'teacher' && (
+                            <div className="grid grid-cols-2 gap-2 mt-1">
+                              <button 
+                                onClick={() => handleStatusClick(subject.id, 'sick')}
+                                className="py-2.5 rounded-xl flex flex-col items-center justify-center border transition-all duration-200 bg-amber-500/10 border-amber-500/20 text-amber-700 hover:bg-amber-500 hover:text-white"
+                              >
+                                <span className="text-sm font-black">S</span>
+                                <span className="text-[9px] font-bold mt-0.5 opacity-90">Laporkan Sakit</span>
+                              </button>
+                              <button 
+                                onClick={() => handleStatusClick(subject.id, 'permission')}
+                                className="py-2.5 rounded-xl flex flex-col items-center justify-center border transition-all duration-200 bg-sky-500/10 border-sky-500/20 text-sky-700 hover:bg-sky-500 hover:text-white"
+                              >
+                                <span className="text-sm font-black">I</span>
+                                <span className="text-[9px] font-bold mt-0.5 opacity-90">Laporkan Izin</span>
+                              </button>
+                            </div>
+                          )}
                       </div>
                    )
                ) : (
@@ -867,9 +893,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                 <QRScanner 
                     onScanSuccess={(text) => {
                         if (text === "SITA_ABSENSI_GURU_TETAP") {
-                            handleStatusClick(user.id, 'present');
-                            setShowScanner(false);
-                            alert("Absensi berhasil dicatat: HADIR.");
+                            const success = handleStatusClick(user.id, 'present');
+                            if (success) {
+                                setShowScanner(false);
+                                alert("Absensi berhasil dicatat: HADIR.");
+                            }
                         } else {
                             alert("QR Code tidak valid untuk absensi SITA.");
                         }

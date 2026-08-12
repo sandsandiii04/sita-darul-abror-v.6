@@ -172,6 +172,7 @@ DECLARE
   v_records JSON;
   v_attendance JSON;
   v_exams JSON;
+  v_open_requests JSON;
   v_role TEXT;
   v_user_id TEXT;
   v_child_id TEXT;
@@ -200,6 +201,7 @@ BEGIN
      SELECT json_agg(r) INTO v_records FROM records r;
      SELECT json_agg(a) INTO v_attendance FROM attendance a;
      SELECT json_agg(e) INTO v_exams FROM exams e;
+     SELECT json_agg(o) INTO v_open_requests FROM attendance_open_requests o;
   ELSIF v_role = 'teacher' THEN
      -- Guru mendapat data semua guru (minimal untuk list/absen), santri bimbingannya, log tahfidz, absen, & ujian bimbingannya
      SELECT json_agg(u) INTO v_users FROM (
@@ -214,6 +216,8 @@ BEGIN
      
      SELECT json_agg(e) INTO v_exams FROM exams e
      WHERE e.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
+     
+     SELECT json_agg(o) INTO v_open_requests FROM attendance_open_requests o WHERE o.teacher_id = v_user_id;
   ELSE
      -- Wali santri (parent) mendapat data santri miliknya saja, log tahfidz, absen, & ujian anaknya
      SELECT json_agg(u) INTO v_users FROM (
@@ -229,6 +233,8 @@ BEGIN
      
      SELECT json_agg(e) INTO v_exams FROM exams e 
      WHERE e.student_id = v_child_id;
+     
+     v_open_requests := '[]'::json;
   END IF;
 
   RETURN json_build_object(
@@ -237,7 +243,8 @@ BEGIN
     'students', COALESCE(v_students, '[]'::json),
     'records', COALESCE(v_records, '[]'::json),
     'attendance', COALESCE(v_attendance, '[]'::json),
-    'exams', COALESCE(v_exams, '[]'::json)
+    'exams', COALESCE(v_exams, '[]'::json),
+    'open_requests', COALESCE(v_open_requests, '[]'::json)
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

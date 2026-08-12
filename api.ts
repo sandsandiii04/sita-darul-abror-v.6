@@ -622,20 +622,11 @@ export const api = {
         records?: any[];
         attendance?: any[];
         exams?: any[];
+        open_requests?: any[];
       };
 
       if (!result.success) {
         throw new Error(result.message || "Gagal memuat data aman.");
-      }
-
-      let openRequests: any[] = [];
-      try {
-        const { data: reqData, error: reqError } = await supabase.from('attendance_open_requests').select('*');
-        if (!reqError && reqData) {
-          openRequests = reqData;
-        }
-      } catch (e) {
-        console.warn("Table attendance_open_requests might not exist:", e);
       }
 
       console.log("Data loaded securely from Supabase RPC");
@@ -645,7 +636,7 @@ export const api = {
         records: (result.records || []).map(mapRecordFromDb),
         attendance: (result.attendance || []).map(mapAttendanceFromDb),
         exams: (result.exams || []).map(mapExamFromDb),
-        openRequests: openRequests.map(mapAttendanceOpenRequestFromDb)
+        openRequests: (result.open_requests || []).map(mapAttendanceOpenRequestFromDb)
       };
     } catch (error) {
       console.error("Failed to load secure cloud data:", error);
