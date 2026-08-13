@@ -271,8 +271,8 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         
         // Generate Magic Links
         const baseUrl = window.location.origin + window.location.pathname;
-        const approveLink = `${baseUrl}?action=approve&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
-        const rejectLink = `${baseUrl}?action=reject&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+        const approveLink = `${baseUrl}?action=approve&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}&status=${status}&reason=${encodeURIComponent(newRecord.lateReason || '')}`;
+        const rejectLink = `${baseUrl}?action=reject&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}&status=${status}&reason=${encodeURIComponent(newRecord.lateReason || '')}`;
 
         const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nKeterangan: "${newRecord.lateReason}"\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
         
@@ -330,8 +330,8 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       const typeLabel = type === 'student' ? 'Absen Santri' : 'Absen Diri';
       
       const baseUrl = window.location.origin + window.location.pathname;
-      const approveLink = `${baseUrl}?action=approveRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
-      const rejectLink = `${baseUrl}?action=rejectRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}`;
+      const approveLink = `${baseUrl}?action=approveRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}&reqType=${type}&reason=${encodeURIComponent(newReq.lateReason)}`;
+      const rejectLink = `${baseUrl}?action=rejectRequest&id=${newReq.id}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}&reqType=${type}&reason=${encodeURIComponent(newReq.lateReason)}`;
 
       const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
       

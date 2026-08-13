@@ -380,8 +380,52 @@ const App: React.FC = () => {
         return;
       }
 
-      const targetAtt = attendance.find(a => a.id === id);
-      if (targetAtt) {
+      let targetAtt = attendance.find(a => a.id === id);
+      
+      // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi, dan tipe
+      if (!targetAtt) {
+        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+        if (teacher) {
+          targetAtt = attendance.find(a => 
+            a.userId === teacher.id && 
+            a.date === params.get('date') && 
+            a.session === params.get('session') && 
+            a.type === 'teacher'
+          );
+        }
+      }
+
+      // Fallback 2: Jika tetap tidak ditemukan (misal data belum sinkron dari HP Guru), buat data secara otomatis
+      if (!targetAtt) {
+        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+        const statusParam = params.get('status') as Attendance['status'] | null;
+        const reasonParam = params.get('reason') || '';
+        
+        if (teacher && statusParam) {
+          const newAtt: Attendance = {
+            id: id,
+            userId: teacher.id,
+            date: params.get('date') || getLocalDateString(),
+            session: (params.get('session') as 'pagi' | 'malam') || 'pagi',
+            status: statusParam,
+            type: 'teacher',
+            approvalStatus: action === 'approve' ? 'approved' : 'rejected',
+            lateReason: reasonParam
+          };
+          
+          setAttendance(prev => [...prev, newAtt]);
+          
+          api.send('markAttendance', {
+            ...newAtt,
+            userId: `${teacher.id} | ${teacher.name}`,
+            class: 'GURU'
+          });
+          
+          alert(`Absensi Guru ${teacher.name} tidak ditemukan di database (belum tersinkronisasi), tetapi telah BERHASIL DIBUAT dan ${action === 'approve' ? 'DISETUJUI' : 'DITOLAK'}!`);
+        } else {
+          alert("Data pengajuan absensi tidak ditemukan!");
+        }
+      } else {
         if (targetAtt.approvalStatus !== 'approved' && targetAtt.approvalStatus !== 'rejected') {
           const updatedStatus = action === 'approve' ? 'approved' : 'rejected';
           const updatedAtt: Attendance = {
@@ -390,13 +434,13 @@ const App: React.FC = () => {
           };
           
           // Update state
-          setAttendance(prev => prev.map(a => a.id === id ? updatedAtt : a));
+          setAttendance(prev => prev.map(a => a.id === targetAtt!.id ? updatedAtt : a));
           
           // Sync to cloud
-          const teacher = users.find(u => u.id === targetAtt.userId);
+          const teacher = users.find(u => u.id === targetAtt!.userId);
           api.send('markAttendance', {
             ...updatedAtt,
-            userId: teacher ? `${teacher.id} | ${teacher.name}` : targetAtt.userId,
+            userId: teacher ? `${teacher.id} | ${teacher.name}` : targetAtt!.userId,
             class: 'GURU'
           });
           
@@ -404,8 +448,6 @@ const App: React.FC = () => {
         } else {
           alert(`Absensi Guru ${params.get('name') || ''} sudah ${targetAtt.approvalStatus === 'approved' ? 'DISETUJUI' : 'DITOLAK'} sebelumnya.`);
         }
-      } else {
-        alert("Data pengajuan absensi tidak ditemukan!");
       }
       // Clear query parameters
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -427,8 +469,50 @@ const App: React.FC = () => {
         return;
       }
 
-      const targetReq = attendanceOpenRequests.find(r => r.id === id);
-      if (targetReq) {
+      let targetReq = attendanceOpenRequests.find(r => r.id === id);
+      
+      // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi
+      if (!targetReq) {
+        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+        if (teacher) {
+          targetReq = attendanceOpenRequests.find(r => 
+            r.teacherId === teacher.id && 
+            r.date === params.get('date') && 
+            r.session === params.get('session')
+          );
+        }
+      }
+
+      // Fallback 2: Jika tetap tidak ditemukan, buat permohonan baru secara otomatis
+      if (!targetReq) {
+        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+        const reqType = params.get('reqType') as 'student' | 'teacher' | null;
+        const reasonParam = params.get('reason') || '';
+        
+        if (teacher && reqType) {
+          const newReq: AttendanceOpenRequest = {
+            id: id,
+            teacherId: teacher.id,
+            date: params.get('date') || getLocalDateString(),
+            session: (params.get('session') as 'pagi' | 'malam') || 'pagi',
+            type: reqType,
+            status: action === 'approveRequest' ? 'approved' : 'rejected',
+            lateReason: reasonParam,
+            createdAt: new Date().toISOString()
+          };
+          
+          setAttendanceOpenRequests(prev => [newReq, ...prev]);
+          
+          api.send('addAttendanceOpenRequest', {
+            ...newReq,
+            teacherId: `${teacher.id} | ${teacher.name}`
+          });
+          
+          alert(`Permintaan akses absen Guru ${teacher.name} tidak ditemukan di database (belum tersinkronisasi), tetapi telah BERHASIL DIBUAT dan ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
+        } else {
+          alert("Data pengajuan buka akses absensi tidak ditemukan!");
+        }
+      } else {
         if (targetReq.status === 'pending') {
           const updatedStatus = action === 'approveRequest' ? 'approved' : 'rejected';
           const updatedReq: AttendanceOpenRequest = {
@@ -437,21 +521,19 @@ const App: React.FC = () => {
           };
           
           // Update state
-          setAttendanceOpenRequests(prev => prev.map(r => r.id === id ? updatedReq : r));
+          setAttendanceOpenRequests(prev => prev.map(r => r.id === targetReq!.id ? updatedReq : r));
           
           // Sync to cloud
-          const teacher = users.find(u => u.id === targetReq.teacherId);
+          const teacher = users.find(u => u.id === targetReq!.teacherId);
           api.send('addAttendanceOpenRequest', {
             ...updatedReq,
-            teacherId: teacher ? `${teacher.id} | ${teacher.name}` : targetReq.teacherId
+            teacherId: teacher ? `${teacher.id} | ${teacher.name}` : targetReq!.teacherId
           });
           
           alert(`Permintaan akses absen Guru ${params.get('name') || ''} telah berhasil ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
         } else {
           alert(`Permintaan akses absen Guru ${params.get('name') || ''} sudah ${targetReq.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'} sebelumnya.`);
         }
-      } else {
-        alert("Data pengajuan buka akses absensi tidak ditemukan!");
       }
       // Clear query parameters
       window.history.replaceState({}, document.title, window.location.pathname);
