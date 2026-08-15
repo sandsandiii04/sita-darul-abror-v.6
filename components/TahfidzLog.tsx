@@ -209,7 +209,8 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
     setAyahEnd(1);
     setPagesCount('1');
     setGrade('100');
-    setRecordDate(getLocalDateString());
+    // Simpan tanggal yang dipilih sebelumnya agar input rapel untuk tanggal yang sama lebih mudah dan mencegah salah input tanggal hari ini
+    // setRecordDate(getLocalDateString());
   };
 
   const clearFilters = () => {

@@ -341,6 +341,7 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(api.isSyncing());
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
 
   useEffect(() => {
     // Ambil jumlah antrean gagal awal
@@ -348,6 +349,13 @@ const App: React.FC = () => {
       const q = localStorage.getItem('sita_failed_queue_v2');
       if (q) setFailedQueueLength(JSON.parse(q).length);
     } catch (e) {}
+
+    // Deteksi jika dibuka dari in-app browser seperti WhatsApp
+    if (typeof navigator !== 'undefined') {
+      const ua = navigator.userAgent || '';
+      const isWA = ua.includes('WhatsApp') || ua.includes('WhatsApp/') || ua.includes('FBAN') || ua.includes('FBAV') || ua.includes('Instagram');
+      setIsInAppBrowser(isWA);
+    }
 
     const unsubscribe = api.subscribe((len, syncing, lastError, failedLen) => {
       setQueueLength(len);
@@ -724,6 +732,17 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLogout = () => {
+    if (queueLength > 0 || failedQueueLength > 0) {
+      const total = queueLength + failedQueueLength;
+      const confirmMsg = `⚠️ PERINGATAN: Terdapat ${total} data yang belum tersinkronisasi ke server cloud.\n\nJika Anda keluar (logout), data ini dapat hilang dari memori browser perangkat ini.\n\nApakah Anda yakin ingin tetap keluar?`;
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+    setUser(null);
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
@@ -755,11 +774,41 @@ const App: React.FC = () => {
       ) : (
         <Layout 
           user={user} 
-          onLogout={() => setUser(null)} 
+          onLogout={handleLogout} 
           activeTab={activeTab} 
           onTabChange={setActiveTab}
           onOpenDbConfig={() => setShowDbConfig(true)}
         >
+          {/* Banner Peringatan Browser Internal WhatsApp */}
+          {isInAppBrowser && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-2xl text-xs md:text-sm font-medium flex items-start gap-2 shadow-sm no-print">
+              <span className="text-base shrink-0 mt-0.5">⚠️</span>
+              <div className="flex-1">
+                <strong>Buka di Chrome/Safari:</strong> Anda membuka aplikasi ini dari dalam WhatsApp. Agar data sinkron dengan stabil dan tidak hilang, sangat disarankan membuka di browser utama HP Anda. Klik titik tiga di pojok kanan atas, lalu pilih <strong>"Buka di Browser / Chrome / Safari"</strong>.
+              </div>
+            </div>
+          )}
+
+          {/* Banner Peringatan Data Belum Sinkron */}
+          {(queueLength > 0 || failedQueueLength > 0) && (
+            <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-2xl text-xs md:text-sm font-semibold flex items-center justify-between gap-3 shadow-sm animate-pulse no-print">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="text-rose-500 shrink-0" size={18} />
+                <span>
+                  <strong>Perhatian:</strong> Ada <strong>{queueLength + failedQueueLength} data</strong> yang belum terkirim ke server cloud. Pastikan internet menyala dan tunggu status di pojok kanan bawah menjadi hijau (Online) sebelum menutup aplikasi.
+                </span>
+              </div>
+              {failedQueueLength > 0 && (
+                <button 
+                  onClick={() => api.retryFailedQueue()} 
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 px-3 rounded-xl text-xs transition-colors shrink-0 shadow-sm"
+                >
+                  Sinkronkan Sekarang
+                </button>
+              )}
+            </div>
+          )}
+
           {renderContent()}
         </Layout>
       )}
