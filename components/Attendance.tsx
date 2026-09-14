@@ -115,24 +115,13 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         isStudentLate = true;
         reasonText = 'Absensi Santri terkunci karena melewati batas tanggal hari ini.';
       } else {
-        if (sess === 'pagi') {
-          const start = 4 * 60 + 30; // 04:30
-          const end = 9 * 60;        // 09:00
-          if (currentMinutes > end) {
-            isStudentLate = true;
-            reasonText = 'Absensi Santri Pagi terkunci karena terlambat (melebihi batas jam 09:00 WIB).';
-          } else if (currentMinutes < start) {
-            return { locked: true, reason: 'Absensi Santri Pagi belum dibuka (hanya pukul 04:30 - 09:00 WIB).', status: 'outside_hours' };
-          }
-        } else if (sess === 'malam') {
-          const start = 18 * 60 + 30; // 18:30
-          const end = 21 * 60;        // 21:00
-          if (currentMinutes > end) {
-            isStudentLate = true;
-            reasonText = 'Absensi Santri Malam terkunci karena terlambat (melebihi batas jam 21:00 WIB).';
-          } else if (currentMinutes < start) {
-            return { locked: true, reason: 'Absensi Santri Malam belum dibuka (hanya pukul 18:30 - 21:00 WIB).', status: 'outside_hours' };
-          }
+        const start = 4 * 60;  // 04:00 WIB
+        const end = 21 * 60;   // 21:00 WIB
+        if (currentMinutes > end) {
+          isStudentLate = true;
+          reasonText = 'Absensi Santri terkunci karena melebihi batas jam 21:00 WIB.';
+        } else if (currentMinutes < start) {
+          return { locked: true, reason: 'Absensi Santri belum dibuka (hanya dibuka pukul 04:00 - 21:00 WIB).', status: 'outside_hours' };
         }
       }
 
