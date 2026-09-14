@@ -22,6 +22,7 @@ interface ExamHistoryState {
 const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, onDeleteExam }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedClass, setSelectedClass] = useState('');
+  const [selectedHalaqah, setSelectedHalaqah] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [examMode, setExamMode] = useState<ExamMode>('halaman');
   const [startPage, setStartPage] = useState<number>(1);
@@ -31,6 +32,7 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
   // Filter and Search for history
   const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [historyFilterClass, setHistoryFilterClass] = useState('');
+  const [historyFilterHalaqah, setHistoryFilterHalaqah] = useState('');
 
   const [currentSession, setCurrentSession] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState<number>(0);
@@ -160,7 +162,7 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
     const juzString = examMode === 'acak' ? `Acak` : `Juz ${juzVal > 30 ? 30 : juzVal}`;
     
     onAddExam({
-      id: Math.random().toString(36).substr(2, 9),
+      id: 'ex_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5),
       studentId: currentSession.student.id,
       date: getLocalDateString(),
       category: `${currentSession.label}`,
@@ -177,14 +179,32 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
     setViewMode('list');
   };
 
+  const distinctHalaqahs = Array.from(new Set(students.map(s => s.halaqah).filter(Boolean))).sort();
+  const distinctClasses = Array.from(new Set(students.map(s => s.class).filter(Boolean))).sort();
+  const teacherHalaqah = students.find(s => s.teacherId === user.id)?.halaqah;
+
+  const selectableStudents = students.filter(s => {
+    if (selectedClass && s.class !== selectedClass) return false;
+    if (selectedHalaqah) {
+      if (selectedHalaqah === 'MY_HALAQAH') {
+        return s.teacherId === user.id;
+      }
+      return s.halaqah === selectedHalaqah;
+    }
+    return true;
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
   // Derived filtered exams for history list
   const filteredExams = exams
     .filter(e => {
         const student = students.find(s => s.id === e.studentId);
-        const matchesSearch = student?.name.toLowerCase().includes(historySearchTerm.toLowerCase()) || 
-                              e.studentId.toLowerCase().includes(historySearchTerm.toLowerCase());
-        const matchesClass = !historyFilterClass || (student?.class === historyFilterClass);
-        return matchesSearch && matchesClass;
+        const matchesSearch = (student?.name || '').toLowerCase().includes(historySearchTerm.toLowerCase()) || 
+                              (e.studentId || '').toLowerCase().includes(historySearchTerm.toLowerCase()) ||
+                              (e.examiner || '').toLowerCase().includes(historySearchTerm.toLowerCase());
+        const matchesClass = !historyFilterClass || (student?.class === historyFilterClass || e.class === historyFilterClass);
+        const matchesHalaqah = !historyFilterHalaqah || 
+          (historyFilterHalaqah === 'MY_HALAQAH' ? student?.teacherId === user.id : (student?.halaqah === historyFilterHalaqah || (e as any).halaqah === historyFilterHalaqah));
+        return matchesSearch && matchesClass && matchesHalaqah;
     })
     .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -414,9 +434,55 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
     <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-100 p-6 animate-fade-in">
       <div className="flex justify-between items-center mb-6 border-b pb-4"><h3 className="text-xl font-bold text-gray-800">Mulai Ujian Baru</h3><button onClick={() => setViewMode('list')} className="text-gray-500">Batal</button></div>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div><label className="block text-sm font-medium mb-1">Kelas</label><select className="w-full border rounded-lg p-2.5 bg-gray-50" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}><option value="">Pilih...</option>{Array.from(new Set(students.map(s => s.class))).map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-          <div><label className="block text-sm font-medium mb-1">Santri</label><select className="w-full border rounded-lg p-2.5 bg-gray-50" value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)}><option value="">Pilih...</option>{students.filter(s => !selectedClass || s.class === selectedClass).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Filter Halaqah</label>
+            <select 
+              className="w-full border rounded-lg p-2.5 bg-gray-50 text-sm font-medium focus:ring-primary focus:border-primary outline-none" 
+              value={selectedHalaqah} 
+              onChange={(e) => {
+                setSelectedHalaqah(e.target.value);
+                setSelectedStudentId('');
+              }}
+            >
+              <option value="">Semua Halaqah (Lintas Halaqah)</option>
+              {user.role === 'teacher' && teacherHalaqah && (
+                <option value="MY_HALAQAH">⭐ Halaqah Saya ({teacherHalaqah})</option>
+              )}
+              {distinctHalaqahs.map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Filter Kelas</label>
+            <select 
+              className="w-full border rounded-lg p-2.5 bg-gray-50 text-sm font-medium focus:ring-primary focus:border-primary outline-none" 
+              value={selectedClass} 
+              onChange={(e) => {
+                setSelectedClass(e.target.value);
+                setSelectedStudentId('');
+              }}
+            >
+              <option value="">Semua Kelas</option>
+              {distinctClasses.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">Santri yang Diuji *</label>
+            <select 
+              className="w-full border rounded-lg p-2.5 bg-gray-50 text-sm font-medium focus:ring-primary focus:border-primary outline-none" 
+              value={selectedStudentId} 
+              onChange={(e) => setSelectedStudentId(e.target.value)}
+            >
+              <option value="">Pilih Santri ({selectableStudents.length} santri)...</option>
+              {selectableStudents.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.class} • {s.halaqah || 'Tanpa Halaqah'})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="bg-gray-100 p-1 rounded-lg flex"><button className={`flex-1 py-2 rounded-md text-sm font-medium ${examMode === 'halaman' ? 'bg-white shadow text-primary' : 'text-gray-500'}`} onClick={() => setExamMode('halaman')}>Halaman</button><button className={`flex-1 py-2 rounded-md text-sm font-medium ${examMode === 'surat' ? 'bg-white shadow text-primary' : 'text-gray-500'}`} onClick={() => setExamMode('surat')}>Surat</button><button className={`flex-1 py-2 rounded-md text-sm font-medium ${examMode === 'acak' ? 'bg-white shadow text-primary' : 'text-gray-500'}`} onClick={() => setExamMode('acak')}>Soal Acak</button></div>
         {examMode === 'halaman' ? (
@@ -459,6 +525,22 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
               className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-primary focus:border-primary outline-none"
             />
           </div>
+          {/* HALAQAH FILTER */}
+          <div className="relative w-full md:w-44">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <select 
+              value={historyFilterHalaqah}
+              onChange={(e) => setHistoryFilterHalaqah(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-primary focus:border-primary outline-none bg-white"
+            >
+              <option value="">Semua Halaqah</option>
+              {user.role === 'teacher' && teacherHalaqah && (
+                <option value="MY_HALAQAH">Halaqah Saya</option>
+              )}
+              {distinctHalaqahs.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+          </div>
+
           {/* CLASS FILTER */}
           <div className="relative w-full md:w-36">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -468,12 +550,12 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
               className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-primary focus:border-primary outline-none bg-white"
             >
               <option value="">Semua Kelas</option>
-              {distinctExamClasses.map(c => <option key={c} value={c}>{c}</option>)}
+              {distinctClasses.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           
-          {/* DOWNLOAD BUTTON FOR ADMIN ONLY */}
-          {user.role === 'admin' && (
+          {/* DOWNLOAD BUTTON FOR ADMIN & TEACHERS */}
+          {(user.role === 'admin' || user.role === 'teacher') && (
              <button 
                onClick={handleDownloadCSV}
                className="bg-gray-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm hover:bg-black transition-colors text-sm"
@@ -501,12 +583,13 @@ const ExamView: React.FC<ExamViewProps> = ({ user, students, exams, onAddExam, o
                       <div>
                           <h3 className="font-bold text-gray-800 text-lg">{s?.name || 'Santri'}</h3>
                           <p className="text-sm font-medium text-primary mt-0.5">{displayTitle}</p>
+                          {s?.halaqah && <span className="inline-block mt-1 text-[11px] font-semibold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{s.halaqah}</span>}
                       </div>
                       <div className={`text-right font-black text-2xl ${exam.score >= 70 ? 'text-green-600' : 'text-red-600'}`}>{exam.score}</div>
                   </div>
                   <div className="text-xs text-gray-500 flex justify-between mt-4 border-t pt-3">
                       <span>{new Date(exam.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                      <span>{exam.examiner}</span>
+                      <span className="font-semibold text-gray-700">Penguji: {exam.examiner}</span>
                   </div>
                   {(user.role === 'admin' || user.role === 'teacher') && onDeleteExam && (
                       <button onClick={() => onDeleteExam(exam.id)} className="w-full mt-3 pt-2 border-t border-dashed text-xs text-red-500 text-center flex items-center justify-center gap-1 hover:text-red-700 transition-colors">

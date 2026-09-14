@@ -30,3 +30,8 @@ dist-ssr
 .netlify
 
 .vercel
+
+# Scratch & temporary test scripts
+scratch/
+list_users.mjs
+supabase/.temp/

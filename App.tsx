@@ -13,7 +13,7 @@ import ProfileSettings from './components/ProfileSettings';
 import TutorialGuide from './components/TutorialGuide';
 import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
-import { api } from './api';
+import { api, setSessionUser } from './api';
 
 const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError, onQuickAttendance, onOpenDbConfig }: { onLogin: (user: User) => void, users: User[], students: Student[], isLoadingData: boolean, connectionError: string | null, onQuickAttendance: (att: Attendance) => void, onOpenDbConfig: () => void }) => {
   const [username, setUsername] = useState('');
@@ -40,6 +40,7 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
     try {
       const res = await api.login(username, password);
       if (res.success && res.data) {
+        setSessionUser(res.data);
         onLogin(res.data);
       } else {
         setError(res.message || 'Username atau password salah.');
@@ -252,10 +253,12 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                         <button 
                             onClick={() => {
                                 if (!quickUserId) return alert("Pilih nama Anda terlebih dahulu!");
+                                const cleanUserId = quickUserId.replace(/[^a-zA-Z0-9_-]/g, '_');
+                                const todayDate = getLocalDateString();
                                 const att: Attendance = {
-                                    id: 'att_' + Math.random().toString(36).substr(2, 9),
+                                    id: `att_teacher_${cleanUserId}_${todayDate}_${quickSession}`,
                                     userId: quickUserId,
-                                    date: getLocalDateString(),
+                                    date: todayDate,
                                     session: quickSession,
                                     status: 'present',
                                     type: 'teacher',
@@ -327,6 +330,9 @@ const App: React.FC = () => {
   const [exams, setExams] = useStickyState<Exam[]>(MOCK_EXAMS, 'sita_exams_v1');
   const [attendanceOpenRequests, setAttendanceOpenRequests] = useStickyState<AttendanceOpenRequest[]>([], 'sita_attendance_open_requests_v1');
 
+  const [targetAttendanceDate, setTargetAttendanceDate] = useState<string | undefined>(undefined);
+  const [targetAttendanceSession, setTargetAttendanceSession] = useState<'pagi' | 'malam' | undefined>(undefined);
+
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [showDbConfig, setShowDbConfig] = useState(false);
@@ -388,77 +394,74 @@ const App: React.FC = () => {
         return;
       }
 
-      let targetAtt = attendance.find(a => a.id === id);
-      
-      // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi, dan tipe
-      if (!targetAtt) {
-        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
-        if (teacher) {
-          targetAtt = attendance.find(a => 
-            a.userId === teacher.id && 
-            a.date === params.get('date') && 
-            a.session === params.get('session') && 
-            a.type === 'teacher'
-          );
-        }
-      }
-
-      // Fallback 2: Jika tetap tidak ditemukan (misal data belum sinkron dari HP Guru), buat data secara otomatis
-      if (!targetAtt) {
-        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
-        const statusParam = params.get('status') as Attendance['status'] | null;
-        const reasonParam = params.get('reason') || '';
+      const executeApproval = async () => {
+        let targetAtt = attendance.find(a => a.id === id);
         
-        if (teacher && statusParam) {
-          const newAtt: Attendance = {
-            id: id,
-            userId: teacher.id,
-            date: params.get('date') || getLocalDateString(),
-            session: (params.get('session') as 'pagi' | 'malam') || 'pagi',
-            status: statusParam,
-            type: 'teacher',
-            approvalStatus: action === 'approve' ? 'approved' : 'rejected',
-            lateReason: reasonParam
-          };
-          
-          setAttendance(prev => [...prev, newAtt]);
-          
-          api.send('markAttendance', {
-            ...newAtt,
-            userId: `${teacher.id} | ${teacher.name}`,
-            class: 'GURU'
-          });
-          
-          alert(`Absensi Guru ${teacher.name} tidak ditemukan di database (belum tersinkronisasi), tetapi telah BERHASIL DIBUAT dan ${action === 'approve' ? 'DISETUJUI' : 'DITOLAK'}!`);
-        } else {
-          alert("Data pengajuan absensi tidak ditemukan!");
+        // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi, dan tipe
+        if (!targetAtt) {
+          const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+          if (teacher) {
+            targetAtt = attendance.find(a => 
+              cleanId(a.userId) === teacher.id && 
+              a.date === params.get('date') && 
+              a.session === params.get('session') && 
+              a.type === 'teacher'
+            );
+          }
         }
-      } else {
-        if (targetAtt.approvalStatus !== 'approved' && targetAtt.approvalStatus !== 'rejected') {
-          const updatedStatus = action === 'approve' ? 'approved' : 'rejected';
-          const updatedAtt: Attendance = {
-            ...targetAtt,
-            approvalStatus: updatedStatus
-          };
-          
-          // Update state
-          setAttendance(prev => prev.map(a => a.id === targetAtt!.id ? updatedAtt : a));
-          
-          // Sync to cloud
-          const teacher = users.find(u => u.id === targetAtt!.userId);
-          api.send('markAttendance', {
-            ...updatedAtt,
-            userId: teacher ? `${teacher.id} | ${teacher.name}` : targetAtt!.userId,
-            class: 'GURU'
+
+        const dateParam = params.get('date') || getLocalDateString();
+        const sessionParam = (params.get('session') as 'pagi' | 'malam') || 'pagi';
+        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase()) || 
+                        (targetAtt ? users.find(u => u.id === cleanId(targetAtt.userId)) : null);
+        const teacherName = teacher?.name || params.get('name') || 'Guru';
+        const teacherId = teacher?.id || cleanId(targetAtt?.userId) || '';
+
+        const statusParam = (params.get('status') as Attendance['status']) || targetAtt?.status || 'present';
+        const reasonParam = params.get('reason') || targetAtt?.lateReason || '';
+        const updatedStatus = action === 'approve' ? 'approved' : 'rejected';
+        const finalAttId = targetAtt ? targetAtt.id : (id || `att_teacher_${teacherId}_${dateParam}_${sessionParam}`);
+
+        const newAtt: Attendance = {
+          id: finalAttId,
+          userId: teacherId,
+          date: dateParam,
+          session: sessionParam,
+          status: statusParam,
+          type: 'teacher',
+          approvalStatus: updatedStatus,
+          lateReason: reasonParam
+        };
+
+        // Simpan langsung ke database Supabase via direct RPC agar pasti tersimpan sebelum memberi tahu admin
+        const directRes = await api.markAttendanceDirect(newAtt, user);
+
+        if (directRes.success) {
+          setAttendance(prev => {
+            const idx = prev.findIndex(a => a.id === newAtt.id || (cleanId(a.userId) === newAtt.userId && a.date === newAtt.date && a.session === newAtt.session && a.type === 'teacher'));
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = newAtt;
+              return copy;
+            }
+            return [newAtt, ...prev];
           });
-          
-          alert(`Absensi Guru ${params.get('name') || ''} telah berhasil ${action === 'approve' ? 'DISETUJUI' : 'DITOLAK'}!`);
+
+          // Otomatis arahkan tanggal dan sesi admin ke absensi yang disetujui
+          setTargetAttendanceDate(dateParam);
+          setTargetAttendanceSession(sessionParam);
+          setActiveTab('attendance_teacher');
+
+          alert(`Absensi Guru ${teacherName} (${dateParam} - Sesi ${sessionParam === 'pagi' ? 'Pagi' : 'Malam'}) telah BERHASIL ${action === 'approve' ? 'DISETUJUI' : 'DITOLAK'} dan tersimpan di database!`);
         } else {
-          alert(`Absensi Guru ${params.get('name') || ''} sudah ${targetAtt.approvalStatus === 'approved' ? 'DISETUJUI' : 'DITOLAK'} sebelumnya.`);
+          alert(`Gagal memproses persetujuan absensi: ${directRes.message || 'Terjadi kendala pada server.'}`);
         }
-      }
-      // Clear query parameters
-      window.history.replaceState({}, document.title, window.location.pathname);
+
+        // Clear query parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+      };
+
+      executeApproval();
     }
 
     // Magic links untuk buka akses absen terlambat
@@ -477,74 +480,70 @@ const App: React.FC = () => {
         return;
       }
 
-      let targetReq = attendanceOpenRequests.find(r => r.id === id);
-      
-      // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi
-      if (!targetReq) {
-        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
-        if (teacher) {
-          targetReq = attendanceOpenRequests.find(r => 
-            r.teacherId === teacher.id && 
-            r.date === params.get('date') && 
-            r.session === params.get('session')
-          );
-        }
-      }
-
-      // Fallback 2: Jika tetap tidak ditemukan, buat permohonan baru secara otomatis
-      if (!targetReq) {
-        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
-        const reqType = params.get('reqType') as 'student' | 'teacher' | null;
-        const reasonParam = params.get('reason') || '';
+      const executeRequestApproval = async () => {
+        let targetReq = attendanceOpenRequests.find(r => r.id === id);
         
-        if (teacher && reqType) {
-          const newReq: AttendanceOpenRequest = {
-            id: id,
-            teacherId: teacher.id,
-            date: params.get('date') || getLocalDateString(),
-            session: (params.get('session') as 'pagi' | 'malam') || 'pagi',
-            type: reqType,
-            status: action === 'approveRequest' ? 'approved' : 'rejected',
-            lateReason: reasonParam,
-            createdAt: new Date().toISOString()
-          };
-          
-          setAttendanceOpenRequests(prev => [newReq, ...prev]);
-          
-          api.send('addAttendanceOpenRequest', {
-            ...newReq,
-            teacherId: `${teacher.id} | ${teacher.name}`
-          });
-          
-          alert(`Permintaan akses absen Guru ${teacher.name} tidak ditemukan di database (belum tersinkronisasi), tetapi telah BERHASIL DIBUAT dan ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
-        } else {
-          alert("Data pengajuan buka akses absensi tidak ditemukan!");
+        // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi
+        if (!targetReq) {
+          const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+          if (teacher) {
+            targetReq = attendanceOpenRequests.find(r => 
+              cleanId(r.teacherId) === teacher.id && 
+              r.date === params.get('date') && 
+              r.session === params.get('session')
+            );
+          }
         }
-      } else {
-        if (targetReq.status === 'pending') {
-          const updatedStatus = action === 'approveRequest' ? 'approved' : 'rejected';
-          const updatedReq: AttendanceOpenRequest = {
-            ...targetReq,
-            status: updatedStatus
-          };
-          
-          // Update state
-          setAttendanceOpenRequests(prev => prev.map(r => r.id === targetReq!.id ? updatedReq : r));
-          
-          // Sync to cloud
-          const teacher = users.find(u => u.id === targetReq!.teacherId);
-          api.send('addAttendanceOpenRequest', {
-            ...updatedReq,
-            teacherId: teacher ? `${teacher.id} | ${teacher.name}` : targetReq!.teacherId
+
+        const dateParam = params.get('date') || getLocalDateString();
+        const sessionParam = (params.get('session') as 'pagi' | 'malam') || 'pagi';
+        const reqType = (params.get('reqType') as 'student' | 'teacher') || targetReq?.type || 'teacher';
+        const reasonParam = params.get('reason') || targetReq?.lateReason || '';
+        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase()) ||
+                        (targetReq ? users.find(u => u.id === cleanId(targetReq.teacherId)) : null);
+        const teacherName = teacher?.name || params.get('name') || 'Guru';
+        const teacherId = teacher?.id || cleanId(targetReq?.teacherId) || '';
+
+        const updatedStatus = action === 'approveRequest' ? 'approved' : 'rejected';
+        const finalReqId = targetReq ? targetReq.id : (id || `req_${teacherId}_${dateParam}_${sessionParam}_${reqType}`);
+
+        const newReq: AttendanceOpenRequest = {
+          id: finalReqId,
+          teacherId: teacherId,
+          date: dateParam,
+          session: sessionParam,
+          type: reqType,
+          status: updatedStatus,
+          lateReason: reasonParam,
+          createdAt: targetReq?.createdAt || new Date().toISOString()
+        };
+
+        const directRes = await api.addAttendanceOpenRequestDirect(newReq, user);
+
+        if (directRes.success) {
+          setAttendanceOpenRequests(prev => {
+            const idx = prev.findIndex(r => r.id === newReq.id || (cleanId(r.teacherId) === newReq.teacherId && r.date === newReq.date && r.session === newReq.session && r.type === newReq.type));
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = newReq;
+              return copy;
+            }
+            return [newReq, ...prev];
           });
-          
-          alert(`Permintaan akses absen Guru ${params.get('name') || ''} telah berhasil ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
+
+          setTargetAttendanceDate(dateParam);
+          setTargetAttendanceSession(sessionParam);
+          setActiveTab(reqType === 'student' ? 'attendance_student' : 'attendance_teacher');
+
+          alert(`Permintaan akses absen Guru ${teacherName} (${dateParam} - Sesi ${sessionParam === 'pagi' ? 'Pagi' : 'Malam'}) telah BERHASIL ${action === 'approveRequest' ? 'DISETUJUI' : 'DITOLAK'}!`);
         } else {
-          alert(`Permintaan akses absen Guru ${params.get('name') || ''} sudah ${targetReq.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'} sebelumnya.`);
+          alert(`Gagal memproses permohonan buka akses: ${directRes.message || 'Terjadi kendala pada server.'}`);
         }
-      }
-      // Clear query parameters
-      window.history.replaceState({}, document.title, window.location.pathname);
+
+        window.history.replaceState({}, document.title, window.location.pathname);
+      };
+
+      executeRequestApproval();
     }
   }, [attendance, attendanceOpenRequests, user, users, hasFetched]);
 
@@ -563,9 +562,19 @@ const App: React.FC = () => {
       api.processQueue();
     }
 
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (api.getQueueLength() > 0 || api.getFailedQueue().length > 0) {
+        e.preventDefault();
+        e.returnValue = 'Terdapat data yang sedang dikirim ke server. Yakin ingin menutup halaman?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, []);
 
@@ -583,12 +592,54 @@ const App: React.FC = () => {
             const data = await api.load(user);
             if (data) {
                setUsers(data.users || []);
-               setStudents(data.students || []);
+               const serverStudents = data.students || [];
+               const pendingStudents = api.getPendingStudents();
+               const mergedStudents = [...serverStudents];
+               pendingStudents.forEach(ps => {
+                 const idx = mergedStudents.findIndex(s => s.id === ps.id);
+                 if (idx >= 0) {
+                   mergedStudents[idx] = { ...mergedStudents[idx], ...ps };
+                 } else {
+                   mergedStudents.push(ps);
+                 }
+               });
+               setStudents(mergedStudents);
                
-               setRecords(data.records ? data.records.map((r: any) => ({ ...r, studentId: cleanId(r.studentId) })) : []);
-               setAttendance(data.attendance ? data.attendance.map((a: any) => ({ ...a, userId: cleanId(a.userId) })) : []);
-               setExams(data.exams ? data.exams.map((e: any) => ({ ...e, studentId: cleanId(e.studentId) })) : []);
-               setAttendanceOpenRequests(data.openRequests || []);
+               const serverRecords = data.records ? data.records.map((r: any) => ({ ...r, studentId: cleanId(r.studentId) })) : [];
+               const pendingRecords = api.getPendingRecords();
+               const mergedRecords = [...serverRecords];
+               pendingRecords.forEach(pr => {
+                 if (!mergedRecords.some(r => r.id === pr.id)) {
+                   mergedRecords.unshift(pr);
+                 }
+               });
+               setRecords(mergedRecords);
+               
+               const serverAttendance = data.attendance ? data.attendance.map((a: any) => ({ ...a, userId: cleanId(a.userId) })) : [];
+               const pendingAttendance = api.getPendingAttendance();
+               const mergedAttendance = [...serverAttendance];
+               pendingAttendance.forEach(pa => {
+                 const idx = mergedAttendance.findIndex(a => a.id === pa.id || (a.userId === pa.userId && a.date === pa.date && a.session === pa.session && a.type === pa.type));
+                 if (idx >= 0) {
+                   mergedAttendance[idx] = pa;
+                 } else {
+                   mergedAttendance.push(pa);
+                 }
+               });
+               setAttendance(mergedAttendance);
+               
+               const serverExams = data.exams ? data.exams.map((e: any) => ({ ...e, studentId: cleanId(e.studentId) })) : [];
+               const pendingExams = api.getPendingExams();
+               const mergedExams = [...serverExams];
+               pendingExams.forEach(pe => {
+                 if (!mergedExams.some(e => e.id === pe.id)) {
+                   mergedExams.unshift(pe);
+                 }
+               });
+               setExams(mergedExams);
+               
+              const serverRequests = data.openRequests ? data.openRequests.map((r: any) => ({ ...r, teacherId: cleanId(r.teacherId) })) : [];
+                setAttendanceOpenRequests(serverRequests);
                
                setConnectionError(null);
                setHasFetched(true);
@@ -602,14 +653,35 @@ const App: React.FC = () => {
      
      fetchData(false);
      
-     // Set polling interval 30 detik untuk sinkronisasi data real-time secara background (silent)
+     // Set polling interval 12 detik untuk sinkronisasi data real-time antar perangkat secara background (silent)
      const intervalId = setInterval(() => {
         if (typeof navigator !== 'undefined' && navigator.onLine) {
            fetchData(true);
         }
-     }, 30000);
+     }, 12000);
      
-     return () => clearInterval(intervalId);
+     // Listener saat tab kembali aktif atau difokuskan (misal setelah buka WA / aplikasi lain)
+     const handleVisibilityChange = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible' && navigator.onLine) {
+           fetchData(true);
+           api.processQueue();
+        }
+     };
+     const handleWindowFocus = () => {
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+           fetchData(true);
+           api.processQueue();
+        }
+     };
+
+     document.addEventListener('visibilitychange', handleVisibilityChange);
+     window.addEventListener('focus', handleWindowFocus);
+
+     return () => {
+        clearInterval(intervalId);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('focus', handleWindowFocus);
+     };
   }, [user, setUsers, setStudents, setRecords, setAttendance, setExams, setAttendanceOpenRequests]);
 
   const handleAddRecord = (newRecord: TahfidzRecord) => {
@@ -655,7 +727,10 @@ const App: React.FC = () => {
 
   const handleMarkAttendance = (newAtt: Attendance) => {
     setAttendance(prev => {
-        const exists = prev.findIndex(a => a.userId === newAtt.userId && a.date === newAtt.date && a.type === newAtt.type && a.session === newAtt.session);
+        const exists = prev.findIndex(a => 
+          a.id === newAtt.id || 
+          (cleanId(a.userId) === cleanId(newAtt.userId) && a.date === newAtt.date && a.type === newAtt.type && a.session === newAtt.session)
+        );
         if (exists >= 0) {
           const updated = [...prev];
           updated[exists] = newAtt;
@@ -732,6 +807,20 @@ const App: React.FC = () => {
     }
   };
 
+  const handleBulkDeleteStudents = (ids: string[]) => {
+    if (confirm(`Yakin ingin menghapus ${ids.length} data santri terpilih?`)) {
+      const idSet = new Set(ids);
+      setStudents(prev => prev.filter(s => !idSet.has(s.id)));
+      ids.forEach(id => api.send('deleteData', { id, sheetName: 'Students' }));
+    }
+  };
+
+  const handleBulkUpdateStudents = (updatedList: Student[]) => {
+    const map = new Map(updatedList.map(s => [s.id, s]));
+    setStudents(prev => prev.map(s => map.get(s.id) || s));
+    updatedList.forEach(s => api.send('addStudent', s));
+  };
+
   const handleLogout = () => {
     if (queueLength > 0 || failedQueueLength > 0) {
       const total = queueLength + failedQueueLength;
@@ -748,10 +837,24 @@ const App: React.FC = () => {
       case 'dashboard': return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
       case 'ziyadah': return <TahfidzLog key="ziyadah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateRecord={handleUpdateRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabaq" allowedTabs={['sabaq']} />;
       case 'murojaah': return <TahfidzLog key="murojaah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateRecord={handleUpdateRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabqi" allowedTabs={['sabqi', 'manzil']} />;
-      case 'master_data': return <AdminPanel users={users} students={students} onAddUser={(u) => { setUsers(prev => [...prev, u]); api.send('addUser', u); }} onDeleteUser={handleDeleteUser} onUpdateUser={handleUpdateUser} onAddStudent={(s) => { setStudents(prev => [...prev, s]); api.send('addStudent', s); }} onDeleteStudent={handleDeleteStudent} onUpdateStudent={handleUpdateStudent} onBulkAddStudents={(s) => { setStudents(prev => [...prev, ...s]); s.forEach(item => api.send('addStudent', item)); }} onBulkAddUsers={(u) => { setUsers(prev => [...prev, ...u]); u.forEach(item => api.send('addUser', item)); }} onBulkAddRecords={(r) => { setRecords(prev => [...r, ...prev]); r.forEach(item => { const student = students.find(st => st.id === item.studentId); api.send('addRecord', { ...item, studentId: student ? `${student.id} | ${student.name}` : item.studentId, class: student?.class || '-' }); }); }} />;
+      case 'master_data': return <AdminPanel 
+        users={users} 
+        students={students} 
+        onAddUser={(u) => { setUsers(prev => [...prev, u]); api.send('addUser', u); }} 
+        onDeleteUser={handleDeleteUser} 
+        onUpdateUser={handleUpdateUser} 
+        onAddStudent={(s) => { setStudents(prev => [...prev, s]); api.send('addStudent', s); }} 
+        onDeleteStudent={handleDeleteStudent} 
+        onUpdateStudent={handleUpdateStudent} 
+        onBulkAddStudents={(s) => { setStudents(prev => [...prev, ...s]); s.forEach(item => api.send('addStudent', item)); }} 
+        onBulkAddUsers={(u) => { setUsers(prev => [...prev, ...u]); u.forEach(item => api.send('addUser', item)); }} 
+        onBulkAddRecords={(r) => { setRecords(prev => [...r, ...prev]); r.forEach(item => { const student = students.find(st => st.id === item.studentId); api.send('addRecord', { ...item, studentId: student ? `${student.id} | ${student.name}` : item.studentId, class: student?.class || '-' }); }); }} 
+        onBulkDeleteStudents={handleBulkDeleteStudents}
+        onBulkUpdateStudents={handleBulkUpdateStudents}
+      />;
       case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} onDeleteOpenRequest={handleDeleteOpenRequest} />;
-      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} />;
-      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} />;
+      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
+      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
       case 'tutorial': return <TutorialGuide />;

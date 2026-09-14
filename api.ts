@@ -128,7 +128,7 @@ const mapStudentToDb = (model: Student): any => ({
   teacher_id: cleanId(model.teacherId) || null,
   total_juz: model.totalJuz || 0,
   username: model.username || model.nis,
-  password: model.password
+  password: model.password || model.nis || '123'
 });
 
 const mapRecordFromDb = (row: any): TahfidzRecord => ({
@@ -283,18 +283,49 @@ function isTemporaryError(error: any): boolean {
     msg.includes('dns') ||
     msg.includes('offline') ||
     msg.includes('cors') ||
-    msg.includes('abort')
+    msg.includes('abort') ||
+    msg.includes('gateway') ||
+    msg.includes('service unavailable') ||
+    msg.includes('server error') ||
+    msg.includes('internal server error') ||
+    msg.includes('too many requests') ||
+    msg.includes('rate limit') ||
+    msg.includes('load failed') ||
+    msg.includes('socket') ||
+    msg.includes('econnreset') ||
+    msg.includes('500') ||
+    msg.includes('502') ||
+    msg.includes('503') ||
+    msg.includes('504')
   ) {
     return true;
   }
   const code = error.code || '';
-  if (typeof code === 'string' && (code.startsWith('08') || code.startsWith('57'))) {
+  if (typeof code === 'string' && (code.startsWith('08') || code.startsWith('57') || code === '53300' || code === '53400')) {
+    return true;
+  }
+  const status = error.status || error.statusCode;
+  if (typeof status === 'number' && (status >= 500 || status === 429 || status === 408)) {
     return true;
   }
   return false;
 }
 
+let inMemoryUser: User | null = null;
+
+export const setSessionUser = (u: User | null) => {
+  inMemoryUser = u;
+  if (typeof window !== 'undefined') {
+    if (u) {
+      window.localStorage.setItem('sita_current_user_v1', JSON.stringify(u));
+    } else {
+      window.localStorage.removeItem('sita_current_user_v1');
+    }
+  }
+};
+
 const getLoggedUser = (): User | null => {
+  if (inMemoryUser) return inMemoryUser;
   if (typeof window === 'undefined') return null;
   try {
     const u = localStorage.getItem('sita_current_user_v1');
@@ -337,8 +368,97 @@ export const api = {
     return getQueue().length;
   },
 
+  getQueue(): QueueItem[] {
+    return getQueue();
+  },
+
   isSyncing(): boolean {
     return isProcessing;
+  },
+
+  // Helper untuk membaca item antrean aktif guna penggabungan data (prevent data flicker/loss saat polling)
+  getPendingRecords(): TahfidzRecord[] {
+    return getQueue()
+      .filter(item => item.action === 'addRecord' && item.data)
+      .map(item => ({
+        ...item.data,
+        studentId: cleanId(item.data.studentId)
+      }));
+  },
+
+  getPendingAttendance(): Attendance[] {
+    return getQueue()
+      .filter(item => item.action === 'markAttendance' && item.data)
+      .map(item => ({
+        ...item.data,
+        userId: cleanId(item.data.userId)
+      }));
+  },
+
+  getPendingExams(): Exam[] {
+    return getQueue()
+      .filter(item => item.action === 'addExam' && item.data)
+      .map(item => ({
+        ...item.data,
+        studentId: cleanId(item.data.studentId)
+      }));
+  },
+
+  getPendingStudents(): Student[] {
+    return getQueue()
+      .filter(item => item.action === 'addStudent' && item.data)
+      .map(item => item.data);
+  },
+
+  // Eksekusi langsung ke database untuk persetujuan (magic link) tanpa lewat antrean background
+  async markAttendanceDirect(attendanceData: Attendance, userOverride?: User | null): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Database Supabase belum terhubung.' };
+    const u = userOverride || getLoggedUser();
+    if (!u) return { success: false, message: 'Pengguna belum login atau sesi telah berakhir.' };
+
+    try {
+      const dbData = mapAttendanceToDb(attendanceData);
+      const { data, error } = await supabase.rpc('upsert_data', {
+        p_username: u.username,
+        p_password: u.password,
+        p_table: 'attendance',
+        p_data: dbData
+      });
+
+      if (error) throw error;
+      if (data && data.success === false) {
+        throw new Error(data.message || 'Gagal menyimpan absensi ke server.');
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error markAttendanceDirect:', err);
+      return { success: false, message: err?.message || 'Gagal menghubungi server database.' };
+    }
+  },
+
+  async addAttendanceOpenRequestDirect(reqData: AttendanceOpenRequest, userOverride?: User | null): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Database Supabase belum terhubung.' };
+    const u = userOverride || getLoggedUser();
+    if (!u) return { success: false, message: 'Pengguna belum login atau sesi telah berakhir.' };
+
+    try {
+      const dbData = mapAttendanceOpenRequestToDb(reqData);
+      const { data, error } = await supabase.rpc('upsert_data', {
+        p_username: u.username,
+        p_password: u.password,
+        p_table: 'attendance_open_requests',
+        p_data: dbData
+      });
+
+      if (error) throw error;
+      if (data && data.success === false) {
+        throw new Error(data.message || 'Gagal menyimpan permohonan ke server.');
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error addAttendanceOpenRequestDirect:', err);
+      return { success: false, message: err?.message || 'Gagal menghubungi server database.' };
+    }
   },
 
   // Fungsi mengirim data (POST) - Offline First
@@ -392,68 +512,90 @@ export const api = {
 
       try {
         let error = null;
+        let rpcRes: any = null;
         
         // Ambil akun login aktif saat ini untuk otorisasi RPC
         const userCreds = getLoggedUser();
         const uName = userCreds?.username || '';
         const uPass = userCreds?.password || '';
 
+        const isTeacherQuickQR = item.action === 'markAttendance' && 
+          item.data?.type === 'teacher' && 
+          item.data?.status === 'present' && 
+          item.data?.qrToken === 'SITA_ABSENSI_GURU_TETAP';
+
+        // Proteksi: Jika data butuh otentikasi tetapi kredensial belum ada, tunda pemrosesan antrean
+        if (!uName || !uPass) {
+          if (!isTeacherQuickQR) {
+            console.warn("Sinkronisasi ditunda: Menunggu otentikasi login pengguna.");
+            lastSyncError = "Menunggu otentikasi login pengguna.";
+            break;
+          }
+        }
+
         if (item.action === 'addUser') {
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'users', 
             p_data: mapUserToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'addStudent') {
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'students', 
             p_data: mapStudentToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'addRecord') {
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'records', 
             p_data: mapRecordToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'markAttendance') {
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'attendance', 
             p_data: mapAttendanceToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'addAttendanceOpenRequest') {
           // Ganti dari direct upsert ke secure upsert RPC
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'attendance_open_requests', 
             p_data: mapAttendanceOpenRequestToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'addExam') {
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'exams', 
             p_data: mapExamToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'updateUser') {
-          const { error: err } = await supabase.rpc('upsert_data', { 
+          const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
             p_table: 'users', 
             p_data: mapUserToDb(item.data) 
           });
+          rpcRes = d;
           error = err;
         } else if (item.action === 'deleteData') {
           let tableName = item.data.sheetName.toLowerCase();
@@ -475,6 +617,11 @@ export const api = {
             err = new Error(deleteRes.message || 'Gagal menghapus data secara aman.');
           }
           error = err;
+        }
+
+        // Cek jika RPC mengembalikan status gagal di data
+        if (!error && rpcRes && rpcRes.success === false) {
+          error = new Error(rpcRes.message || 'Gagal menyimpan data ke database.');
         }
 
         if (error) throw error;
@@ -558,19 +705,21 @@ export const api = {
       
       const result = data as { success: boolean; data?: any; message?: string };
       if (result.success && result.data) {
+        const loggedUser: User = {
+          id: result.data.id,
+          name: result.data.name,
+          role: result.data.role,
+          username: result.data.username,
+          password: result.data.password,
+          phoneNumber: result.data.phoneNumber || result.data.phone_number,
+          childId: result.data.childId || result.data.child_id,
+          email: result.data.email,
+          avatar: result.data.avatar
+        };
+        setSessionUser(loggedUser);
         return {
           success: true,
-          data: {
-            id: result.data.id,
-            name: result.data.name,
-            role: result.data.role,
-            username: result.data.username,
-            password: result.data.password,
-            phoneNumber: result.data.phoneNumber || result.data.phone_number,
-            childId: result.data.childId || result.data.child_id,
-            email: result.data.email,
-            avatar: result.data.avatar
-          }
+          data: loggedUser
         };
       }
       return { success: false, message: result.message || 'Username atau password salah.' };

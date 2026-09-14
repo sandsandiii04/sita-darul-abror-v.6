@@ -107,14 +107,18 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
       ? students.filter(s => s.id === user.childId)
       : students;
 
-  // Load Juz values for modal
+  // Load Juz values for modal without wiping currently typed numbers
   useEffect(() => {
     if (showJuzModal) {
-      const initialValues: Record<string, number> = {};
-      availableStudents.forEach(s => {
-        initialValues[s.id] = s.totalJuz;
+      setJuzValues(prev => {
+        const updatedValues: Record<string, number> = { ...prev };
+        availableStudents.forEach(s => {
+          if (updatedValues[s.id] === undefined) {
+            updatedValues[s.id] = s.totalJuz || 0;
+          }
+        });
+        return updatedValues;
       });
-      setJuzValues(initialValues);
     }
   }, [showJuzModal, students]);
 
@@ -190,7 +194,7 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
       setEditingRecord(null);
     } else {
       const newRecord: TahfidzRecord = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: 'rec_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5),
         studentId: user.role === 'parent' ? user.childId! : selectedStudent,
         date: recordDate,
         type: activeTab,
@@ -674,13 +678,17 @@ const TahfidzLog: React.FC<TahfidzLogProps> = ({
                         step="0.1" 
                         min="0" 
                         max="30" 
-                        value={juzValues[student.id] !== undefined ? juzValues[student.id] : student.totalJuz} 
-                        onChange={e => setJuzValues({...juzValues, [student.id]: parseFloat(e.target.value) || 0})}
+                        value={juzValues[student.id] !== undefined ? juzValues[student.id] : (student.totalJuz || 0)} 
+                        onChange={e => {
+                          const parsed = parseFloat(e.target.value);
+                          setJuzValues({...juzValues, [student.id]: isNaN(parsed) ? 0 : parsed});
+                        }}
                         className="w-16 border rounded p-1 text-center text-sm font-semibold h-8" 
                       />
                       <button 
                         onClick={() => {
-                          const newJuz = juzValues[student.id] !== undefined ? juzValues[student.id] : student.totalJuz;
+                          const val = juzValues[student.id];
+                          const newJuz = typeof val === 'number' && !isNaN(val) ? val : (student.totalJuz || 0);
                           if (onUpdateStudent) {
                             onUpdateStudent({
                               ...student,

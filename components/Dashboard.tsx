@@ -48,7 +48,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
 
   if (user.role === 'teacher') {
     displayStudents = students.filter(s => s.teacherId === user.id);
-    displayExams = exams.filter(e => displayStudents.some(s => s.id === e.studentId));
+    displayExams = exams.filter(e => displayStudents.some(s => s.id === e.studentId) || e.examiner === user.name);
   } else if (user.role === 'parent' && user.childId) {
     displayStudents = students.filter(s => s.id === user.childId);
     displayExams = exams.filter(e => e.studentId === user.childId);

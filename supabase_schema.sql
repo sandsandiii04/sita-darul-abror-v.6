@@ -203,21 +203,24 @@ BEGIN
      SELECT json_agg(e) INTO v_exams FROM exams e;
      SELECT json_agg(o) INTO v_open_requests FROM attendance_open_requests o;
   ELSIF v_role = 'teacher' THEN
-     -- Guru mendapat data semua guru (minimal untuk list/absen), santri bimbingannya, log tahfidz, absen, & ujian bimbingannya
-     SELECT json_agg(u) INTO v_users FROM (
-       SELECT id, name, role, phone_number, gender FROM users
-     ) u;
-     SELECT json_agg(s) INTO v_students FROM students s WHERE s.teacher_id = v_user_id;
-     
-     SELECT json_agg(r) INTO v_records FROM records r 
-     WHERE r.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
-     
-     SELECT json_agg(a) INTO v_attendance FROM attendance a; -- Absen guru & santri
-     
-     SELECT json_agg(e) INTO v_exams FROM exams e
-     WHERE e.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
-     
-     SELECT json_agg(o) INTO v_open_requests FROM attendance_open_requests o WHERE o.teacher_id = v_user_id;
+      -- Guru mendapat data semua guru (minimal untuk list/absen), santri (semua santri agar bisa menguji ujian santri halaqah lain), log tahfidz santri bimbingannya, absen, & ujian
+      SELECT json_agg(u) INTO v_users FROM (
+        SELECT id, name, role, phone_number, gender FROM users
+      ) u;
+      -- Memuat semua santri agar guru halaqah bisa menguji santri dari halaqah mana saja
+      SELECT json_agg(s) INTO v_students FROM (
+        SELECT id, name, nis, class, halaqah, teacher_id, total_juz FROM students
+      ) s;
+      
+      SELECT json_agg(r) INTO v_records FROM records r 
+      WHERE r.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
+      
+      SELECT json_agg(a) INTO v_attendance FROM attendance a; -- Absen guru & santri
+      
+      -- Memuat seluruh data ujian agar riwayat ujian dapat dilihat dan diuji lintas halaqah
+      SELECT json_agg(e) INTO v_exams FROM exams e;
+      
+      SELECT json_agg(o) INTO v_open_requests FROM attendance_open_requests o WHERE o.teacher_id = v_user_id;
   ELSE
      -- Wali santri (parent) mendapat data santri miliknya saja, log tahfidz, absen, & ujian anaknya
      SELECT json_agg(u) INTO v_users FROM (
@@ -256,17 +259,25 @@ DECLARE
   v_role TEXT;
   v_user_id TEXT;
 BEGIN
-  -- 1. Verifikasi kredensial pengirim (harus guru atau admin)
+  -- 1. Verifikasi kredensial pengirim (harus guru, admin, atau wali/santri)
   SELECT id, role INTO v_user_id, v_role FROM users 
   WHERE username = p_username AND (password = p_password OR password = crypt(p_password, password));
   
   IF NOT FOUND THEN
-     -- Akses Khusus untuk Absen Cepat Guru (tanpa login) menggunakan QR Code yang valid
-     IF p_table = 'attendance' AND p_data->>'type' = 'teacher' AND p_data->>'status' = 'present' AND p_data->>'qr_token' = 'SITA_ABSENSI_GURU_TETAP' THEN
-        v_role := 'teacher';
-        v_user_id := p_data->>'user_id';
+     -- Cari di tabel students (Wali santri / Santri)
+     SELECT id INTO v_user_id FROM students
+     WHERE (username = p_username OR nis = p_username) AND (password = p_password OR password = crypt(p_password, password));
+     
+     IF FOUND THEN
+        v_role := 'parent';
      ELSE
-        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial tidak valid');
+        -- Akses Khusus untuk Absen Cepat Guru (tanpa login) menggunakan QR Code yang valid
+        IF p_table = 'attendance' AND p_data->>'type' = 'teacher' AND p_data->>'status' = 'present' AND p_data->>'qr_token' = 'SITA_ABSENSI_GURU_TETAP' THEN
+           v_role := 'teacher';
+           v_user_id := p_data->>'user_id';
+        ELSE
+           RETURN json_build_object('success', false, 'message', 'Akses ditolak: Kredensial tidak valid');
+        END IF;
      END IF;
   END IF;
 
@@ -274,12 +285,25 @@ BEGIN
   IF v_role = 'admin' THEN
     -- Admin boleh edit/input apa saja
   ELSIF v_role = 'teacher' THEN
-    -- Guru hanya boleh menulis data harian operasional
-    IF p_table NOT IN ('records', 'attendance', 'exams', 'attendance_open_requests') THEN
+    -- Guru boleh mengedit profil dirinya sendiri di tabel users, atau menulis data harian operasional serta capaian santri
+    IF p_table = 'users' THEN
+      IF p_data->>'id' <> v_user_id THEN
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Anda hanya dapat mengedit profil diri sendiri');
+      END IF;
+    ELSIF p_table NOT IN ('records', 'attendance', 'exams', 'attendance_open_requests', 'students') THEN
+      RETURN json_build_object('success', false, 'message', 'Akses ditolak: Anda tidak memiliki izin untuk mengedit tabel ini');
+    END IF;
+  ELSIF v_role = 'parent' THEN
+    -- Wali santri/Santri hanya boleh mengedit profil dirinya sendiri di tabel students
+    IF p_table = 'students' THEN
+      IF p_data->>'id' <> v_user_id THEN
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Anda hanya dapat mengedit profil diri sendiri');
+      END IF;
+    ELSE
       RETURN json_build_object('success', false, 'message', 'Akses ditolak: Anda tidak memiliki izin untuk mengedit tabel ini');
     END IF;
   ELSE
-    -- Wali / Lainnya tidak boleh menulis data apa pun
+    -- Lainnya tidak boleh menulis data apa pun
     RETURN json_build_object('success', false, 'message', 'Akses ditolak: Izin tidak mencukupi');
   END IF;
 
@@ -318,18 +342,18 @@ BEGIN
        p_data->>'halaqah',
        p_data->>'teacher_id',
        (p_data->>'total_juz')::NUMERIC,
-       p_data->>'username',
-       p_data->>'password'
+       COALESCE(NULLIF(p_data->>'username', ''), p_data->>'nis'),
+       COALESCE(NULLIF(p_data->>'password', ''), p_data->>'nis', '123')
      )
      ON CONFLICT (id) DO UPDATE SET
-       name = EXCLUDED.name,
-       nis = EXCLUDED.nis,
-       class = EXCLUDED.class,
-       halaqah = EXCLUDED.halaqah,
-       teacher_id = EXCLUDED.teacher_id,
-       total_juz = EXCLUDED.total_juz,
-       username = EXCLUDED.username,
-       password = EXCLUDED.password;
+       name = COALESCE(NULLIF(EXCLUDED.name, ''), students.name),
+       nis = COALESCE(NULLIF(EXCLUDED.nis, ''), students.nis),
+       class = COALESCE(NULLIF(EXCLUDED.class, ''), students.class),
+       halaqah = COALESCE(NULLIF(EXCLUDED.halaqah, ''), students.halaqah),
+       teacher_id = COALESCE(NULLIF(EXCLUDED.teacher_id, ''), students.teacher_id),
+       total_juz = COALESCE(EXCLUDED.total_juz, students.total_juz),
+       username = COALESCE(NULLIF(EXCLUDED.username, ''), students.username),
+       password = COALESCE(NULLIF(EXCLUDED.password, ''), students.password);
   ELSIF p_table = 'records' THEN
      INSERT INTO records (id, student_id, date, type, surah, ayah_start, ayah_end, grade, notes, class)
      VALUES (

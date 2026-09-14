@@ -18,6 +18,8 @@ interface AttendanceProps {
   openRequests?: AttendanceOpenRequest[];
   onMarkOpenRequest?: (req: AttendanceOpenRequest) => void;
   onDeleteOpenRequest?: (id: string) => void;
+  targetDate?: string;
+  targetSession?: 'pagi' | 'malam';
 }
 
 const formatWhatsAppPhone = (phone: string | undefined): string => {
@@ -33,13 +35,24 @@ const formatWhatsAppPhone = (phone: string | undefined): string => {
 
 const AttendanceView: React.FC<AttendanceProps> = ({ 
   user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type,
-  openRequests = [], onMarkOpenRequest, onDeleteOpenRequest
+  openRequests = [], onMarkOpenRequest, onDeleteOpenRequest,
+  targetDate, targetSession
 }) => {
   const adminUser = (users || []).find(u => u.role === 'admin');
   const adminPhone = adminUser?.phoneNumber ? formatWhatsAppPhone(adminUser.phoneNumber) : formatWhatsAppPhone(ADMIN_PHONE);
 
-  const [date, setDate] = useState(getLocalDateString());
-  const [session, setSession] = useState<'pagi' | 'malam'>('pagi');
+  const [date, setDate] = useState(targetDate || getLocalDateString());
+  const [session, setSession] = useState<'pagi' | 'malam'>(targetSession || (new Date().getHours() >= 14 ? 'malam' : 'pagi'));
+  const cleanSubId = (id: any) => id ? id.toString().split(' | ')[0].trim() : '';
+
+  React.useEffect(() => {
+    if (targetDate) setDate(targetDate);
+  }, [targetDate]);
+
+  React.useEffect(() => {
+    if (targetSession) setSession(targetSession);
+  }, [targetSession]);
+
   const [showAdminQR, setShowAdminQR] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -80,7 +93,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
     // Cari permohonan buka absensi untuk guru ini pada tanggal & sesi & tipe terpilih
     const request = openRequests.find(r => 
-      r.teacherId === user.id && 
+      cleanSubId(r.teacherId) === user.id && 
       r.date === date && 
       r.session === sess && 
       r.type === type
@@ -213,7 +226,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       }
     }
 
-    const existing = attendance.find(a => a.userId === subjectId && a.date === date && a.type === type && a.session === session);
+    const existing = attendance.find(a => cleanSubId(a.userId) === cleanSubId(subjectId) && a.date === date && a.type === type && a.session === session);
     
     // Pembatalan: jika klik status yang sudah aktif, hapus absensi tersebut
     if (existing && existing.status === status) {
@@ -238,7 +251,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
     // Cari request yang disetujui untuk mendapatkan alasan keterlambatan
     const request = openRequests.find(r => 
-      r.teacherId === user.id && 
+      cleanSubId(r.teacherId) === user.id && 
       r.date === date && 
       r.session === session && 
       r.type === type &&
@@ -249,8 +262,10 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     // For teachers marking sick/permission, set approval to pending
     const approvalStatus = (type === 'teacher' && (status === 'sick' || status === 'permission')) ? 'pending' : undefined;
     
-    // Generate a consistent ID so the link works (in a real DB this comes from backend)
-    const recordId = existing ? existing.id : Math.random().toString(36).substr(2, 9);
+    // Generate ID deterministik berbasis entitas agar konsisten di semua device dan menghindari baris duplikat di database
+    const cleanSubjectId = subjectId ? subjectId.toString().split(' | ')[0].trim() : '';
+    const deterministicId = `att_${type}_${cleanSubjectId}_${date}_${session}`;
+    const recordId = existing ? existing.id : deterministicId;
 
     const newRecord: Attendance = {
       id: recordId,
@@ -269,16 +284,19 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         const sessionLabel = session === 'pagi' ? 'Pagi' : 'Malam';
         const typeLabel = status === 'sick' ? 'Sakit' : 'Izin';
         
-        // Generate Magic Links
+        // Generate Magic Links dengan ID deterministik
         const baseUrl = window.location.origin + window.location.pathname;
         const approveLink = `${baseUrl}?action=approve&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}&status=${status}&reason=${encodeURIComponent(newRecord.lateReason || '')}`;
         const rejectLink = `${baseUrl}?action=reject&id=${recordId}&name=${encodeURIComponent(user.name)}&date=${date}&session=${session}&status=${status}&reason=${encodeURIComponent(newRecord.lateReason || '')}`;
 
         const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* izin tidak hadir hari ini (${date}) sesi *${sessionLabel}* dikarenakan *${typeLabel}*.\n\nKeterangan: "${newRecord.lateReason}"\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
         
-        if (confirm("Buka WhatsApp untuk mengirim izin ke Admin?")) {
-            window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
-        }
+        // Beri jeda 300ms agar browser sempat menginisiasi antrean sinkronisasi jaringan sebelum tab dibekukan oleh WhatsApp
+        setTimeout(() => {
+            if (confirm("Buka WhatsApp untuk mengirim izin ke Admin?")) {
+                window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
+            }
+        }, 300);
     }
     return true;
   };
@@ -313,8 +331,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     if (!lateReason.trim()) return alert('Mohon isi keterangan keterlambatan!');
     
     if (onMarkOpenRequest) {
+      const existingReq = openRequests.find(r => cleanSubId(r.teacherId) === user.id && r.date === date && r.session === session && r.type === type);
+      const deterministicReqId = `req_${user.id}_${date}_${session}_${type}`;
+
       const newReq: AttendanceOpenRequest = {
-        id: 'req_' + Math.random().toString(36).substr(2, 9),
+        id: existingReq ? existingReq.id : deterministicReqId,
         teacherId: user.id,
         date,
         session,
@@ -335,9 +356,12 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
       const message = `Assalamu'alaikum Admin,\n\nSaya *${user.name}* memohon akses buka absensi *${typeLabel}* untuk tanggal *${date}* sesi *${sessionLabel}*.\n\nAlasan Terlambat: *${newReq.lateReason}*\n\nMohon persetujuannya:\n\n✅ *SETUJUI* (Klik link ini):\n${approveLink}\n\n❌ *TOLAK* (Klik link ini):\n${rejectLink}`;
       
-      if (confirm("Kirim pengajuan akses buka absen ke Admin via WhatsApp?")) {
-        window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
-      }
+      // Beri jeda 300ms agar browser sempat menginisiasi antrean sinkronisasi jaringan sebelum tab dibekukan oleh WhatsApp
+      setTimeout(() => {
+        if (confirm("Kirim pengajuan akses buka absen ke Admin via WhatsApp?")) {
+          window.open(`https://wa.me/${adminPhone}?text=${encodeURIComponent(message)}`, '_blank');
+        }
+      }, 300);
     }
   };
 
@@ -457,19 +481,29 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             <div className="flex bg-gray-100 p-1 rounded-lg">
                 <button
                     onClick={() => setSession('pagi')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
                     session === 'pagi' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                     }`}
                 >
-                    <Sun size={16} /> Pagi
+                    <Sun size={16} /> <span>Pagi</span>
+                    {attendance.filter(a => cleanSubId(a.userId) && a.date === date && a.type === type && a.session === 'pagi' && a.status).length > 0 && (
+                      <span className="px-1.5 py-0.5 text-[10px] bg-orange-100 text-orange-700 rounded-full font-bold">
+                        {attendance.filter(a => cleanSubId(a.userId) && a.date === date && a.type === type && a.session === 'pagi' && a.status).length}
+                      </span>
+                    )}
                 </button>
                 <button
                     onClick={() => setSession('malam')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
                     session === 'malam' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                     }`}
                 >
-                    <Moon size={16} /> Malam
+                    <Moon size={16} /> <span>Malam</span>
+                    {attendance.filter(a => cleanSubId(a.userId) && a.date === date && a.type === type && a.session === 'malam' && a.status).length > 0 && (
+                      <span className="px-1.5 py-0.5 text-[10px] bg-indigo-100 text-indigo-700 rounded-full font-bold">
+                        {attendance.filter(a => cleanSubId(a.userId) && a.date === date && a.type === type && a.session === 'malam' && a.status).length}
+                      </span>
+                    )}
                 </button>
             </div>
             
@@ -490,7 +524,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {openRequests.filter(r => r.status === 'pending').map(req => {
-                    const teacher = users.find(u => u.id === req.teacherId);
+                    const teacher = users.find(u => u.id === cleanSubId(req.teacherId));
                     return (
                         <div key={req.id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between gap-2 text-xs">
                             <div>
@@ -563,7 +597,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                     </tr>
                   ) : (
                     openRequests.map(req => {
-                      const teacher = users.find(u => u.id === req.teacherId);
+                      const teacher = users.find(u => u.id === cleanSubId(req.teacherId));
                       return (
                         <tr key={req.id} className="hover:bg-gray-50">
                           <td className="p-2 border border-gray-200 font-semibold">{teacher?.name || 'Guru'}</td>
@@ -695,7 +729,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {subjectList.map((subject) => {
-          const record = attendance.find(a => a.userId === subject.id && a.date === date && a.type === type && a.session === session);
+          const record = attendance.find(a => cleanSubId(a.userId) === cleanSubId(subject.id) && a.date === date && a.type === type && a.session === session);
           const currentStatus = record?.status || null;
           const isPending = record?.approvalStatus === 'pending';
           
