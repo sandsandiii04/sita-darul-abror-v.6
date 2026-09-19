@@ -1629,14 +1629,48 @@ export const api = {
       return { success: false, message: 'Akses ditolak: Parent tidak memiliki akses.' };
     }
 
+    const local = this.getLocalExamPeriods();
+
     if (supabase) {
+      // 1. Coba lewat RPC get_exam_periods (Role-Based Secure)
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_exam_periods', {
+          p_username: u.username,
+          p_password: u.password
+        });
+
+        if (!rpcError && rpcData?.success && Array.isArray(rpcData.data)) {
+          const list: ExamPeriod[] = rpcData.data.map((r: any) => ({
+            id: r.id,
+            academicTermId: r.academicTermId || r.academic_term_id,
+            name: r.name,
+            examType: r.examType || r.exam_type,
+            materialCutoffDate: r.materialCutoffDate || r.material_cutoff_date,
+            examStartDate: r.examStartDate || r.exam_start_date,
+            examEndDate: r.examEndDate || r.exam_end_date,
+            kkm: Number(r.kkm || 75),
+            targetClasses: r.targetClasses || r.target_classes || [],
+            targetHalaqahs: r.targetHalaqahs || r.target_halaqahs || [],
+            status: r.status,
+            createdBy: r.createdBy || r.created_by,
+            createdAt: r.createdAt || r.created_at,
+            updatedAt: r.updatedAt || r.updated_at
+          }));
+          this.saveLocalExamPeriods(list);
+          return { success: true, data: list };
+        }
+      } catch (e) {
+        console.warn("get_exam_periods RPC fallback to direct select:", e);
+      }
+
+      // 2. Fallback: Coba lewat direct select dari tabel exam_periods
       try {
         const { data, error } = await supabase
           .from('exam_periods')
           .select('*')
           .order('material_cutoff_date', { ascending: false });
 
-        if (!error && data) {
+        if (!error && data && data.length > 0) {
           const mapped: ExamPeriod[] = data.map((r: any) => ({
             id: r.id,
             academicTermId: r.academic_term_id,
@@ -1657,14 +1691,14 @@ export const api = {
           return { success: true, data: mapped };
         }
         if (error) {
-          console.warn("getExamPeriods error:", error.message);
+          console.warn("getExamPeriods direct select error:", error.message);
         }
       } catch (e) {
         console.warn("getExamPeriods remote error:", e);
       }
     }
 
-    const local = this.getLocalExamPeriods();
+    // 3. Fallback ke data lokal (mencegah data terhapus jika remote diblokir RLS)
     return { success: true, data: local };
   },
 
