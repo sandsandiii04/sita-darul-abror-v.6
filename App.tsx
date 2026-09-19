@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, Role, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest } from './types';
+import { User, Role, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest, QuestionDraft } from './types';
 import { MOCK_USERS, MOCK_STUDENTS, MOCK_RECORDS, MOCK_ATTENDANCE, MOCK_EXAMS, LOGO_URL, GOOGLE_SCRIPT_URL, getLocalDateString } from './constants';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -11,9 +11,19 @@ import AdminPanel from './components/AdminPanel';
 import ReportsView from './components/ReportsView';
 import ProfileSettings from './components/ProfileSettings';
 import TutorialGuide from './components/TutorialGuide';
+import MushafDigital from './components/QuranMushaf/MushafDigital';
+import QuestionBankView from './components/QuestionBank/QuestionBankView';
+import { EvaluationPeriods } from './components/TahfizEvaluation/EvaluationPeriods';
+import { MaterialPreparation } from './components/TahfizEvaluation/MaterialPreparation';
+import { UTSPelaksanaanView } from './components/TahfizEvaluation/UTSPelaksanaanView';
+import { UASPelaksanaanView } from './components/TahfizEvaluation/UASPelaksanaanView';
+import { SemesterRecapView } from './components/TahfizEvaluation/SemesterRecapView';
+import { FinalSemesterRecapView } from './components/TahfizEvaluation/FinalSemesterRecapView';
+import { RemedialExamExecutionView } from './components/TahfizEvaluation/RemedialExamExecutionView';
 import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
 import { api, setSessionUser } from './api';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError, onQuickAttendance, onOpenDbConfig }: { onLogin: (user: User) => void, users: User[], students: Student[], isLoadingData: boolean, connectionError: string | null, onQuickAttendance: (att: Attendance) => void, onOpenDbConfig: () => void }) => {
   const [username, setUsername] = useState('');
@@ -291,37 +301,91 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
 
 const useStickyState = <T,>(defaultValue: T, key: string): [T, React.Dispatch<React.SetStateAction<T>>] => {
   const [value, setValue] = useState<T>(() => {
-    const stickyValue = window.localStorage.getItem(key);
-    return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+    try {
+      const stickyValue = window.localStorage.getItem(key);
+      return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+    } catch (e) {
+      console.warn(`[SITA useStickyState] Gagal membaca key "${key}" dari localStorage:`, e);
+      return defaultValue;
+    }
   });
-  useEffect(() => { window.localStorage.setItem(key, JSON.stringify(value)); }, [key, value]);
+
+  useEffect(() => { 
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value)); 
+    } catch (e: any) {
+      console.warn(`[SITA useStickyState] Gagal menyimpan key "${key}" ke localStorage (kuota HP mungkin penuh):`, e);
+      // Jika kuota localStorage penuh di browser HP, jangan sampai aplikasi crash!
+      if (e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014) {
+        try {
+          // Bersihkan cache berukuran besar yang aman dimuat ulang dari cloud
+          window.localStorage.removeItem('sita_attendance_v1');
+          window.localStorage.removeItem('sita_records_v1');
+          window.localStorage.removeItem('sita_question_bank_cache_v2');
+          window.localStorage.setItem(key, JSON.stringify(value));
+        } catch (retryErr) {
+          // Tetap simpan di state memory React tanpa merobohkan render
+        }
+      }
+    }
+  }, [key, value]);
+
   return [value, setValue];
 };
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
+    try {
       const savedUser = window.localStorage.getItem('sita_current_user_v1');
       return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      console.warn("[SITA App] Gagal membaca saved user:", e);
+      return null;
+    }
   });
-  const [activeTab, setActiveTab] = useState(() => window.localStorage.getItem('sita_active_tab_v1') || 'dashboard');
+
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return window.localStorage.getItem('sita_active_tab_v1') || 'dashboard';
+    } catch (e) {
+      return 'dashboard';
+    }
+  });
 
   useEffect(() => {
     if (user) {
-      window.localStorage.setItem('sita_current_user_v1', JSON.stringify(user));
-      const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile'];
-      const teacherTabs = ['dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'exam', 'reports', 'attendance_self', 'profile'];
+      try {
+        window.localStorage.setItem('sita_current_user_v1', JSON.stringify(user));
+      } catch (e) {}
+
+      const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital'];
+      const teacherTabs = ['dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'material_preparation', 'uts_execution', 'uas_execution', 'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital'];
+      const adminTabs = [
+        'dashboard', 'master_data', 'attendance_student', 'attendance_teacher',
+        'mushaf_digital', 'question_bank', 'evaluation_periods', 'material_preparation',
+        'uts_execution', 'uas_execution', 'remedial_execution', 'semester_recap',
+        'final_recap', 'exam', 'reports', 'tutorial', 'profile', 'ziyadah', 'murojaah'
+      ];
       
       if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
         setActiveTab('dashboard');
       } else if (user.role === 'teacher' && !teacherTabs.includes(activeTab)) {
         setActiveTab('dashboard');
+      } else if (user.role === 'admin' && !adminTabs.includes(activeTab)) {
+        setActiveTab('dashboard');
       }
     } else {
-      window.localStorage.removeItem('sita_current_user_v1');
+      try {
+        window.localStorage.removeItem('sita_current_user_v1');
+      } catch (e) {}
     }
   }, [user, activeTab]);
 
-  useEffect(() => { window.localStorage.setItem('sita_active_tab_v1', activeTab); }, [activeTab]);
+  useEffect(() => { 
+    try {
+      window.localStorage.setItem('sita_active_tab_v1', activeTab); 
+    } catch (e) {}
+  }, [activeTab]);
   
   const [users, setUsers] = useStickyState<User[]>(MOCK_USERS, 'sita_users_v1');
   const [students, setStudents] = useStickyState<Student[]>(MOCK_STUDENTS, 'sita_students_v1');
@@ -332,6 +396,8 @@ const App: React.FC = () => {
 
   const [targetAttendanceDate, setTargetAttendanceDate] = useState<string | undefined>(undefined);
   const [targetAttendanceSession, setTargetAttendanceSession] = useState<'pagi' | 'malam' | undefined>(undefined);
+  const [mushafInitialDraft, setMushafInitialDraft] = useState<QuestionDraft | null>(null);
+  const [selectedEvaluationPeriodId, setSelectedEvaluationPeriodId] = useState<string | null>(null);
 
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -399,7 +465,7 @@ const App: React.FC = () => {
         
         // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi, dan tipe
         if (!targetAtt) {
-          const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+          const teacher = users.find(u => u && u.name && u.name.toLowerCase() === (params.get('name') || '').toLowerCase());
           if (teacher) {
             targetAtt = attendance.find(a => 
               cleanId(a.userId) === teacher.id && 
@@ -412,7 +478,7 @@ const App: React.FC = () => {
 
         const dateParam = params.get('date') || getLocalDateString();
         const sessionParam = (params.get('session') as 'pagi' | 'malam') || 'pagi';
-        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase()) || 
+        const teacher = users.find(u => u && u.name && u.name.toLowerCase() === (params.get('name') || '').toLowerCase()) || 
                         (targetAtt ? users.find(u => u.id === cleanId(targetAtt.userId)) : null);
         const teacherName = teacher?.name || params.get('name') || 'Guru';
         const teacherId = teacher?.id || cleanId(targetAtt?.userId) || '';
@@ -485,7 +551,7 @@ const App: React.FC = () => {
         
         // Fallback 1: Jika tidak ditemukan lewat ID, cari berdasarkan guru, tanggal, sesi
         if (!targetReq) {
-          const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase());
+          const teacher = users.find(u => u && u.name && u.name.toLowerCase() === (params.get('name') || '').toLowerCase());
           if (teacher) {
             targetReq = attendanceOpenRequests.find(r => 
               cleanId(r.teacherId) === teacher.id && 
@@ -499,7 +565,7 @@ const App: React.FC = () => {
         const sessionParam = (params.get('session') as 'pagi' | 'malam') || 'pagi';
         const reqType = (params.get('reqType') as 'student' | 'teacher') || targetReq?.type || 'teacher';
         const reasonParam = params.get('reason') || targetReq?.lateReason || '';
-        const teacher = users.find(u => u.name.toLowerCase() === params.get('name')?.toLowerCase()) ||
+        const teacher = users.find(u => u && u.name && u.name.toLowerCase() === (params.get('name') || '').toLowerCase()) ||
                         (targetReq ? users.find(u => u.id === cleanId(targetReq.teacherId)) : null);
         const teacherName = teacher?.name || params.get('name') || 'Guru';
         const teacherId = teacher?.id || cleanId(targetReq?.teacherId) || '';
@@ -855,6 +921,95 @@ const App: React.FC = () => {
       case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} onDeleteOpenRequest={handleDeleteOpenRequest} />;
       case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
       case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
+      case 'mushaf_digital': 
+        return (
+          <MushafDigital 
+            user={user!} 
+            initialDraft={mushafInitialDraft}
+            onNavigateToBankSoal={() => {
+              setMushafInitialDraft(null);
+              setActiveTab('question_bank');
+            }}
+          />
+        );
+      case 'question_bank':
+        if (user!.role !== 'admin') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <QuestionBankView
+            user={user!}
+            onNavigateToMushafBuilder={(draft) => {
+              setMushafInitialDraft(draft || null);
+              setActiveTab('mushaf_digital');
+            }}
+          />
+        );
+      case 'evaluation_periods':
+        if (user!.role !== 'admin') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <EvaluationPeriods
+            user={user!}
+            students={students}
+            records={records}
+            onNavigateToPreparation={(periodId) => {
+              setSelectedEvaluationPeriodId(periodId);
+              setActiveTab('material_preparation');
+            }}
+          />
+        );
+      case 'material_preparation':
+        if (user!.role === 'parent') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <MaterialPreparation
+            user={user!}
+            students={students}
+            records={records}
+            initialPeriodId={selectedEvaluationPeriodId}
+            onNavigateToPeriods={() => {
+              setActiveTab('evaluation_periods');
+            }}
+          />
+        );
+      case 'uts_execution':
+        if (user!.role === 'parent') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <UTSPelaksanaanView user={user!} />
+        );
+      case 'uas_execution':
+        if (user!.role === 'parent') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <UASPelaksanaanView user={user!} />
+        );
+      case 'semester_recap':
+        if (user!.role !== 'admin') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <SemesterRecapView user={user!} />
+        );
+      case 'final_recap':
+        if (user!.role !== 'admin') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <FinalSemesterRecapView user={user!} />
+        );
+      case 'remedial_execution':
+        if (user!.role === 'parent') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <RemedialExamExecutionView user={user!} />
+        );
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
       case 'tutorial': return <TutorialGuide />;
@@ -912,7 +1067,9 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {renderContent()}
+          <ErrorBoundary componentName="Halaman Menu">
+            {renderContent()}
+          </ErrorBoundary>
         </Layout>
       )}
       <SyncStatusWidget 

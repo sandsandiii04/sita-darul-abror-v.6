@@ -40,26 +40,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
     { name: 'Ahad', pages: 0 },
   ];
 
-  const totalSabaq = records.filter(r => r.type === 'sabaq' || r.type === 'ziyadah').length;
-  const totalMurojaah = records.filter(r => r.type === 'sabqi' || r.type === 'manzil' || r.type === 'murojaah').length;
+  const totalSabaq = (records || []).filter(r => r && (r.type === 'sabaq' || r.type === 'ziyadah')).length;
+  const totalMurojaah = (records || []).filter(r => r && (r.type === 'sabqi' || r.type === 'manzil' || r.type === 'murojaah')).length;
   
-  let displayStudents = students;
-  let displayExams = exams;
+  let displayStudents = students || [];
+  let displayExams = exams || [];
 
-  if (user.role === 'teacher') {
-    displayStudents = students.filter(s => s.teacherId === user.id);
-    displayExams = exams.filter(e => displayStudents.some(s => s.id === e.studentId) || e.examiner === user.name);
-  } else if (user.role === 'parent' && user.childId) {
-    displayStudents = students.filter(s => s.id === user.childId);
-    displayExams = exams.filter(e => e.studentId === user.childId);
+  if (user?.role === 'teacher') {
+    displayStudents = (students || []).filter(s => s && s.teacherId === user.id);
+    displayExams = (exams || []).filter(e => e && (displayStudents.some(s => s && s.id === e.studentId) || e.examiner === user.name));
+  } else if (user?.role === 'parent' && user.childId) {
+    displayStudents = (students || []).filter(s => s && s.id === user.childId);
+    displayExams = (exams || []).filter(e => e && e.studentId === user.childId);
   }
 
   const averageJuz = displayStudents.length > 0 
-    ? (displayStudents.reduce((acc, curr) => acc + curr.totalJuz, 0) / displayStudents.length).toFixed(1)
+    ? (displayStudents.reduce((acc, curr) => acc + (parseFloat((curr && curr.totalJuz) as any) || 0), 0) / displayStudents.length).toFixed(1)
     : 0;
   
-  // Get recent exams (top 5)
-  const recentExams = displayExams
+  // Ambil data ujian terbaru (top 5) dengan shallow copy agar tidak memutasi state React!
+  const recentExams = [...displayExams]
+    .filter(e => e && e.date)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 5);
 
@@ -73,7 +74,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
                 {isOnline ? "Server Terhubung (Cloud Terintegrasi)" : "Koneksi Bermasalah (Offline Mode)"}
             </span>
         </div>
-        {!isOnline && user.role === 'admin' && (
+        {!isOnline && user?.role === 'admin' && (
             <button 
                 onClick={() => onNavigate && onNavigate('tutorial')}
                 className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg text-[10px] font-bold border border-red-200 shadow-sm text-red-600 hover:bg-red-50 transition-all active:scale-95 whitespace-nowrap"
@@ -118,14 +119,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Chart (Left Column) */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+        {/* Main Chart (Left Column) - min-w-0 mencegah flex collapse di HP */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm min-w-0">
           <h3 className="text-base font-extrabold text-slate-800 mb-6 flex items-center gap-2">
             <span className="w-1.5 h-4 bg-emerald-600 rounded-full" />
             Grafik Capaian Mingguan (Halaman)
           </h3>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 w-full min-w-0">
+            <ResponsiveContainer width="100%" height={280} minWidth={0}>
               <BarChart data={weeklyData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis 
@@ -164,8 +165,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
                 Santri Terbaik Pekan Ini
               </h3>
               <div className="space-y-3.5">
-                {displayStudents.slice(0, 3).map((s, idx) => (
-                  <div key={s.id} className="flex items-center gap-3 pb-3 border-b border-slate-100 last:border-0 last:pb-0">
+                {displayStudents.filter(Boolean).slice(0, 3).map((s, idx) => (
+                  <div key={s.id || idx} className="flex items-center gap-3 pb-3 border-b border-slate-100 last:border-0 last:pb-0">
                     <div className={`
                       w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0
                       ${idx === 0 
@@ -177,8 +178,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
                       {idx + 1}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-xs text-slate-800 truncate leading-snug">{s.name}</p>
-                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Kelas {s.class} • <span className="text-emerald-600 font-bold">{s.totalJuz} Juz</span></p>
+                      <p className="font-bold text-xs text-slate-800 truncate leading-snug">{s.name || '-'}</p>
+                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Kelas {s.class || '-'} • <span className="text-emerald-600 font-bold">{s.totalJuz || 0} Juz</span></p>
                     </div>
                   </div>
                 ))}
@@ -198,22 +199,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
                 {recentExams.length === 0 ? (
                     <p className="text-xs text-slate-400 text-center py-6 font-medium">Belum ada data ujian.</p>
                 ) : (
-                    recentExams.map(exam => {
-                        const s = students.find(st => st.id === exam.studentId);
+                    recentExams.map((exam, idx) => {
+                        if (!exam) return null;
+                        const s = (students || []).find(st => st && st.id === exam.studentId);
                         
                         const displayLabel = exam.details 
-                          ? `${exam.details.surat || exam.details.halaman}`
-                          : exam.category;
+                          ? `${exam.details.surat || exam.details.halaman || '-'}`
+                          : exam.category || '-';
                         
                         const juzLabel = exam.juz || exam.details?.juz || '-';
                         const classLabel = s?.class || exam.class || '-';
-                        const isPassed = exam.score >= 70;
+                        const isPassed = (exam.score || 0) >= 70;
 
                         return (
-                            <div key={exam.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                            <div key={exam.id || idx} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
                                 <div className="flex justify-between items-start gap-2 mb-1">
                                     <div className="min-w-0">
-                                      <p className="font-bold text-xs text-slate-800 truncate leading-snug">{s?.name}</p>
+                                      <p className="font-bold text-xs text-slate-800 truncate leading-snug">{s?.name || '-'}</p>
                                       <div className="flex items-center gap-1.5 mt-1">
                                         <span className="text-[9px] bg-slate-50 px-1.5 py-0.5 rounded-md text-slate-500 border border-slate-200/60 font-bold uppercase">Kelas {classLabel}</span>
                                         <span className="text-[9px] bg-indigo-50 px-1.5 py-0.5 rounded-md text-indigo-700 border border-indigo-100/80 font-bold uppercase">{juzLabel}</span>

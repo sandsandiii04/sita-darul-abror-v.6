@@ -16,7 +16,12 @@ import {
   FileText,
   Settings,
   HelpCircle,
-  RotateCcw
+  RotateCcw,
+  BookMarked,
+  CheckSquare,
+  Calendar,
+  ListChecks,
+  ClipboardCheck
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -28,22 +33,31 @@ interface LayoutProps {
   onOpenDbConfig?: () => void;
 }
 
+export interface MenuItem {
+  id: string;
+  label: string;
+  icon: any;
+  section?: string;
+  isSubItem?: boolean;
+}
+
 const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange, children, onOpenDbConfig }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const getMenuItems = (role: Role) => {
-    const common = [
+  const getMenuItems = (role: Role): MenuItem[] => {
+    const common: MenuItem[] = [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'ziyadah', label: 'Ziyadah (Sabaq)', icon: BookOpen },
       { id: 'murojaah', label: 'Muroja\'ah (Sabqi & Manzil)', icon: RotateCcw },
     ];
 
-    const profileMenu = { id: 'profile', label: 'Pengaturan Akun', icon: Settings };
+    const profileMenu: MenuItem = { id: 'profile', label: 'Pengaturan Akun', icon: Settings };
 
     if (role === 'parent') {
       return [
         ...common,
-        { id: 'exam', label: 'Riwayat Ujian', icon: Award },
+        { id: 'mushaf_digital', label: 'Mushaf Digital', icon: BookMarked, section: 'Evaluasi Tahfiz', isSubItem: true },
+        { id: 'exam', label: 'Riwayat Ujian', icon: Award, isSubItem: true },
         { id: 'attendance_student', label: 'Absensi Anak', icon: CalendarCheck },
         { id: 'reports', label: 'Laporan Capaian', icon: FileText },
         profileMenu
@@ -54,7 +68,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
       return [
         ...common,
         { id: 'attendance_student', label: 'Absensi Santri', icon: Users },
-        { id: 'exam', label: 'Input Ujian', icon: Award },
+        { id: 'mushaf_digital', label: 'Mushaf Digital', icon: BookMarked, section: 'Evaluasi Tahfiz', isSubItem: true },
+        { id: 'material_preparation', label: 'Persiapan Materi', icon: ListChecks, section: 'Evaluasi Tahfiz', isSubItem: true },
+        { id: 'uts_execution', label: 'Pelaksanaan UTS', icon: ClipboardCheck, section: 'Evaluasi Tahfiz', isSubItem: true },
+        { id: 'uas_execution', label: 'Pelaksanaan UAS', icon: ClipboardCheck, section: 'Evaluasi Tahfiz', isSubItem: true },
+        { id: 'remedial_execution', label: 'Ujian Remedial', icon: RotateCcw, section: 'Evaluasi Tahfiz', isSubItem: true },
+        { id: 'exam', label: 'Input Ujian', icon: Award, isSubItem: true },
         { id: 'reports', label: 'Laporan Capaian', icon: FileText },
         { id: 'attendance_self', label: 'Absensi Saya', icon: UserCheck },
         profileMenu
@@ -66,16 +85,30 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
       { id: 'master_data', label: 'Data Master', icon: Database },
       { id: 'attendance_student', label: 'Absensi Santri', icon: Users },
       { id: 'attendance_teacher', label: 'Absensi Guru', icon: UserCheck },
-      { id: 'exam', label: 'Data Ujian', icon: Award },
+      { id: 'mushaf_digital', label: 'Mushaf Digital', icon: BookMarked, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'question_bank', label: 'Bank Soal', icon: CheckSquare, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'evaluation_periods', label: 'Periode Evaluasi', icon: Calendar, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'material_preparation', label: 'Persiapan Materi', icon: ListChecks, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'uts_execution', label: 'Pelaksanaan UTS', icon: ClipboardCheck, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'uas_execution', label: 'Pelaksanaan UAS', icon: ClipboardCheck, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'remedial_execution', label: 'Ujian Remedial', icon: RotateCcw, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'semester_recap', label: 'Rekap Semester', icon: Award, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'final_recap', label: 'Rekap Nilai Final', icon: Award, section: 'Evaluasi Tahfiz', isSubItem: true },
+      { id: 'exam', label: 'Data Ujian', icon: Award, isSubItem: true },
       { id: 'reports', label: 'Laporan', icon: FileText },
       { id: 'tutorial', label: 'Panduan Sistem', icon: HelpCircle },
       profileMenu
     ];
   };
 
-  const menuItems = getMenuItems(user.role);
+  const menuItems = getMenuItems(user?.role || 'parent');
   // Find the currently active menu item for header display
-  const activeMenuItem = menuItems.find(i => i.id === activeTab) || menuItems[0];
+  const activeMenuItem = menuItems.find(i => i.id === activeTab) || menuItems[0] || {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard
+  };
+  const ActiveIcon = activeMenuItem.icon || LayoutDashboard;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#f8fafc] font-sans">
@@ -130,12 +163,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
         <div className="p-4 border-b border-slate-100 bg-slate-50/40">
           <div className="flex items-center gap-3 bg-white p-2.5 rounded-2xl border border-slate-200/60 shadow-sm">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-800 font-extrabold flex items-center justify-center shadow-inner overflow-hidden shrink-0">
-              {user.avatar ? <img src={user.avatar} className="w-full h-full object-cover" alt="avatar" /> : user.name.charAt(0)}
+              {user?.avatar ? <img src={user.avatar} className="w-full h-full object-cover" alt="avatar" /> : (user?.name || 'A').charAt(0)}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-bold text-slate-800 text-xs truncate leading-normal">{user.name}</p>
+              <p className="font-bold text-slate-800 text-xs truncate leading-normal">{user?.name || 'Pengguna'}</p>
               <span className="inline-block text-[9px] px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 uppercase font-extrabold mt-0.5">
-                {user.role}
+                {user?.role || '-'}
               </span>
             </div>
           </div>
@@ -143,24 +176,35 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
 
         {/* Sidebar Nav */}
         <nav className="p-3 space-y-1 flex-1 overflow-y-auto">
-          {menuItems.map((item) => {
+          {menuItems.map((item, index) => {
             const isActive = activeTab === item.id;
+            const showSectionHeader = item.section && (index === 0 || menuItems[index - 1]?.section !== item.section);
+
             return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onTabChange(item.id);
-                  setIsSidebarOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all duration-200 text-xs font-semibold border ${
-                  isActive 
-                    ? 'bg-emerald-50/70 border-emerald-100 text-emerald-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.01)] border-l-4 border-l-emerald-600 pl-2.5 font-bold' 
-                    : 'text-slate-600 border-transparent hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <item.icon size={18} className={isActive ? 'text-emerald-700' : 'text-slate-400'} />
-                <span>{item.label}</span>
-              </button>
+              <React.Fragment key={item.id}>
+                {showSectionHeader && (
+                  <div className="pt-3 pb-1 px-3.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span>{item.section}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    onTabChange(item.id);
+                    setIsSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 text-xs font-semibold border ${
+                    item.isSubItem ? 'pl-5' : ''
+                  } ${
+                    isActive 
+                      ? 'bg-emerald-50/70 border-emerald-100 text-emerald-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.01)] border-l-4 border-l-emerald-600 pl-4 font-bold' 
+                      : 'text-slate-600 border-transparent hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <item.icon size={17} className={isActive ? 'text-emerald-700' : 'text-slate-400'} />
+                  <span>{item.label}</span>
+                </button>
+              </React.Fragment>
             );
           })}
         </nav>
@@ -199,7 +243,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
         <header className="mb-6 hidden md:block print:hidden shrink-0">
            <div className="flex items-center gap-3 mb-1">
              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-emerald-800 shadow-sm border border-emerald-200/50">
-               <activeMenuItem.icon size={16} />
+               <ActiveIcon size={16} />
              </div>
              <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">
                {activeMenuItem.label}
