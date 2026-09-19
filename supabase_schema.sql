@@ -1885,14 +1885,9 @@ BEGIN
         RETURN json_build_object('success', false, 'message', 'Periode ujian tidak ditemukan atau sudah dihapus.');
     END IF;
 
-    -- Lepaskan referensi pada konfigurasi rekap semester jika ada
-    UPDATE semester_evaluation_configs 
-    SET uts_period_id = NULL 
-    WHERE uts_period_id = p_period_id;
-
-    UPDATE semester_evaluation_configs 
-    SET uas_period_id = NULL 
-    WHERE uas_period_id = p_period_id;
+    -- Hapus konfigurasi pasangan semester yang mengacu pada periode ini
+    DELETE FROM semester_evaluation_configs 
+    WHERE uts_period_id = p_period_id OR uas_period_id = p_period_id;
 
     -- Hapus periode ujian (Foreign key CASCADE akan otomatis membersihkan peserta, snapshot materi, paket soal, dan nilai terkait)
     DELETE FROM exam_periods WHERE id = p_period_id;
