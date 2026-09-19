@@ -2054,9 +2054,22 @@ export const api = {
           p_period_id: periodId
         });
         if (!error && data?.success) {
-          const evalData: TahfizEvaluationData = data.data;
-          this.saveLocalEvaluationData(periodId, evalData);
-          return { success: true, data: evalData };
+          const rawParticipants = data.participants;
+          const rawSnapshots = data.materialSnapshots;
+          const rawAuditLogs = data.auditLogs;
+
+          const evalData: TahfizEvaluationData = (data.data || {
+            period: data.period,
+            academicTerm: data.academicTerm,
+            participants: (Array.isArray(rawParticipants) ? rawParticipants : (typeof rawParticipants === 'string' ? JSON.parse(rawParticipants) : [])) || [],
+            materialSnapshots: (Array.isArray(rawSnapshots) ? rawSnapshots : (typeof rawSnapshots === 'string' ? JSON.parse(rawSnapshots) : [])) || [],
+            auditLogs: (Array.isArray(rawAuditLogs) ? rawAuditLogs : (typeof rawAuditLogs === 'string' ? JSON.parse(rawAuditLogs) : [])) || []
+          }) as TahfizEvaluationData;
+
+          if (evalData && (evalData.period || (evalData.participants && evalData.participants.length > 0))) {
+            this.saveLocalEvaluationData(periodId, evalData);
+            return { success: true, data: evalData };
+          }
         }
         if (data?.message) {
           const cached = this.getLocalEvaluationData(periodId);

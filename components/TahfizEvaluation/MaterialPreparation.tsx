@@ -112,13 +112,20 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
     init();
   }, []);
 
+  // Sync initialPeriodId when prop changes
+  useEffect(() => {
+    if (initialPeriodId && initialPeriodId !== selectedPeriodId) {
+      setSelectedPeriodId(initialPeriodId);
+    }
+  }, [initialPeriodId]);
+
   // Selected period object
   const currentPeriod = useMemo(() => {
     return examPeriods.find(p => p.id === selectedPeriodId) || examPeriods[0] || null;
   }, [examPeriods, selectedPeriodId]);
 
   const currentTerm = useMemo(() => {
-    if (!currentPeriod) return null;
+    if (!currentPeriod) return academicTerms[0] || null;
     return academicTerms.find(t => t.id === currentPeriod.academicTermId) || academicTerms[0] || null;
   }, [academicTerms, currentPeriod]);
 
@@ -128,11 +135,11 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
     setIsLoading(true);
     try {
       const res = await api.getTahfizEvaluationData(periodId, user);
-      if (res.success && res.data) {
+      if (res.success && res.data && res.data.participants && res.data.participants.length > 0) {
         setParticipants(res.data.participants || []);
         setSnapshots(res.data.materialSnapshots || []);
       } else {
-        // Fallback: If no participants yet in DB, synthesize from students based on role
+        // Fallback: If no participants yet in DB, synthesize from students based on role / targets
         synthesizeData(periodId);
       }
       await loadQuestionSets(periodId);
@@ -157,14 +164,18 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
   };
 
   const synthesizeData = (periodId: string) => {
-    const period = examPeriods.find(p => p.id === periodId);
+    const period = examPeriods.find(p => p.id === periodId) || api.getLocalExamPeriods().find(p => p.id === periodId);
     if (!period) return;
-    const term = academicTerms.find(t => t.id === period.academicTermId) || academicTerms[0];
+    const term = academicTerms.find(t => t.id === period.academicTermId) || academicTerms[0] || api.getLocalAcademicTerms()[0];
 
-    // Filter students by teacher if teacher role
+    // Filter students by teacher if teacher role, or by targetClasses / targetHalaqahs
     let eligibleStudents = students;
     if (isTeacher) {
       eligibleStudents = students.filter(s => s.teacherId === user.id || s.halaqah?.toLowerCase().includes(user.name.toLowerCase()));
+    } else if (period.targetClasses && period.targetClasses.length > 0) {
+      eligibleStudents = students.filter(s => period.targetClasses!.includes(s.class));
+    } else if (period.targetHalaqahs && period.targetHalaqahs.length > 0) {
+      eligibleStudents = students.filter(s => period.targetHalaqahs!.includes(s.halaqah));
     }
 
     const syntheticParticipants: ExamParticipant[] = eligibleStudents.map(s => ({
