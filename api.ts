@@ -1758,6 +1758,24 @@ export const api = {
           else localPeriods.unshift(savedPeriod);
           this.saveLocalExamPeriods(localPeriods);
 
+          // Auto assign default examiners (guru halaqah) in background
+          if (studentIds.length > 0) {
+            this.load(u).then(cloud => {
+              const students = cloud?.students || [];
+              studentIds.forEach(sid => {
+                const s = students.find(st => st.id === sid);
+                if (s?.teacherId) {
+                  this.assignExaminer({
+                    periodId: data.periodId || periodId,
+                    studentId: sid,
+                    examinerId: s.teacherId,
+                    reason: 'Penugasan otomatis guru halaqah sebagai penguji default'
+                  }, u).catch(() => {});
+                }
+              });
+            }).catch(() => {});
+          }
+
           return {
             success: true,
             periodId: data.periodId || periodId,
@@ -2843,9 +2861,15 @@ export const api = {
 
       // Filtering per role:
       // Admin sees all.
-      // Teacher sees ONLY students explicitly assigned to them (NO halaqah fallback)
+      // Teacher sees students explicitly assigned to them, or their own halaqah students if no assignment yet
       if (u.role === 'teacher') {
-        if (assignedExaminerId !== u.id) {
+        const isAssigned = assignedExaminerId === u.id;
+        const isHalaqahTeacher = !assignedExaminerId && (
+          s.teacherId === u.id || 
+          (p as any).teacherIdSnapshot === u.id || 
+          s.halaqah?.toLowerCase().includes(u.name.toLowerCase())
+        );
+        if (!isAssigned && !isHalaqahTeacher) {
           continue;
         }
       }
@@ -3437,9 +3461,16 @@ export const api = {
       const teacher = users.find(usr => usr.id === s.teacherId);
 
       // Filtering per role:
-      // Admin sees all. Teacher sees ONLY students explicitly assigned to them.
+      // Admin sees all.
+      // Teacher sees students explicitly assigned to them, or their own halaqah students if no assignment yet
       if (u.role === 'teacher') {
-        if (assignedExaminerId !== u.id) {
+        const isAssigned = assignedExaminerId === u.id;
+        const isHalaqahTeacher = !assignedExaminerId && (
+          s.teacherId === u.id || 
+          (p as any).teacherIdSnapshot === u.id || 
+          s.halaqah?.toLowerCase().includes(u.name.toLowerCase())
+        );
+        if (!isAssigned && !isHalaqahTeacher) {
           continue;
         }
       }
