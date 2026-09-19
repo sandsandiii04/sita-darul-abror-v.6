@@ -1853,3 +1853,54 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 GRANT EXECUTE ON FUNCTION get_exam_periods(TEXT, TEXT) TO anon, authenticated, service_role;
 
+
+-- RPC delete_exam_period (Admin Only, Cascade-Safe)
+CREATE OR REPLACE FUNCTION delete_exam_period(
+    p_username TEXT,
+    p_password TEXT,
+    p_period_id TEXT
+)
+RETURNS JSON AS $$
+DECLARE
+    v_user RECORD;
+    v_period RECORD;
+BEGIN
+    SELECT * INTO v_user FROM users 
+    WHERE username = p_username 
+      AND (
+          password = p_password 
+          OR password = crypt(p_password, password)
+      );
+      
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'message', 'Autentikasi gagal: Username atau password salah.');
+    END IF;
+    
+    IF v_user.role != 'admin' THEN
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Hanya Admin yang berhak menghapus Periode Ujian.');
+    END IF;
+
+    SELECT * INTO v_period FROM exam_periods WHERE id = p_period_id;
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'message', 'Periode ujian tidak ditemukan atau sudah dihapus.');
+    END IF;
+
+    -- Lepaskan referensi pada konfigurasi rekap semester jika ada
+    UPDATE semester_evaluation_configs 
+    SET uts_period_id = NULL 
+    WHERE uts_period_id = p_period_id;
+
+    UPDATE semester_evaluation_configs 
+    SET uas_period_id = NULL 
+    WHERE uas_period_id = p_period_id;
+
+    -- Hapus periode ujian (Foreign key CASCADE akan otomatis membersihkan peserta, snapshot materi, paket soal, dan nilai terkait)
+    DELETE FROM exam_periods WHERE id = p_period_id;
+
+    RETURN json_build_object('success', true, 'message', 'Periode ujian berhasil dihapus beserta seluruh data terkait.');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION delete_exam_period(TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
+
+

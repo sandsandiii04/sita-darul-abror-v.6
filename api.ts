@@ -1802,6 +1802,67 @@ export const api = {
     };
   },
 
+  async deleteExamPeriod(
+    periodId: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (u?.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak menghapus Periode Ujian.' };
+    }
+
+    if (supabase) {
+      try {
+        // 1. Coba lewat RPC delete_exam_period
+        const { data, error } = await supabase.rpc('delete_exam_period', {
+          p_username: u.username,
+          p_password: u.password,
+          p_period_id: periodId
+        });
+
+        if (!error && data?.success) {
+          const local = this.getLocalExamPeriods().filter(p => p.id !== periodId);
+          this.saveLocalExamPeriods(local);
+          try {
+            localStorage.removeItem(`sita_eval_data_${periodId}`);
+          } catch (e) {}
+
+          return { success: true, message: data.message || 'Periode ujian berhasil dihapus.' };
+        }
+
+        // 2. Fallback: coba hapus langsung dari tabel exam_periods
+        const { error: directErr } = await supabase
+          .from('exam_periods')
+          .delete()
+          .eq('id', periodId);
+
+        if (!directErr) {
+          const local = this.getLocalExamPeriods().filter(p => p.id !== periodId);
+          this.saveLocalExamPeriods(local);
+          try {
+            localStorage.removeItem(`sita_eval_data_${periodId}`);
+          } catch (e) {}
+          return { success: true, message: 'Periode ujian berhasil dihapus dari sistem.' };
+        }
+
+        if (error || directErr) {
+          console.warn("deleteExamPeriod error:", error?.message || directErr?.message);
+        }
+      } catch (e: any) {
+        console.warn("deleteExamPeriod remote error:", e);
+      }
+    }
+
+    // Offline / Local cleanup
+    const local = this.getLocalExamPeriods().filter(p => p.id !== periodId);
+    this.saveLocalExamPeriods(local);
+    try {
+      localStorage.removeItem(`sita_eval_data_${periodId}`);
+    } catch (e) {}
+
+    return { success: true, message: 'Periode ujian berhasil dihapus dari penyimpanan lokal.' };
+  },
+
   async saveMaterialSnapshotsBatch(
     periodId: string,
     snapshots: Partial<ExamMaterialSnapshot>[],

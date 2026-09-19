@@ -15,7 +15,10 @@ import {
   Users, 
   AlertCircle,
   RefreshCw,
-  Award
+  Award,
+  Trash2,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 
 interface EvaluationPeriodsProps {
@@ -42,6 +45,8 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
   const [editingPeriod, setEditingPeriod] = useState<ExamPeriod | null>(null);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
+  const [periodToDelete, setPeriodToDelete] = useState<ExamPeriod | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -97,6 +102,26 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
       }
     } else {
       setStatusMessage({ type: 'error', text: res.message || 'Gagal membuat periode ujian.' });
+    }
+  };
+
+  const handleDeletePeriod = async (periodId: string) => {
+    if (!periodId) return;
+    setIsDeleting(true);
+    setStatusMessage({ type: 'info', text: 'Menghapus periode ujian...' });
+    try {
+      const res = await api.deleteExamPeriod(periodId, user);
+      if (res.success) {
+        setStatusMessage({ type: 'success', text: res.message || 'Periode ujian berhasil dihapus.' });
+        setPeriodToDelete(null);
+        await loadData();
+      } else {
+        setStatusMessage({ type: 'error', text: res.message || 'Gagal menghapus periode ujian.' });
+      }
+    } catch (e: any) {
+      setStatusMessage({ type: 'error', text: e?.message || 'Terjadi kesalahan saat menghapus periode ujian.' });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -436,6 +461,16 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
                       <span>Buka Persiapan Materi</span>
                       <ArrowRight size={14} />
                     </button>
+
+                    {user.role === 'admin' && (
+                      <button
+                        onClick={() => setPeriodToDelete(period)}
+                        className="p-2 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition-colors"
+                        title="Hapus Periode Ujian"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -463,6 +498,61 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
           onClose={() => setIsPeriodModalOpen(false)}
           onSaved={handleSavePeriod}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {periodToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+                <AlertTriangle size={24} />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-bold text-slate-800">
+                  Hapus Periode Ujian?
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Apakah Anda yakin ingin menghapus <strong className="text-slate-800 font-semibold">{periodToDelete.name}</strong>?
+                </p>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-left mt-3">
+                  <p className="text-[11px] text-amber-800 font-medium leading-relaxed">
+                    ⚠️ <strong>Perhatian:</strong> Menghapus periode ujian ini akan menghapus data peserta ujian, snapshot materi santri, dan paket soal yang terkait dengan periode ini.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setPeriodToDelete(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleDeletePeriod(periodToDelete.id)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Menghapus...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      <span>Ya, Hapus</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
