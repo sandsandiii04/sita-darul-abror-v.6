@@ -4,7 +4,7 @@ import {
   PdfAnalysisSummary, 
   QuranPosition 
 } from '../types';
-import { quranService, SURAH_TOTAL_AYAHS, validateQuestionPositions } from './quranService';
+import { quranService, SURAH_TOTAL_AYAHS, JUZ_START_PAGES, validateQuestionPositions } from './quranService';
 import { QURAN_CHAPTERS } from '../constants';
 
 // Konfigurasi worker pdfjs-dist aman untuk lingkungan Vite browser
@@ -12,6 +12,40 @@ if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
   // Gunakan CDN resmi cdnjs dengan fallback
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 }
+
+// Canonical Surah mapping for each of the 30 Juz
+export const JUZ_SURAH_MAP: Record<number, number[]> = {
+  1: [1, 2],
+  2: [2],
+  3: [2, 3],
+  4: [3, 4],
+  5: [4],
+  6: [4, 5],
+  7: [5, 6],
+  8: [6, 7],
+  9: [7, 8],
+  10: [8, 9],
+  11: [9, 10, 11],
+  12: [11, 12],
+  13: [12, 13, 14],
+  14: [15, 16],
+  15: [17, 18],
+  16: [18, 19, 20],
+  17: [21, 22],
+  18: [23, 24, 25],
+  19: [25, 26, 27],
+  20: [27, 28, 29],
+  21: [29, 30, 31, 32, 33],
+  22: [33, 34, 35, 36],
+  23: [36, 37, 38, 39],
+  24: [39, 40, 41],
+  25: [41, 42, 43, 44, 45],
+  26: [46, 47, 48, 49, 50, 51],
+  27: [51, 52, 53, 54, 55, 56, 57],
+  28: [58, 59, 60, 61, 62, 63, 64, 65, 66],
+  29: [67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77],
+  30: [78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114]
+};
 
 // Metadata Surah Juz 30 (78 s.d. 114)
 export const JUZ_30_SURAHS: Record<number, { name: string; totalAyahs: number }> = {
@@ -56,6 +90,31 @@ export const JUZ_30_SURAHS: Record<number, { name: string; totalAyahs: number }>
 
 // Signature tokens/glyphs khusus font LPMQ IsepMisbah / Quran in Word
 const PASSAGE_SIGNATURES: { surah: number; patterns: string[] }[] = [
+  // Juz 28 (Surah 58 s.d. 66)
+  { surah: 58, patterns: ['المجادلة', 'قد سمع الله', 'تجادلك', 'الظهار', 'تظاهرون', 'عفو غفور', 'تحرير رقبة', 'ستين مسكينا', 'يحادون الله', 'أحصاه الله', ' ', '', ''] },
+  { surah: 59, patterns: ['الحشر', 'سبح لله', 'أهل الكتاب', 'لأول الحشر', 'حصونهم', 'الرعب', 'يخربون بيوتهم', 'فاعتبروا', 'الجلاء', 'فيقة', '', ' '] },
+  { surah: 60, patterns: ['الممتحنة', 'لا تتخذوا عدوي', 'إبراهيم', 'أسوة حسنة', 'يبايعنك', 'المؤمنات', ' ', '  '] },
+  { surah: 61, patterns: ['الصف', 'لم تقولون ما لا تفعلون', 'كبُر مقتا', 'بنيان مرصوص', 'موسى', 'عيسى ابن مريم', 'أحمد', 'الحواريون', ' '] },
+  { surah: 62, patterns: ['الجمعة', 'الملك القدوس', 'الأميين', 'الحمار يحمل أسفارا', 'فتمنوا الموت', 'نودي للصلاة', 'فاسعوا إلى ذكر الله', ' '] },
+  { surah: 63, patterns: ['المنافقون', 'إذا جاءك المنافقون', 'اتخذوا أيمانهم جنة', 'خشب مسندة', 'هم العدو', 'لووا رءوسهم', 'أنفقوا', ''] },
+  { surah: 64, patterns: ['التغابن', 'يسبح لله', 'هو الذي خلقكم', 'يوم يجمعكم ليوم الجمع', 'ذلك يوم التغابن', 'إن من أزواجكم', ' '] },
+  { surah: 65, patterns: ['الطلاق', 'إذا طلقتم النساء', 'فطلقوهن لعدتهن', 'وأحصوا العدة', 'لا تدري لعل الله يحدث', 'ومن يتق الله يجعل له مخرجا', 'ويرزقه من حيث لا يحتسب', ''] },
+  { surah: 66, patterns: ['التحريم', 'لم تحرم ما أحل الله', 'قد فرض الله لكم', 'توبة نصوحا', 'امرأت نوح', 'وامرأت لوط', 'امرأت فرعون', 'مريم ابنت عمران', ' '] },
+
+  // Juz 29 (Surah 67 s.d. 77)
+  { surah: 67, patterns: ['الملك', 'تبارك', 'الذي بيده الملك', 'تَبَارَكَ', 'ليبلوكم', 'طباقا', 'فطور', 'كرتين', 'شهيقا', 'تفور', 'مناكبها', 'صافات', 'مكبا', 'ماء معين', ' ', ''] },
+  { surah: 68, patterns: ['القلم', 'وما يسطرون', 'بمجنON', 'أجر غير ممنون', 'خلق عظيم', 'حلاف', 'مهين', 'الخرطوم', 'فتنادوا', 'يكشف عن ساق', 'كصاحب الحوت', '  ', ' '] },
+  { surah: 69, patterns: ['الحاقة', 'ما الحاقة', 'بالقارعة', 'بالطاغية', 'صرصر عاتية', 'كتابيه', 'الخالية', 'غسلين', 'الوتين', '', ' '] },
+  { surah: 70, patterns: ['المعارج', 'سأل سائل', 'بعذاب واقع', 'لظى', 'نزاعة للشوى', 'هلوعا', 'جزوعا', 'منوعا', 'عزين', ' '] },
+  { surah: 71, patterns: ['نوح', 'إنا أرسلنا نوحا', 'مدرارا', 'أطوارا', 'سراجا', 'ودا', 'سواعا', 'يغوث', 'يعوق', 'نسرا', 'ديارا', '  '] },
+  { surah: 72, patterns: ['الجن', 'قل أوحي إلي', 'نفر من الجن', 'شططا', 'رهقا', 'شهابا رصدا', 'طرائق قددا', 'لبدا', 'أمدا', '  '] },
+  { surah: 73, patterns: ['المزمل', 'قم الليل', 'ترتيلا', 'ثقيلا', 'ناشئة الليل', 'تبتيلا', 'أنكالا', 'وبيلا', 'منفطر به', ' '] },
+  { surah: 74, patterns: ['المدثر', 'قم فأنذر', 'فطهر', 'الناقور', 'عسير', 'سقر', 'لواحة للبشر', 'تسعة عشر', 'قسورة', ' '] },
+  { surah: 75, patterns: ['القيامة', 'لا أقسم بيوم القيامة', 'النفس اللوامة', 'بنانة', 'خسف القمر', 'المفر', 'التراقي', 'الفراق', 'الساق بالساق', 'يتمطى', '   '] },
+  { surah: 76, patterns: ['الإنسان', 'هل أتى على الإنسان', 'أمشاج', 'سلاسل وأغلالا', 'كافورا', 'قمطريرا', 'سندسا', 'إستبرق', 'زنجبيلا', 'سلسبيلا', 'قواريرا', '   '] },
+  { surah: 77, patterns: ['المرسلات', 'والمرسلات عرفا', 'عصفا', 'نشرا', 'فرقا', 'جمالت صفر', 'كفاتا', 'شامخات', 'فراتا', 'ألم نهلك الأولين', ' '] },
+
+  // Juz 30 (Surah 78 s.d. 114)
   { surah: 78, patterns: ['', '', '', ' ', '', '', ' ', '', '', '', ' ', '', ''] },
   { surah: 79, patterns: ['', '', '', '', '', '', '', '', ' ', ' ', ' ', ' ', ' '] },
   { surah: 80, patterns: ['', '', '', ' ', '', '', ' ', '', '', ' ', ''] },
@@ -155,29 +214,35 @@ export class PdfQuestionParserService {
   }
 
   /**
-   * Pencocokan kandidat surah kanonikal di Juz 30
+   * Pencocokan kandidat surah kanonikal berdasarkan target Juz (1 s.d. 30)
    */
   public static matchSurah(
     ayahs: number[], 
-    rawText: string
+    rawText: string,
+    targetJuz: number = 30
   ): { surah: number; confidence: 'high' | 'medium' | 'low'; reason: string } {
+    const validJuz = Math.max(1, Math.min(30, targetJuz));
+    const surahsInJuz = JUZ_SURAH_MAP[validJuz] || JUZ_SURAH_MAP[30];
+
     if (ayahs.length === 0) {
-      return { surah: 78, confidence: 'low', reason: 'Tidak ada nomor ayat yang berhasil diekstraksi dari blok soal.' };
+      const fallback = surahsInJuz[0];
+      return { surah: fallback, confidence: 'low', reason: `Tidak ada nomor ayat yang berhasil diekstraksi dari blok soal (Juz ${validJuz}).` };
     }
 
     const minA = Math.min(...ayahs);
     const maxA = Math.max(...ayahs);
 
-    // Filter surah dalam Juz 30 yang memiliki ayat hingga maxA
+    // Filter surah dalam target Juz yang memiliki ayat hingga maxA
     const candidates: number[] = [];
-    for (let s = 78; s <= 114; s++) {
-      if (maxA <= SURAH_TOTAL_AYAHS[s]) {
+    for (const s of surahsInJuz) {
+      if (maxA <= (SURAH_TOTAL_AYAHS[s] || 286)) {
         candidates.push(s);
       }
     }
 
     if (candidates.length === 0) {
-      return { surah: 78, confidence: 'low', reason: `Nomor ayat ${maxA} melebihi jumlah ayat surat manapun di Juz 30.` };
+      const fallback = surahsInJuz[0];
+      return { surah: fallback, confidence: 'low', reason: `Nomor ayat ${maxA} melebihi jumlah ayat surat manapun di Juz ${validJuz}.` };
     }
 
     // Skor kecocokan berdasarkan signature potongan teks Al-Qur'an
@@ -200,29 +265,30 @@ export class PdfQuestionParserService {
     }
 
     if (bestSurah && maxScore >= 10) {
-      const sName = JUZ_30_SURAHS[bestSurah]?.name || quranService.getSurah(bestSurah)?.name || `Surat ${bestSurah}`;
+      const sName = quranService.getSurah(bestSurah)?.name || JUZ_30_SURAHS[bestSurah]?.name || `Surat ${bestSurah}`;
       return { 
         surah: bestSurah, 
         confidence: 'high', 
-        reason: `Cocok kanonikal pada QS ${bestSurah} (${sName}) berdasarkan kecocokan rentang ayat ${minA}..${maxA} dan signature teks.` 
+        reason: `Cocok kanonikal pada QS ${bestSurah} (${sName}) di Juz ${validJuz} berdasarkan kecocokan rentang ayat ${minA}..${maxA} dan signature teks.` 
       };
     }
 
     if (candidates.length === 1) {
-      const sName = JUZ_30_SURAHS[candidates[0]]?.name || quranService.getSurah(candidates[0])?.name || `Surat ${candidates[0]}`;
+      const sName = quranService.getSurah(candidates[0])?.name || JUZ_30_SURAHS[candidates[0]]?.name || `Surat ${candidates[0]}`;
       return { 
         surah: candidates[0], 
         confidence: 'high', 
-        reason: `Hanya satu-satunya surat di Juz 30 yang mencakup rentang ayat ${minA}..${maxA} (QS ${candidates[0]} ${sName}).` 
+        reason: `Satu-satunya surat di Juz ${validJuz} yang mencakup rentang ayat ${minA}..${maxA} (QS ${candidates[0]} ${sName}).` 
       };
     }
 
     // Ambiguitas yang membutuhkan review Admin
     const fallbackSurah = bestSurah || candidates[0];
+    const sName = quranService.getSurah(fallbackSurah)?.name || JUZ_30_SURAHS[fallbackSurah]?.name || `Surat ${fallbackSurah}`;
     return { 
       surah: fallbackSurah, 
       confidence: 'medium', 
-      reason: `Rentang ayat ${minA}..${maxA} dimiliki oleh beberapa surat di Juz 30 (${candidates.join(', ')}). Harap periksa dan sesuaikan via Edit Mushaf.` 
+      reason: `Rentang ayat ${minA}..${maxA} dapat cocok ke beberapa surat di Juz ${validJuz} (${candidates.join(', ')}). Direkomendasikan QS ${fallbackSurah} (${sName}). Harap periksa via Edit Mushaf.` 
     };
   }
 
@@ -231,7 +297,8 @@ export class PdfQuestionParserService {
    */
   public static async analyzePdf(
     file: File,
-    onProgress?: (progressPercent: number, statusText: string) => void
+    onProgress?: (progressPercent: number, statusText: string) => void,
+    targetJuzOverride?: number
   ): Promise<{
     summary: PdfAnalysisSummary;
     candidates: PdfImportCandidate[];
@@ -258,6 +325,14 @@ export class PdfQuestionParserService {
       throw new Error(`Jumlah halaman PDF (${totalPages}) melebihi batas maksimal 60 halaman.`);
     }
 
+    // Deteksi awal target Juz dari nama file
+    let docJuzFromFilename = 0;
+    const filenameMatch = file.name.match(/(?:juz|juzz|j)\s*[-_.]?\s*(\d{1,2})/i);
+    if (filenameMatch) {
+      const fj = parseInt(filenameMatch[1], 10);
+      if (fj >= 1 && fj <= 30) docJuzFromFilename = fj;
+    }
+
     const candidates: PdfImportCandidate[] = [];
     let highConfCount = 0;
     let medConfCount = 0;
@@ -275,11 +350,27 @@ export class PdfQuestionParserService {
       const midX = width / 2;
       const midY = height / 2;
 
-      // Ambil metadata Paket dari header (y >= height - 120)
+      // Ambil metadata Paket dan Kategori Juz dari header (y >= height - 120)
       const headerItems = textContent.items.filter((it: any) => it.transform[5] >= height - 120);
       const headerText = headerItems.map((it: any) => it.str).join(' ');
       const packageMatch = headerText.match(/paket\s*(\d+)/i);
       const packageNumber = packageMatch ? parseInt(packageMatch[1], 10) : p;
+
+      // Deteksi target Juz: Override Admin > Header Dokumen > Nama File > Default 30
+      let pageJuz = targetJuzOverride && targetJuzOverride >= 1 && targetJuzOverride <= 30 ? targetJuzOverride : 0;
+      if (!pageJuz) {
+        const headerJuzMatch = headerText.match(/(?:kategori|ketagori|katagori|category)?\s*juz\s*[:.\-]?\s*(\d{1,2})/i);
+        if (headerJuzMatch) {
+          const hj = parseInt(headerJuzMatch[1], 10);
+          if (hj >= 1 && hj <= 30) pageJuz = hj;
+        }
+      }
+      if (!pageJuz && docJuzFromFilename) {
+        pageJuz = docJuzFromFilename;
+      }
+      if (!pageJuz) {
+        pageJuz = 30; // Fallback default
+      }
 
       // 4 Kuadran (Grid 2x2: Q1 Top-Right, Q2 Top-Left, Q3 Bottom-Right, Q4 Bottom-Left)
       const quadrantConfigs = [
@@ -308,12 +399,12 @@ export class PdfQuestionParserService {
       for (const qc of quadrantConfigs) {
         const rawText = qc.items.map((it: any) => it.str).join('');
         const ayahs = this.extractAyahsFromItems(qc.items);
-        const match = this.matchSurah(ayahs, rawText);
+        const match = this.matchSurah(ayahs, rawText, pageJuz);
 
         const surahNumber = match.surah;
         const surahInfo = quranService.getSurah(surahNumber);
         const surahName = surahInfo?.name || JUZ_30_SURAHS[surahNumber]?.name || `Surat ${surahNumber}`;
-        const surahStartPage = surahInfo?.startPage || 582;
+        const surahStartPage = surahInfo?.startPage || JUZ_START_PAGES[pageJuz] || 582;
 
         const ayahStart = ayahs.length > 0 ? Math.min(...ayahs) : 1;
         const ayahEnd = ayahs.length > 0 ? Math.max(...ayahs) : Math.min(SURAH_TOTAL_AYAHS[surahNumber] || 5, 5);
@@ -400,7 +491,10 @@ export class PdfQuestionParserService {
           packageNumber,
           questionNumber: qc.qNum,
           pageIndex: p,
-          detectedCategory: 'Juz 30',
+          detectedCategory: `Juz ${pageJuz}`,
+          detectedJuz: pageJuz,
+          startJuz: pageJuz,
+          endJuz: pageJuz,
           surahNumber,
           surahName,
           ayahStart,
@@ -425,6 +519,8 @@ export class PdfQuestionParserService {
 
     if (onProgress) onProgress(100, 'Analisis selesai!');
 
+    const detectedDocJuz = candidates.length > 0 ? (candidates[0].detectedJuz || 30) : (targetJuzOverride || docJuzFromFilename || 30);
+
     const summary: PdfAnalysisSummary = {
       fileName: file.name,
       fileSize: file.size,
@@ -433,7 +529,8 @@ export class PdfQuestionParserService {
       totalCandidates: candidates.length,
       highConfidenceCount: highConfCount,
       mediumConfidenceCount: medConfCount,
-      lowConfidenceCount: lowConfCount
+      lowConfidenceCount: lowConfCount,
+      detectedJuz: detectedDocJuz
     };
 
     return {

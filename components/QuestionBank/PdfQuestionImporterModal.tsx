@@ -56,6 +56,10 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Target Juz State (0 = Otomatis dari Dokumen/Header)
+  const [selectedJuzTarget, setSelectedJuzTarget] = useState<number>(0);
+  const [detectedFilenameJuz, setDetectedFilenameJuz] = useState<number | null>(null);
+
   // Analysis State
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisStatusText, setAnalysisStatusText] = useState<string>('');
@@ -122,9 +126,23 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
     if (!val.valid) {
       setFileError(val.error || 'File tidak valid.');
       setSelectedFile(null);
+      setDetectedFilenameJuz(null);
       return;
     }
     setSelectedFile(file);
+
+    // Deteksi Juz dari judul/nama file untuk membantu Admin
+    const fnMatch = file.name.match(/(?:juz|juzz|j)\s*[-_.]?\s*(\d{1,2})/i);
+    if (fnMatch) {
+      const jNum = parseInt(fnMatch[1], 10);
+      if (jNum >= 1 && jNum <= 30) {
+        setDetectedFilenameJuz(jNum);
+      } else {
+        setDetectedFilenameJuz(null);
+      }
+    } else {
+      setDetectedFilenameJuz(null);
+    }
   };
 
   // Start PDF Analysis
@@ -141,7 +159,8 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
         (percent, text) => {
           setAnalysisProgress(percent);
           setAnalysisStatusText(text);
-        }
+        },
+        selectedJuzTarget > 0 ? selectedJuzTarget : undefined
       );
 
       setAnalysisSummary(result.summary);
@@ -354,6 +373,55 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
                 )}
               </div>
 
+              {/* Target Juz Selector */}
+              <div className="bg-white border border-gray-200/90 rounded-2xl p-4 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen size={18} className="text-blue-600" />
+                    <span className="text-xs font-extrabold text-gray-800">Target Materi / Kategori Juz</span>
+                  </div>
+                  {detectedFilenameJuz && selectedJuzTarget === 0 && (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 shadow-2xs">
+                      <CheckCircle2 size={13} className="text-emerald-600" />
+                      Terdeteksi di judul file: <strong>Juz {detectedFilenameJuz}</strong>
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-500 mb-1">
+                      Pilihan Target Juz:
+                    </label>
+                    <select
+                      value={selectedJuzTarget}
+                      onChange={(e) => setSelectedJuzTarget(parseInt(e.target.value, 10))}
+                      className="w-full text-xs font-bold border border-gray-300 rounded-xl px-3 py-2 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-800 cursor-pointer"
+                    >
+                      <option value={0}>
+                        🎯 Otomatis (Dari Header Halaman / Judul File)
+                      </option>
+                      {Array.from({ length: 30 }, (_, i) => i + 1).map((juz) => (
+                        <option key={juz} value={juz}>
+                          Juz {juz}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="text-[11px] text-gray-500 leading-relaxed bg-gray-50/80 p-2.5 rounded-xl border border-gray-100">
+                    {selectedJuzTarget === 0 ? (
+                      <span>
+                        Sistem mendeteksi otomatis dari header halaman PDF (contoh: <em>"Kategori Juz {detectedFilenameJuz || '29'}"</em>) atau judul dokumen.
+                      </span>
+                    ) : (
+                      <span className="text-blue-800 font-medium">
+                        Kandidat soal akan dicocokkan khusus ke surat-surat kanonikal dalam <strong>Juz {selectedJuzTarget}</strong>.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {fileError && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 font-medium flex items-center gap-2">
                   <AlertTriangle size={16} className="text-red-600 shrink-0" />
@@ -416,8 +484,11 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
               {analysisSummary && (
                 <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-teal-50 border border-blue-100 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <div className="text-xs text-gray-500 font-medium">
-                      Dokumen: <strong className="text-gray-800">{analysisSummary.fileName}</strong> ({analysisSummary.totalPages} halaman, {analysisSummary.totalPackages} paket)
+                    <div className="text-xs text-gray-500 font-medium flex items-center gap-1.5 flex-wrap">
+                      <span>Dokumen: <strong className="text-gray-800">{analysisSummary.fileName}</strong> ({analysisSummary.totalPages} halaman, {analysisSummary.totalPackages} paket)</span>
+                      <span className="px-2 py-0.5 bg-blue-600 text-white font-extrabold rounded-md text-[10px] shadow-2xs">
+                        {analysisSummary.detectedJuz ? `Kategori: Juz ${analysisSummary.detectedJuz}` : 'Kategori: Juz 30'}
+                      </span>
                     </div>
                     <div className="text-base font-extrabold text-gray-800 mt-0.5">
                       {analysisSummary.totalCandidates} Kandidat Soal Ditemukan
@@ -512,8 +583,8 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
                             <span className="text-[11px] font-extrabold text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md">
                               Paket {cand.packageNumber} • Soal #{cand.questionNumber}
                             </span>
-                            <span className="text-[10px] text-gray-400 ml-2 font-medium">
-                              Hal {cand.pageIndex}
+                            <span className="text-[10px] text-gray-500 ml-2 font-medium">
+                              Hal {cand.pageIndex} • {cand.detectedCategory || `Juz ${cand.detectedJuz || 30}`}
                             </span>
                           </div>
                         </div>

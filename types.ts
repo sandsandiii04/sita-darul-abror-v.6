@@ -260,6 +260,9 @@ export interface PdfImportCandidate {
   questionNumber: number; // 1, 2, 3, 4
   pageIndex: number; // 1-indexed PDF page
   detectedCategory: string; // e.g. "Juz 30"
+  detectedJuz?: number;
+  startJuz?: number;
+  endJuz?: number;
   surahNumber: number;
   surahName: string;
   ayahStart: number;
@@ -295,6 +298,7 @@ export interface PdfAnalysisSummary {
   highConfidenceCount: number;
   mediumConfidenceCount: number;
   lowConfidenceCount: number;
+  detectedJuz?: number;
 }
 
 
