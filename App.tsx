@@ -20,6 +20,8 @@ import { UASPelaksanaanView } from './components/TahfizEvaluation/UASPelaksanaan
 import { SemesterRecapView } from './components/TahfizEvaluation/SemesterRecapView';
 import { FinalSemesterRecapView } from './components/TahfizEvaluation/FinalSemesterRecapView';
 import { RemedialExamExecutionView } from './components/TahfizEvaluation/RemedialExamExecutionView';
+import { UTSRecapView } from './components/TahfizEvaluation/UTSRecapView';
+import { UASRecapView } from './components/TahfizEvaluation/UASRecapView';
 import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
 import { api, setSessionUser } from './api';
@@ -359,12 +361,16 @@ const App: React.FC = () => {
       } catch (e) {}
 
       const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital'];
-      const teacherTabs = ['dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'material_preparation', 'uts_execution', 'uas_execution', 'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital'];
+      const teacherTabs = [
+        'dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'material_preparation',
+        'uts_execution', 'uas_execution', 'remedial_execution', 'uts_recap', 'uas_recap',
+        'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital'
+      ];
       const adminTabs = [
         'dashboard', 'master_data', 'attendance_student', 'attendance_teacher',
         'mushaf_digital', 'question_bank', 'evaluation_periods', 'material_preparation',
-        'uts_execution', 'uas_execution', 'remedial_execution', 'semester_recap',
-        'final_recap', 'exam', 'reports', 'tutorial', 'profile', 'ziyadah', 'murojaah'
+        'uts_execution', 'uas_execution', 'remedial_execution', 'uts_recap', 'uas_recap',
+        'semester_recap', 'final_recap', 'exam', 'reports', 'tutorial', 'profile', 'ziyadah', 'murojaah'
       ];
       
       if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
@@ -1009,6 +1015,20 @@ const App: React.FC = () => {
         }
         return (
           <RemedialExamExecutionView user={user!} />
+        );
+      case 'uts_recap':
+        if (user!.role === 'parent') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <UTSRecapView user={user!} />
+        );
+      case 'uas_recap':
+        if (user!.role === 'parent') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <UASRecapView user={user!} />
         );
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
