@@ -15,7 +15,8 @@ import {
   Layers, 
   Compass,
   CheckCircle2,
-  Tag as TagIcon
+  Tag as TagIcon,
+  Trash2
 } from 'lucide-react';
 
 interface QuestionBankDetailModalProps {
@@ -27,6 +28,7 @@ interface QuestionBankDetailModalProps {
   onDuplicate: (item: QuestionBankItem) => void;
   onArchive: (item: QuestionBankItem) => void;
   onRestore: (item: QuestionBankItem) => void;
+  onDelete?: (item: QuestionBankItem) => void;
 }
 
 export const QuestionBankDetailModal: React.FC<QuestionBankDetailModalProps> = ({
@@ -37,7 +39,8 @@ export const QuestionBankDetailModal: React.FC<QuestionBankDetailModalProps> = (
   onEditFromMushaf,
   onDuplicate,
   onArchive,
-  onRestore
+  onRestore,
+  onDelete
 }) => {
   const [viewMode, setViewMode] = useState<'detail' | 'examiner'>('detail');
   const [showAnswerInSimulation, setShowAnswerInSimulation] = useState<boolean>(false);
@@ -412,6 +415,23 @@ export const QuestionBankDetailModal: React.FC<QuestionBankDetailModalProps> = (
               >
                 <Archive size={13} />
                 <span>Arsipkan</span>
+              </button>
+            )}
+
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Hapus soal ini secara permanen dari Bank Soal? Tindakan ini tidak dapat dibatalkan.')) {
+                    onDelete(item);
+                    onClose();
+                  }
+                }}
+                className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 text-xs font-bold rounded-xl border border-rose-200 transition-all flex items-center gap-1.5 shadow-sm"
+                title="Hapus soal permanen"
+              >
+                <Trash2 size={13} />
+                <span>Hapus</span>
               </button>
             )}
           </div>

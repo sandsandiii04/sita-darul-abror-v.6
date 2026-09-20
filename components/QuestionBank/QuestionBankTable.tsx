@@ -12,7 +12,8 @@ import {
   BookOpen, 
   Compass, 
   Tag as TagIcon,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 
 interface QuestionBankTableProps {
@@ -24,6 +25,7 @@ interface QuestionBankTableProps {
   onDuplicate: (item: QuestionBankItem) => void;
   onArchive: (item: QuestionBankItem) => void;
   onRestore: (item: QuestionBankItem) => void;
+  onDelete?: (item: QuestionBankItem) => void;
   onRetrySync?: (item: QuestionBankItem) => void;
 }
 
@@ -36,6 +38,7 @@ export const QuestionBankTable: React.FC<QuestionBankTableProps> = ({
   onDuplicate,
   onArchive,
   onRestore,
+  onDelete,
   onRetrySync
 }) => {
   const [pageSize, setPageSize] = useState<number>(20);
@@ -280,6 +283,20 @@ export const QuestionBankTable: React.FC<QuestionBankTableProps> = ({
                             <Archive size={15} />
                           </button>
                         )}
+                        {onDelete && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Hapus soal "${item.promptText.substring(0, 35)}..." secara permanen? Tindakan ini tidak dapat dibatalkan.`)) {
+                                onDelete(item);
+                              }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                            title="Hapus soal permanen"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -409,6 +426,20 @@ export const QuestionBankTable: React.FC<QuestionBankTableProps> = ({
                     title="Arsipkan"
                   >
                     <Archive size={15} />
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Hapus soal "${item.promptText.substring(0, 35)}..." secara permanen?`)) {
+                        onDelete(item);
+                      }
+                    }}
+                    className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                    title="Hapus permanen"
+                  >
+                    <Trash2 size={15} />
                   </button>
                 )}
               </div>

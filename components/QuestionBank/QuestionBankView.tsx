@@ -20,8 +20,10 @@ import {
   RefreshCw,
   Archive,
   AlertTriangle,
-  Zap
+  Zap,
+  Trash2
 } from 'lucide-react';
+import DeleteAllQuestionsModal from './DeleteAllQuestionsModal';
 
 interface QuestionBankViewProps {
   user?: User;
@@ -49,6 +51,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
   const [selectedDetailItem, setSelectedDetailItem] = useState<QuestionBankItem | null>(null);
   const [editingMetadataItem, setEditingMetadataItem] = useState<QuestionBankItem | null>(null);
   const [isQuickGeneratorOpen, setIsQuickGeneratorOpen] = useState<boolean>(false);
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState<boolean>(false);
 
   // Load items from API (Supabase with localStorage fallback)
   const loadQuestionBank = useCallback(async () => {
@@ -170,6 +173,37 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
     }
   };
 
+  const handleDelete = async (item: QuestionBankItem) => {
+    try {
+      const res = await api.deleteQuestionBankItem(item.id, user);
+      if (res.success) {
+        loadQuestionBank();
+      } else {
+        alert(res.message || "Gagal menghapus soal.");
+      }
+    } catch (e: any) {
+      alert("Terjadi kesalahan saat menghapus soal.");
+    }
+  };
+
+  const handleConfirmDeleteAll = async (scope: 'all' | 'filtered') => {
+    let options: { examType?: string; status?: string } | undefined = undefined;
+    if (scope === 'filtered') {
+      options = {
+        examType: filter.examType && filter.examType !== 'all' ? filter.examType : undefined,
+        status: filter.status && filter.status !== 'all' ? filter.status : undefined
+      };
+    }
+
+    const res = await api.deleteAllQuestionBankItems(options, user);
+    if (res.success) {
+      alert(res.message || "Semua soal berhasil dihapus.");
+      loadQuestionBank();
+    } else {
+      throw new Error(res.message || "Gagal menghapus semua soal.");
+    }
+  };
+
   return (
     <div className="space-y-5 animate-fade-in pb-12">
       {/* ================= HEADER SECTION ================= */}
@@ -191,7 +225,18 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {items.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsDeleteAllModalOpen(true)}
+              className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 rounded-xl text-xs font-bold transition-all border border-rose-200 flex items-center gap-1.5 shadow-sm"
+              title="Hapus semua soal sekaligus"
+            >
+              <Trash2 size={16} />
+              <span>Hapus Semua Soal</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setIsQuickGeneratorOpen(true)}
@@ -324,6 +369,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
         onDuplicate={handleDuplicate}
         onArchive={handleArchive}
         onRestore={handleRestore}
+        onDelete={handleDelete}
         onRetrySync={handleRetrySync}
       />
 
@@ -352,6 +398,10 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
           handleRestore(item);
           setSelectedDetailItem(null);
         }}
+        onDelete={item => {
+          handleDelete(item);
+          setSelectedDetailItem(null);
+        }}
       />
 
       {/* ================= EDIT METADATA MODAL ================= */}
@@ -365,6 +415,16 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
           setEditingMetadataItem(null);
           loadQuestionBank();
         }}
+      />
+
+      {/* ================= DELETE ALL QUESTIONS MODAL ================= */}
+      <DeleteAllQuestionsModal
+        isOpen={isDeleteAllModalOpen}
+        onClose={() => setIsDeleteAllModalOpen(false)}
+        totalCount={items.length}
+        filteredCount={items.length}
+        filter={filter}
+        onConfirmDeleteAll={handleConfirmDeleteAll}
       />
 
       {/* ================= QUICK BANK SOAL GENERATOR MODAL ================= */}

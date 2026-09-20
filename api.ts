@@ -1276,6 +1276,131 @@ export const api = {
     }
   },
 
+  async deleteQuestionBankItem(id: string, userOverride?: User | null): Promise<{ success: boolean; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (u?.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak menghapus soal.' };
+    }
+
+    let remoteSuccess = false;
+    let remoteErrMsg = '';
+
+    if (supabase) {
+      try {
+        // 1. Panggil RPC delete_question_bank_item
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('delete_question_bank_item', {
+          p_username: u.username,
+          p_password: u.password,
+          p_id: id
+        });
+
+        if (!rpcErr && rpcData?.success) {
+          remoteSuccess = true;
+        } else {
+          // 2. Fallback: coba direct table delete jika diperbolehkan policy
+          const { error: directErr } = await supabase
+            .from('question_bank')
+            .delete()
+            .eq('id', id);
+
+          if (!directErr) {
+            remoteSuccess = true;
+          } else {
+            remoteErrMsg = rpcData?.message || rpcErr?.message || directErr?.message || 'Gagal menghapus di server';
+          }
+        }
+      } catch (e: any) {
+        remoteErrMsg = e?.message || 'Gagal menghapus di server';
+      }
+    }
+
+    // Bersihkan dari cache lokal & recovery drafts
+    const cache = this.getLocalQuestionBankCache().filter(q => q.id !== id);
+    this.saveLocalQuestionBankCache(cache);
+    this.removeRecoveryDraft(id);
+
+    return { 
+      success: true, 
+      message: remoteSuccess 
+        ? 'Soal berhasil dihapus permanen dari server & penyimpanan.' 
+        : (remoteErrMsg ? `Soal dihapus dari cache lokal. Catatan server: ${remoteErrMsg}` : 'Soal berhasil dihapus.') 
+    };
+  },
+
+  async deleteAllQuestionBankItems(
+    options?: { examType?: string; status?: string },
+    userOverride?: User | null
+  ): Promise<{ success: boolean; deletedCount: number; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (u?.role !== 'admin') {
+      return { success: false, deletedCount: 0, message: 'Akses ditolak: Hanya Admin yang berhak menghapus semua soal.' };
+    }
+
+    let remoteSuccess = false;
+    let serverDeletedCount = 0;
+    const examType = options?.examType;
+    const status = options?.status;
+
+    if (supabase) {
+      try {
+        // 1. Panggil RPC delete_all_question_bank_items
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('delete_all_question_bank_items', {
+          p_username: u.username,
+          p_password: u.password,
+          p_exam_type: examType && examType !== 'all' ? examType : null,
+          p_status: status && status !== 'all' ? status : null
+        });
+
+        if (!rpcErr && rpcData?.success) {
+          remoteSuccess = true;
+          serverDeletedCount = rpcData.deleted_count || 0;
+        } else {
+          // 2. Fallback direct delete
+          let query = supabase.from('question_bank').delete();
+          if (examType && examType !== 'all') {
+            query = query.eq('exam_type', examType);
+          }
+          if (status && status !== 'all') {
+            query = query.eq('status', status);
+          }
+          const { error: directErr, count } = await query.neq('id', '___dummy_never_match___');
+          if (!directErr) {
+            remoteSuccess = true;
+            serverDeletedCount = count || 0;
+          }
+        }
+      } catch (e: any) {
+        console.warn("Delete all question bank remote error:", e);
+      }
+    }
+
+    // Bersihkan dari cache lokal & recovery drafts
+    let cache = this.getLocalQuestionBankCache();
+    const prevCount = cache.length;
+    if (examType && examType !== 'all') {
+      cache = cache.filter(q => q.examType !== examType);
+    } else if (status && status !== 'all') {
+      cache = cache.filter(q => q.status !== status);
+    } else {
+      cache = [];
+    }
+    this.saveLocalQuestionBankCache(cache);
+
+    try {
+      if (!examType && !status) {
+        localStorage.removeItem('sita_question_bank_recovery_v2');
+      }
+    } catch (e) {}
+
+    const totalCleaned = serverDeletedCount || (prevCount - cache.length);
+
+    return {
+      success: true,
+      deletedCount: totalCleaned,
+      message: `${totalCleaned} soal berhasil dihapus permanen.`
+    };
+  },
+
   async checkDuplicateQuestion(
     promptStart: any,
     promptEnd: any,
