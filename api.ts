@@ -2328,9 +2328,8 @@ export const api = {
       return { success: false, message: 'Akses ditolak.' };
     }
 
-    if (action === 'override' && (!reason || !reason.trim())) {
-      return { success: false, message: 'Wajib mencantumkan alasan koreksi manual.' };
-    }
+    // Alasan koreksi manual bersifat opsional: jika kosong, berikan default deskriptif agar tetap kompatibel dengan database RPC
+    const finalReason = (reason && reason.trim()) ? reason.trim() : (action === 'override' ? 'Koreksi manual' : '');
 
     if (supabase) {
       try {
@@ -2340,7 +2339,7 @@ export const api = {
           p_snapshot_id: snapshotId,
           p_action: action,
           p_data: data,
-          p_reason: reason || ''
+          p_reason: finalReason
         });
 
         if (!error && rpcData?.success) {
