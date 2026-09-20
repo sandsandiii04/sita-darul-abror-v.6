@@ -47,7 +47,11 @@ export const QuickQuestionGeneratorModal: React.FC<QuickQuestionGeneratorModalPr
   const [step, setStep] = useState<'config' | 'review' | 'success'>('config');
 
   // Generator Configuration Form State
+  const [materialType, setMaterialType] = useState<'juz' | 'surah' | 'page'>('juz');
   const [juz, setJuz] = useState<number>(30);
+  const [selectedSurah, setSelectedSurah] = useState<number>(78);
+  const [startPage, setStartPage] = useState<number>(582);
+  const [endPage, setEndPage] = useState<number>(604);
   const [count, setCount] = useState<number>(20);
   const [customCountInput, setCustomCountInput] = useState<string>('20');
   const [difficulty, setDifficulty] = useState<'mixed' | 'easy' | 'medium' | 'hard'>('mixed');
@@ -90,24 +94,31 @@ export const QuickQuestionGeneratorModal: React.FC<QuickQuestionGeneratorModalPr
     }
   };
 
+  // Build current generator options
+  const buildOptions = (): QuickGeneratorOptions => ({
+    materialType,
+    juz,
+    surahNumber: selectedSurah,
+    startPage,
+    endPage,
+    count,
+    questionType: 'continuation',
+    difficulty,
+    spreadEvenly,
+    avoidExisting,
+    avoidNearDistance
+  });
+
   // Handler: Generate Batch Kandidat
   const handleGenerate = async () => {
     setIsGenerating(true);
     setErrorMessage(null);
 
-    const options: QuickGeneratorOptions = {
-      juz,
-      count,
-      questionType: 'continuation',
-      difficulty,
-      spreadEvenly,
-      avoidExisting,
-      avoidNearDistance
-    };
+    const options = buildOptions();
 
     try {
-      // 1. Pre-fetch Juz pages ke in-memory cache untuk performa maksimal
-      await QuickQuestionGenerator.prefetchJuzPages(juz);
+      // 1. Pre-fetch pages ke in-memory cache untuk performa maksimal
+      await QuickQuestionGenerator.prefetchMaterialPages(options);
 
       // 2. Eksekusi generator
       const result = await QuickQuestionGenerator.generateCandidates(options, existingItems);
@@ -129,15 +140,7 @@ export const QuickQuestionGeneratorModal: React.FC<QuickQuestionGeneratorModalPr
   const handleRegenerateSingle = async (index: number) => {
     setRegeneratingIndex(index);
     try {
-      const options: QuickGeneratorOptions = {
-        juz,
-        count,
-        questionType: 'continuation',
-        difficulty,
-        spreadEvenly,
-        avoidExisting,
-        avoidNearDistance
-      };
+      const options = buildOptions();
 
       const replacement = await QuickQuestionGenerator.regenerateSingleCandidate(
         index,
@@ -299,23 +302,98 @@ export const QuickQuestionGeneratorModal: React.FC<QuickQuestionGeneratorModalPr
                   <strong className="font-bold">Generator Cerdas Berbasis Koordinat Mushaf:</strong> Fitur ini secara otomatis menyusun kandidat soal Sambung Ayat dengan distribusi merata, memastikan urutan koordinat A &le; A' &lt; B &le; C valid, dan mengecualikan soal yang sudah ada di Bank Soal.
               </div>
 
-              {/* Pilihan Materi (Juz 1-30) */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
-                  <BookOpen size={14} className="text-emerald-600" />
-                  <span>Pilih Materi (Juz Al-Qur'an)</span>
-                </label>
-                <select
-                  value={juz}
-                  onChange={(e) => setJuz(parseInt(e.target.value, 10))}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-800 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all"
-                >
-                  {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
-                    <option key={j} value={j}>
-                      Juz {j} {j === 30 ? "(Juz 'Amma: QS 78:1 s.d. 114:6)" : j === 29 ? "(Tabarak: QS 67:1 s.d. 77:50)" : j === 1 ? "(Al-Fatihah s.d. Al-Baqarah 141)" : ""}
-                    </option>
-                  ))}
-                </select>
+              {/* Pilihan Cakupan Materi (Juz, Surah, Halaman) */}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                    <BookOpen size={14} className="text-emerald-600" />
+                    <span>Pilih Cakupan Materi</span>
+                  </label>
+                  <div className="flex items-center bg-gray-100 p-1 rounded-xl gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setMaterialType('juz')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        materialType === 'juz' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      Per Juz
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMaterialType('surah')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        materialType === 'surah' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      Per Surat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMaterialType('page')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        materialType === 'page' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      Range Halaman
+                    </button>
+                  </div>
+                </div>
+
+                {materialType === 'juz' && (
+                  <select
+                    value={juz}
+                    onChange={(e) => setJuz(parseInt(e.target.value, 10))}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-800 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all"
+                  >
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                      <option key={j} value={j}>
+                        Juz {j} {j === 30 ? "(Juz 'Amma: QS 78:1 s.d. 114:6)" : j === 29 ? "(Tabarak: QS 67:1 s.d. 77:50)" : j === 1 ? "(Al-Fatihah s.d. Al-Baqarah 141)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {materialType === 'surah' && (
+                  <select
+                    value={selectedSurah}
+                    onChange={(e) => setSelectedSurah(parseInt(e.target.value, 10))}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-800 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all"
+                  >
+                    {quranService.getSurahs().map((s) => (
+                      <option key={s.number} value={s.number}>
+                        Surat {s.number}. {s.name} (Mulai Halaman {s.startPage})
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {materialType === 'page' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-medium text-gray-500 block mb-1">Halaman Awal (1 - 604)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={604}
+                        value={startPage}
+                        onChange={(e) => setStartPage(Math.max(1, Math.min(604, parseInt(e.target.value, 10) || 1)))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-800 focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-gray-500 block mb-1">Halaman Akhir (1 - 604)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={604}
+                        value={endPage}
+                        onChange={(e) => setEndPage(Math.max(1, Math.min(604, parseInt(e.target.value, 10) || 1)))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-800 focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Jumlah Kandidat */}
@@ -325,12 +403,12 @@ export const QuickQuestionGeneratorModal: React.FC<QuickQuestionGeneratorModalPr
                   <span>Jumlah Kandidat Soal</span>
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
-                  {[10, 20, 50, 100].map((num) => (
+                  {[1, 5, 10, 20, 50, 100].map((num) => (
                     <button
                       key={num}
                       type="button"
                       onClick={() => handleSelectCountPreset(num)}
-                      className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all ${
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all ${
                         count === num 
                           ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30' 
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'

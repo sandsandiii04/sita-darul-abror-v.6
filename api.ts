@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { User, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest, QuestionBankItem, QuestionBankFilter, AcademicTerm, ExamPeriod, ExamParticipant, ExamMaterialSnapshot, ExamAuditLog, TahfizEvaluationData, ExamQuestionSet, ExamQuestion, UTSGenerationStrategy, ExamExaminerAssignment, ExamAttempt, ExamQuestionAssessment, ExaminerStudentItem, UTSAssessmentEvent, UASAssessmentEvent, GeneratedUASQuestion, UASGenerationStrategy, SemesterEvaluationConfig, SemesterRecapResponse, SemesterStudentRecap, SemesterRemedialCandidate, SemesterRecapSummary, ExamRemedialSession, ExamRemedialQuestionSet, ExamRemedialQuestion, RemedialCandidateItem, RemedialCandidatesResponse, RemedialGenerationResponse, RemedialDetailResponse, ExamRemedialAttempt, ExamRemedialQuestionAssessment, RemedialExaminerStudentItem, StartRemedialResponse, SaveRemedialAssessmentResponse, SubmitRemedialResponse, FinalSemesterRecapResponse, FinalSemesterMonitoringResponse, StudentEvaluationHistoryResponse, QuickQuestionCandidate, BulkSaveCandidatesResult } from './types';
+import { User, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest, QuestionBankItem, QuestionBankFilter, AcademicTerm, ExamPeriod, ExamParticipant, ExamMaterialSnapshot, ExamAuditLog, TahfizEvaluationData, ExamQuestionSet, ExamQuestion, UTSGenerationStrategy, ExamExaminerAssignment, ExamAttempt, ExamQuestionAssessment, ExaminerStudentItem, UTSAssessmentEvent, UASAssessmentEvent, GeneratedUASQuestion, UASGenerationStrategy, SemesterEvaluationConfig, SemesterRecapResponse, SemesterStudentRecap, SemesterRemedialCandidate, SemesterRecapSummary, ExamRemedialSession, ExamRemedialQuestionSet, ExamRemedialQuestion, RemedialCandidateItem, RemedialCandidatesResponse, RemedialGenerationResponse, RemedialDetailResponse, ExamRemedialAttempt, ExamRemedialQuestionAssessment, RemedialExaminerStudentItem, StartRemedialResponse, SaveRemedialAssessmentResponse, SubmitRemedialResponse, FinalSemesterRecapResponse, FinalSemesterMonitoringResponse, StudentEvaluationHistoryResponse, QuickQuestionCandidate, BulkSaveCandidatesResult, PdfImportCandidate } from './types';
 import { MOCK_USERS, MOCK_STUDENTS } from './constants';
 import { calculateFluencyScore, calculateTajwidScore, calculateMakhrajScore, calculateQuestionScore, calculateAttemptTotalScore } from './services/utsScoringService';
 import { calculateUASFluencyScore, calculateUASTajwidScore, calculateUASMakhrajScore, calculateUASQuestionScore, calculateUASAttemptTotalScore, isMandatoryQuestion, UAS_SCORING_CONFIG } from './services/uasScoringService';
@@ -1716,6 +1716,131 @@ export const api = {
       savedIds,
       rejectedItems,
       message: `${savedIds.length} soal berhasil disimpan ke Bank Soal (Status: Draft).`
+    };
+  },
+
+  // Bulk Save Candidates from PDF Bank Soal Importer (Admin Only, Atomic, Fail-Closed)
+  async bulkSavePdfCandidates(
+    candidates: PdfImportCandidate[],
+    userOverride?: User | null
+  ): Promise<BulkSaveCandidatesResult> {
+    const u = userOverride || getLoggedUser();
+    if (u?.role !== 'admin') {
+      return {
+        success: false,
+        savedCount: 0,
+        skippedCount: candidates.length,
+        message: 'Akses ditolak: Hanya Administrator yang berhak mengimpor Bank Soal dari PDF.'
+      };
+    }
+
+    const selectedCandidates = candidates.filter(c => c.selected);
+    const skippedCount = candidates.length - selectedCandidates.length;
+
+    if (selectedCandidates.length === 0) {
+      return {
+        success: false,
+        savedCount: 0,
+        skippedCount: candidates.length,
+        message: 'Tidak ada kandidat soal yang dipilih untuk disimpan.'
+      };
+    }
+
+    // Konversi PdfImportCandidate menjadi QuestionBankItem
+    const itemsToSave: QuestionBankItem[] = selectedCandidates.map(c => ({
+      id: c.id,
+      examType: 'generic',
+      questionType: 'random',
+      questionFormat: 'continuation',
+      promptStart: { ...c.promptStart },
+      promptEnd: { ...c.promptEnd },
+      answerStart: { ...c.answerStart },
+      answerEnd: { ...c.answerEnd },
+      promptText: c.promptText,
+      answerText: c.answerText,
+      totalExpectedWords: 0,
+      startPage: Math.min(c.promptStart.pageNumber, c.answerStart.pageNumber),
+      endPage: Math.max(c.answerStart.pageNumber, c.answerEnd.pageNumber),
+      startJuz: 30,
+      endJuz: 30,
+      answerMode: 'end_ayah',
+      difficulty: c.difficulty || 'medium',
+      tags: ['pdf_import', `paket_${c.packageNumber}`],
+      notes: `Diimpor dari PDF Paket ${c.packageNumber} Soal #${c.questionNumber} (Halaman ${c.pageIndex})`,
+      status: c.status || 'draft',
+      createdBy: u.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+
+    if (supabase) {
+      try {
+        const payloadArray = itemsToSave.map(mapQuestionBankToDb);
+        const { data: rpcData, error: rpcError } = await supabase.rpc('bulk_insert_question_bank_candidates', {
+          p_username: u.username,
+          p_password: u.password,
+          p_items: payloadArray
+        });
+
+        if (!rpcError && rpcData?.success) {
+          const cache = this.getLocalQuestionBankCache();
+          itemsToSave.forEach(it => {
+            cache.unshift({ ...it, syncStatus: 'saved' });
+          });
+          this.saveLocalQuestionBankCache(cache);
+
+          return {
+            success: true,
+            savedCount: rpcData.saved_count || itemsToSave.length,
+            skippedCount,
+            savedIds: rpcData.saved_ids || itemsToSave.map(i => i.id),
+            message: `${rpcData.saved_count || itemsToSave.length} soal hasil impor PDF berhasil disimpan ke Bank Soal (Status: Draft).`
+          };
+        }
+      } catch (err: any) {
+        console.warn("RPC bulk_insert fallback for PDF:", err?.message);
+      }
+    }
+
+    // Fallback: simpan item per item
+    const savedIds: string[] = [];
+    const rejectedItems: { index: number; reason: string }[] = [];
+
+    for (let i = 0; i < itemsToSave.length; i++) {
+      const it = itemsToSave[i];
+      const dup = await this.checkDuplicateQuestion(it.promptStart, it.promptEnd, it.answerStart, it.answerEnd);
+      if (dup) {
+        rejectedItems.push({ index: i, reason: `Soal Paket ${selectedCandidates[i].packageNumber} #${selectedCandidates[i].questionNumber} sudah ada di Bank Soal (ID: ${dup.id})` });
+        continue;
+      }
+
+      const saveRes = await this.saveQuestionBankItem(it, u);
+      if (saveRes.success && saveRes.data) {
+        savedIds.push(saveRes.data.id);
+      } else if (saveRes.isDraftSaved && saveRes.data) {
+        savedIds.push(saveRes.data.id);
+      } else {
+        rejectedItems.push({ index: i, reason: saveRes.message || `Gagal menyimpan soal #${i + 1}` });
+      }
+    }
+
+    if (rejectedItems.length > 0 && savedIds.length === 0) {
+      return {
+        success: false,
+        savedCount: 0,
+        skippedCount: candidates.length,
+        rejectedItems,
+        message: `Penyimpanan gagal: ${rejectedItems.map(r => r.reason).join(', ')}`
+      };
+    }
+
+    return {
+      success: true,
+      savedCount: savedIds.length,
+      skippedCount: skippedCount + rejectedItems.length,
+      savedIds,
+      rejectedItems,
+      message: `${savedIds.length} soal hasil impor PDF berhasil disimpan ke Bank Soal (Status: Draft).`
     };
   },
 

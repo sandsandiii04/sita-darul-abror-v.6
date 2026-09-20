@@ -125,6 +125,74 @@ export class QuickQuestionGenerator {
     return anchors;
   }
 
+  // Ambil daftar seluruh ayat yang berada di dalam Surat tertentu
+  public static getAllAyahsInSurah(surahNumber: number): AyahAnchor[] {
+    const totalAyahs = SURAH_TOTAL_AYAHS[surahNumber] || 1;
+    const chapter = QURAN_CHAPTERS.find(([num]) => num === surahNumber);
+    const surahStartPage = chapter ? chapter[2] : 1;
+    const juzNumber = quranService.getPageJuz(surahStartPage);
+
+    const anchors: AyahAnchor[] = [];
+    for (let a = 1; a <= totalAyahs; a++) {
+      anchors.push({
+        surahNumber,
+        ayahNumber: a,
+        pageNumber: surahStartPage,
+        juzNumber
+      });
+    }
+    return anchors;
+  }
+
+  // Ambil daftar seluruh ayat yang berada di dalam rentang halaman
+  public static async getAllAyahsInPageRange(startPage: number, endPage: number): Promise<AyahAnchor[]> {
+    const anchors: AyahAnchor[] = [];
+    const minP = Math.max(1, Math.min(604, startPage));
+    const maxP = Math.max(minP, Math.min(604, endPage));
+
+    for (let p = minP; p <= maxP; p++) {
+      const verses = await quranService.getVersesByPage(p);
+      for (const v of verses) {
+        anchors.push({
+          surahNumber: v.surahNumber,
+          ayahNumber: v.ayahNumber,
+          pageNumber: p,
+          juzNumber: v.juzNumber
+        });
+      }
+    }
+    return anchors;
+  }
+
+  // Pre-fetch halaman untuk materi yang dipilih ke in-memory cache
+  public static async prefetchMaterialPages(options: QuickGeneratorOptions): Promise<void> {
+    const pages: number[] = [];
+    if (options.materialType === 'surah' && options.surahNumber) {
+      const chapter = QURAN_CHAPTERS.find(([num]) => num === options.surahNumber);
+      const startP = chapter ? chapter[2] : 1;
+      // Fetch ~3 halaman sekitar surat
+      for (let p = startP; p <= Math.min(604, startP + 2); p++) pages.push(p);
+    } else if (options.materialType === 'page' && options.startPage && options.endPage) {
+      const minP = Math.min(options.startPage, options.endPage);
+      const maxP = Math.max(options.startPage, options.endPage);
+      for (let p = minP; p <= maxP; p++) pages.push(p);
+    } else {
+      const boundary = CANONICAL_JUZ_BOUNDARIES[options.juz];
+      if (boundary) {
+        for (let p = boundary.startPage; p <= boundary.endPage; p++) pages.push(p);
+      }
+    }
+
+    const batchSize = 4;
+    for (let i = 0; i < pages.length; i += batchSize) {
+      const batch = pages.slice(i, i + batchSize);
+      await Promise.allSettled(batch.map(p => Promise.race([
+        quranService.getVersesByPage(p),
+        new Promise<any>(resolve => setTimeout(() => resolve([]), 2500))
+      ])));
+    }
+  }
+
   // Pre-fetch seluruh halaman untuk Juz tertentu ke in-memory cache
   public static async prefetchJuzPages(juzNumber: number): Promise<void> {
     const boundary = CANONICAL_JUZ_BOUNDARIES[juzNumber];
@@ -390,26 +458,59 @@ export class QuickQuestionGenerator {
     options: QuickGeneratorOptions,
     existingBankItems: QuestionBankItem[] = []
   ): Promise<GenerationResult> {
-    const boundary = CANONICAL_JUZ_BOUNDARIES[options.juz];
-    if (!boundary) {
-      return {
-        candidates: [],
-        requestedCount: options.count,
-        availableCount: 0,
-        insufficientPool: true,
-        warningMessage: `Juz ${options.juz} tidak valid.`
+    let allAnchors: AyahAnchor[] = [];
+    let boundary: JuzBoundary;
+
+    if (options.materialType === 'surah' && options.surahNumber) {
+      const sNum = options.surahNumber;
+      allAnchors = this.getAllAyahsInSurah(sNum);
+      const sInfo = quranService.getSurah(sNum);
+      const sPage = sInfo?.startPage || 1;
+      boundary = {
+        juz: quranService.getPageJuz(sPage),
+        startSurah: sNum,
+        startAyah: 1,
+        endSurah: sNum,
+        endAyah: SURAH_TOTAL_AYAHS[sNum] || 1,
+        startPage: sPage,
+        endPage: Math.min(604, sPage + 3)
       };
+    } else if (options.materialType === 'page' && options.startPage && options.endPage) {
+      const minP = Math.min(options.startPage, options.endPage);
+      const maxP = Math.max(options.startPage, options.endPage);
+      allAnchors = await this.getAllAyahsInPageRange(minP, maxP);
+      boundary = {
+        juz: quranService.getPageJuz(minP),
+        startSurah: allAnchors[0]?.surahNumber || 1,
+        startAyah: allAnchors[0]?.ayahNumber || 1,
+        endSurah: allAnchors[allAnchors.length - 1]?.surahNumber || 114,
+        endAyah: allAnchors[allAnchors.length - 1]?.ayahNumber || 6,
+        startPage: minP,
+        endPage: maxP
+      };
+    } else {
+      // Default: Juz
+      const juzBoundary = CANONICAL_JUZ_BOUNDARIES[options.juz];
+      if (!juzBoundary) {
+        return {
+          candidates: [],
+          requestedCount: options.count,
+          availableCount: 0,
+          insufficientPool: true,
+          warningMessage: `Juz ${options.juz} tidak valid.`
+        };
+      }
+      boundary = juzBoundary;
+      allAnchors = this.getAllAyahsInJuz(options.juz);
     }
 
-    // 1. Ambil seluruh pool ayat dalam Juz
-    const allAnchors = this.getAllAyahsInJuz(options.juz);
     if (allAnchors.length === 0) {
       return {
         candidates: [],
         requestedCount: options.count,
         availableCount: 0,
         insufficientPool: true,
-        warningMessage: `Tidak ditemukan ayat pada Juz ${options.juz}.`
+        warningMessage: `Tidak ditemukan ayat pada materi yang dipilih.`
       };
     }
 
@@ -547,10 +648,42 @@ export class QuickQuestionGenerator {
       return null;
     }
 
-    const boundary = CANONICAL_JUZ_BOUNDARIES[options.juz];
-    if (!boundary) return null;
+    let boundary: JuzBoundary;
+    let allAnchors: AyahAnchor[] = [];
 
-    const allAnchors = this.getAllAyahsInJuz(options.juz);
+    if (options.materialType === 'surah' && options.surahNumber) {
+      const sNum = options.surahNumber;
+      allAnchors = this.getAllAyahsInSurah(sNum);
+      const sInfo = quranService.getSurah(sNum);
+      const sPage = sInfo?.startPage || 1;
+      boundary = {
+        juz: quranService.getPageJuz(sPage),
+        startSurah: sNum,
+        startAyah: 1,
+        endSurah: sNum,
+        endAyah: SURAH_TOTAL_AYAHS[sNum] || 1,
+        startPage: sPage,
+        endPage: Math.min(604, sPage + 3)
+      };
+    } else if (options.materialType === 'page' && options.startPage && options.endPage) {
+      const minP = Math.min(options.startPage, options.endPage);
+      const maxP = Math.max(options.startPage, options.endPage);
+      allAnchors = await this.getAllAyahsInPageRange(minP, maxP);
+      boundary = {
+        juz: quranService.getPageJuz(minP),
+        startSurah: allAnchors[0]?.surahNumber || 1,
+        startAyah: allAnchors[0]?.ayahNumber || 1,
+        endSurah: allAnchors[allAnchors.length - 1]?.surahNumber || 114,
+        endAyah: allAnchors[allAnchors.length - 1]?.ayahNumber || 6,
+        startPage: minP,
+        endPage: maxP
+      };
+    } else {
+      const juzBoundary = CANONICAL_JUZ_BOUNDARIES[options.juz];
+      if (!juzBoundary) return null;
+      boundary = juzBoundary;
+      allAnchors = this.getAllAyahsInJuz(options.juz);
+    }
     const existingFingerprints = new Set<string>();
 
     if (options.avoidExisting) {

@@ -208,8 +208,12 @@ export interface QuestionBankFilter {
 // ============================================================
 
 export interface QuickGeneratorOptions {
-  juz: number; // 1 - 30
-  count: number; // Jumlah kandidat yang diminta (10, 20, 50, 100, custom)
+  materialType?: 'juz' | 'surah' | 'page'; // Mode materi: Juz (default), Surat, atau Range Halaman
+  juz: number; // 1 - 30 (jika materialType === 'juz')
+  surahNumber?: number; // 1 - 114 (jika materialType === 'surah')
+  startPage?: number; // 1 - 604 (jika materialType === 'page')
+  endPage?: number; // 1 - 604 (jika materialType === 'page')
+  count: number; // Jumlah kandidat yang diminta (1, 5, 10, 20, 50, custom)
   questionType: 'continuation'; // Sambung Ayat
   difficulty: 'mixed' | 'easy' | 'medium' | 'hard';
   spreadEvenly: boolean; // Sebarkan soal secara merata
@@ -244,6 +248,53 @@ export interface BulkSaveCandidatesResult {
   savedIds?: string[];
   rejectedItems?: { index: number; reason: string }[];
   message?: string;
+}
+
+// ============================================================
+// PDF BANK SOAL IMPORTER TYPES
+// ============================================================
+
+export interface PdfImportCandidate {
+  id: string;
+  packageNumber: number;
+  questionNumber: number; // 1, 2, 3, 4
+  pageIndex: number; // 1-indexed PDF page
+  detectedCategory: string; // e.g. "Juz 30"
+  surahNumber: number;
+  surahName: string;
+  ayahStart: number;
+  ayahEnd: number;
+  totalAyahsDetected: number;
+  detectedAyahNumbers: number[];
+  promptStart: QuranPosition;
+  promptEnd: QuranPosition;
+  answerStart: QuranPosition;
+  answerEnd: QuranPosition;
+  promptText: string;
+  answerText: string;
+  confidence: 'high' | 'medium' | 'low';
+  confidenceReason?: string;
+  selected: boolean;
+  status: 'draft' | 'active';
+  difficulty?: 'easy' | 'medium' | 'hard';
+  // PDF Crop Coordinates for Admin Visual Verification
+  cropRect?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface PdfAnalysisSummary {
+  fileName: string;
+  fileSize: number;
+  totalPages: number;
+  totalPackages: number;
+  totalCandidates: number;
+  highConfidenceCount: number;
+  mediumConfidenceCount: number;
+  lowConfidenceCount: number;
 }
 
 

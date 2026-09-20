@@ -7,6 +7,7 @@ import QuestionBankTable from './QuestionBankTable';
 import QuestionBankDetailModal from './QuestionBankDetailModal';
 import QuestionBankMetadataModal from './QuestionBankMetadataModal';
 import { QuickQuestionGeneratorModal } from './QuickQuestionGeneratorModal';
+import { PdfQuestionImporterModal } from './PdfQuestionImporterModal';
 import { 
   BookMarked, 
   PlusCircle, 
@@ -21,7 +22,8 @@ import {
   Archive,
   AlertTriangle,
   Zap,
-  Trash2
+  Trash2,
+  FileText
 } from 'lucide-react';
 import DeleteAllQuestionsModal from './DeleteAllQuestionsModal';
 
@@ -51,6 +53,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
   const [selectedDetailItem, setSelectedDetailItem] = useState<QuestionBankItem | null>(null);
   const [editingMetadataItem, setEditingMetadataItem] = useState<QuestionBankItem | null>(null);
   const [isQuickGeneratorOpen, setIsQuickGeneratorOpen] = useState<boolean>(false);
+  const [isPdfImporterOpen, setIsPdfImporterOpen] = useState<boolean>(false);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState<boolean>(false);
 
   // Load items from API (Supabase with localStorage fallback)
@@ -286,6 +289,14 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
           )}
           <button
             type="button"
+            onClick={() => setIsPdfImporterOpen(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
+          >
+            <FileText size={16} />
+            <span>📄 Import PDF</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setIsQuickGeneratorOpen(true)}
             className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
           >
@@ -487,6 +498,22 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
           }}
           onEditInMushafBuilder={(draft) => {
             setIsQuickGeneratorOpen(false);
+            onNavigateToMushafBuilder(draft);
+          }}
+        />
+      )}
+
+      {/* ================= PDF BANK SOAL IMPORTER MODAL ================= */}
+      {user && (
+        <PdfQuestionImporterModal
+          isOpen={isPdfImporterOpen}
+          onClose={() => setIsPdfImporterOpen(false)}
+          user={user}
+          onSaveSuccess={() => {
+            loadQuestionBank();
+          }}
+          onEditInMushafBuilder={(draft) => {
+            setIsPdfImporterOpen(false);
             onNavigateToMushafBuilder(draft);
           }}
         />
