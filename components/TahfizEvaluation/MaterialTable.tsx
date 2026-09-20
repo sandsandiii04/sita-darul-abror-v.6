@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ExamMaterialSnapshot, ExamParticipant, Student, User } from '../../types';
+import { quranService } from '../../services/quranService';
 import { 
   Search, 
   Filter, 
@@ -13,6 +14,28 @@ import {
   Edit3,
   Sparkles
 } from 'lucide-react';
+
+const getSnapshotCoverage = (snap?: ExamMaterialSnapshot) => {
+  if (!snap) {
+    return { startPage: 1, endPage: 1, startJuz: 1, endJuz: 1, estimatedPages: 0 };
+  }
+  if (snap.totalRecordsAnalyzed === 0 || (snap.status === 'not_ready' && snap.startSurah === 1 && snap.endSurah === 1 && snap.startAyah === 1 && snap.endAyah === 1 && (snap.estimatedPages === 0 || !snap.estimatedPages))) {
+    return {
+      startPage: snap.startPage || 1,
+      endPage: snap.endPage || 1,
+      startJuz: snap.startJuz || 1,
+      endJuz: snap.endJuz || 1,
+      estimatedPages: 0
+    };
+  }
+  return quranService.calculateMaterialCoverage(
+    snap.startSurah,
+    snap.startAyah,
+    snap.endSurah,
+    snap.endAyah,
+    snap.memorizationDirection
+  );
+};
 
 interface MaterialTableProps {
   user: User;
@@ -219,8 +242,17 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                   teacherId: participant.teacherId || '',
                   totalJuz: 0
                 };
+                const cov = snap ? getSnapshotCoverage(snap) : null;
+                const effectiveSnap = (snap && cov) ? {
+                  ...snap,
+                  startPage: cov.startPage,
+                  endPage: cov.endPage,
+                  startJuz: cov.startJuz,
+                  endJuz: cov.endJuz,
+                  estimatedPages: cov.estimatedPages
+                } : undefined;
 
-                const status = snap?.status || 'not_ready';
+                const status = effectiveSnap?.status || 'not_ready';
                 const qInfo = questionSetMap.get(participant.studentId);
                 const rowNumber = (currentPage - 1) * pageSize + idx + 1;
 
@@ -243,15 +275,15 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                     </td>
 
                     <td className="py-3 px-4">
-                      {snap ? (
+                      {effectiveSnap ? (
                         <div className="space-y-0.5">
                           <div className="font-bold text-slate-900 flex items-center gap-1">
-                            <span>{snap.startSurahName} {snap.startAyah}</span>
+                            <span>{effectiveSnap.startSurahName} {effectiveSnap.startAyah}</span>
                             <ArrowRight size={12} className="text-slate-400 shrink-0" />
-                            <span>{snap.endSurahName} {snap.endAyah}</span>
+                            <span>{effectiveSnap.endSurahName} {effectiveSnap.endAyah}</span>
                           </div>
                           <span className="text-[10px] text-slate-400 block">
-                            Mushaf: Hal {snap.startPage || 1} - {snap.endPage || 1} (Juz {snap.startJuz || 1}-{snap.endJuz || 1})
+                            Mushaf: Hal {effectiveSnap.startPage || 1} - {effectiveSnap.endPage || 1} (Juz {effectiveSnap.startJuz || 1}-{effectiveSnap.endJuz || 1})
                           </span>
                         </div>
                       ) : (
@@ -261,12 +293,12 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
 
                     <td className="py-3 px-4 text-center">
                       <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-bold text-[11px]">
-                        {snap?.estimatedPages || 0} Hal
+                        {effectiveSnap?.estimatedPages || 0} Hal
                       </span>
                     </td>
 
                     <td className="py-3 px-4">
-                      {snap?.sourceType === 'manual_override' ? (
+                      {effectiveSnap?.sourceType === 'manual_override' ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
                           <Edit3 size={10} />
                           Manual
@@ -278,25 +310,25 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3 px-4">
                       <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
                           status === 'finalized'
-                            ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                            ? 'bg-purple-100 text-purple-800 border border-purple-200'
                             : status === 'ready'
-                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                            ? 'bg-emerald-100 text-emerald-800'
                             : status === 'needs_review'
-                            ? 'bg-amber-50 border-amber-200 text-amber-800'
-                            : 'bg-slate-100 border-slate-200 text-slate-600'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-slate-100 text-slate-600'
                         }`}
                       >
                         {status === 'finalized' ? (
                           <>
-                            <Lock size={11} /> Final
+                            <Lock size={11} /> Terkunci (Final)
                           </>
                         ) : status === 'ready' ? (
                           <>
-                            <CheckCircle2 size={11} className="text-emerald-600" /> Siap
+                            <CheckCircle2 size={11} /> Siap
                           </>
                         ) : status === 'needs_review' ? (
                           <>
@@ -314,7 +346,7 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                           <span className="text-[10px] text-slate-400 italic">Menunggu Final</span>
                         ) : qInfo ? (
                           <button
-                            onClick={() => snap && onOpenQuestionPreview && onOpenQuestionPreview(participant, student, snap)}
+                            onClick={() => effectiveSnap && onOpenQuestionPreview && onOpenQuestionPreview(participant, student, effectiveSnap)}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all shadow-xs cursor-pointer ${
                               qInfo.status === 'stale'
                                 ? 'bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100'
@@ -338,7 +370,7 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                           <div className="flex items-center justify-center gap-1">
                             {user.role === 'admin' && onGenerateQuestions ? (
                               <button
-                                onClick={() => snap && onGenerateQuestions(participant, student, snap)}
+                                onClick={() => effectiveSnap && onGenerateQuestions(participant, student, effectiveSnap)}
                                 className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-[10px] font-bold shadow-xs shadow-indigo-600/20 transition-all flex items-center gap-1 cursor-pointer"
                                 title={`Generate ${questionCount} Soal untuk santri ini`}
                               >
@@ -355,8 +387,8 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
 
                     <td className="py-3 px-4 text-center">
                       <button
-                        onClick={() => snap && onOpenVerificationModal(participant, student, snap)}
-                        disabled={!snap}
+                        onClick={() => effectiveSnap && onOpenVerificationModal(participant, student, effectiveSnap)}
+                        disabled={!effectiveSnap}
                         className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition-all inline-flex items-center gap-1 shadow-sm ${
                           status === 'finalized'
                             ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'

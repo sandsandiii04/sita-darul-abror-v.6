@@ -1,5 +1,6 @@
 import { QuranSurah, QuranVerse, QuranWord, QuranPage, QuranPosition, QuestionDraft } from '../types';
 import { QURAN_CHAPTERS } from '../constants';
+import { MUSHAF_604_PAGE_BOUNDARIES } from '../constants/mushafPageBoundaries';
 
 // Mapping total ayahs for all 114 Surahs in standard Madinah Mushaf (Total: 6236 ayahs)
 export const SURAH_TOTAL_AYAHS: Record<number, number> = {
@@ -138,6 +139,81 @@ class QuranService {
       }
     }
     return 1;
+  }
+
+  private ayahPageMap: Map<string, number> | null = null;
+
+  private ensureAyahPageMap(): Map<string, number> {
+    if (!this.ayahPageMap) {
+      this.ayahPageMap = new Map<string, number>();
+      for (let p = 1; p <= 604; p++) {
+        const b = MUSHAF_604_PAGE_BOUNDARIES[p];
+        if (b && b.verses) {
+          for (const v of b.verses) {
+            this.ayahPageMap.set(`${v.surah}:${v.ayah}`, p);
+          }
+        }
+      }
+    }
+    return this.ayahPageMap;
+  }
+
+  // Get exact Mushaf page number for any Surah and Ayah (1-604)
+  public getAyahPage(surahNumber: number, ayahNumber: number): number {
+    const map = this.ensureAyahPageMap();
+    const clampedSurah = Math.max(1, Math.min(114, surahNumber));
+    const totalAyahs = SURAH_TOTAL_AYAHS[clampedSurah] || 1;
+    const clampedAyah = Math.max(1, Math.min(totalAyahs, ayahNumber || 1));
+    const page = map.get(`${clampedSurah}:${clampedAyah}`);
+    if (page) return page;
+    const surah = this.getSurah(clampedSurah);
+    return surah?.startPage || 1;
+  }
+
+  // Authoritative page coverage calculation for student exam material
+  public calculateMaterialCoverage(
+    startSurah: number,
+    startAyah: number,
+    endSurah: number,
+    endAyah: number,
+    direction?: 'forward' | 'backward' | 'single_surah' | 'unknown' | string
+  ): {
+    startPage: number;
+    endPage: number;
+    startJuz: number;
+    endJuz: number;
+    estimatedPages: number;
+  } {
+    const isBackward = direction === 'backward' || 
+      startSurah > endSurah || 
+      (startSurah === endSurah && startAyah > endAyah);
+
+    let startPage = 1;
+    let endPage = 1;
+
+    if (isBackward) {
+      startPage = this.getAyahPage(startSurah, startAyah);
+      if (startSurah > endSurah) {
+        endPage = this.getAyahPage(endSurah, 1);
+      } else {
+        endPage = this.getAyahPage(endSurah, endAyah);
+      }
+    } else {
+      startPage = this.getAyahPage(startSurah, startAyah);
+      endPage = this.getAyahPage(endSurah, endAyah);
+    }
+
+    const startJuz = this.getPageJuz(startPage);
+    const endJuz = this.getPageJuz(endPage);
+    const estimatedPages = Math.max(1, Math.abs(endPage - startPage) + 1);
+
+    return {
+      startPage,
+      endPage,
+      startJuz,
+      endJuz,
+      estimatedPages
+    };
   }
 
   // 5. Get Verses by Page (with In-Memory Cache and Background Prefetching)

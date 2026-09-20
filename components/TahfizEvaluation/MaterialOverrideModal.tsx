@@ -30,14 +30,13 @@ export const MaterialOverrideModal: React.FC<MaterialOverrideModalProps> = ({
   const startSurahMaxAyah = SURAH_TOTAL_AYAHS[startSurah] || 286;
   const endSurahMaxAyah = SURAH_TOTAL_AYAHS[endSurah] || 286;
 
-  // Recalculate pages
-  const startSurahInfo = quranService.getSurah(startSurah);
-  const endSurahInfo = quranService.getSurah(endSurah);
-  const startPage = startSurahInfo?.startPage || 1;
-  const endPage = endSurahInfo?.startPage || 1;
-  const startJuz = quranService.getPageJuz(startPage);
-  const endJuz = quranService.getPageJuz(endPage);
-  const estimatedPages = Math.max(1, Math.abs(endPage - startPage) + 1);
+  // Recalculate pages authoritative per ayah
+  const coverage = quranService.calculateMaterialCoverage(startSurah, startAyah, endSurah, endAyah);
+  const startPage = coverage.startPage;
+  const endPage = coverage.endPage;
+  const startJuz = coverage.startJuz;
+  const endJuz = coverage.endJuz;
+  const estimatedPages = coverage.estimatedPages;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

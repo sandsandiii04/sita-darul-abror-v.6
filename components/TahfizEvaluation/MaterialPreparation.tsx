@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AcademicTerm, ExamPeriod, ExamParticipant, ExamMaterialSnapshot, Student, TahfidzRecord, User, ExamQuestionSet, ExamQuestion } from '../../types';
 import { api } from '../../api';
+import { quranService } from '../../services/quranService';
 import { materialDetectionService } from '../../services/materialDetectionService';
 import { utsQuestionGenerator } from '../../services/utsQuestionGenerator';
 import { uasQuestionGenerator } from '../../services/uasQuestionGenerator';
@@ -137,7 +138,28 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
       const res = await api.getTahfizEvaluationData(periodId, user);
       if (res.success && res.data && res.data.participants && res.data.participants.length > 0) {
         setParticipants(res.data.participants || []);
-        setSnapshots(res.data.materialSnapshots || []);
+        const rawSnaps = res.data.materialSnapshots || [];
+        const sanitizedSnaps = rawSnaps.map(snap => {
+          if (snap.totalRecordsAnalyzed === 0 || (snap.status === 'not_ready' && snap.startSurah === 1 && snap.endSurah === 1 && snap.startAyah === 1 && snap.endAyah === 1 && (snap.estimatedPages === 0 || !snap.estimatedPages))) {
+            return snap;
+          }
+          const cov = quranService.calculateMaterialCoverage(
+            snap.startSurah,
+            snap.startAyah,
+            snap.endSurah,
+            snap.endAyah,
+            snap.memorizationDirection
+          );
+          return {
+            ...snap,
+            startPage: cov.startPage,
+            endPage: cov.endPage,
+            startJuz: cov.startJuz,
+            endJuz: cov.endJuz,
+            estimatedPages: cov.estimatedPages
+          };
+        });
+        setSnapshots(sanitizedSnaps);
       } else {
         // Fallback: If no participants yet in DB, synthesize from students based on role / targets
         synthesizeData(periodId);

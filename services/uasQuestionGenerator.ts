@@ -73,7 +73,7 @@ export class UASQuestionGenerator {
             surahNumber: s,
             ayahNumber: a,
             pedagogicalIndex: pedagogicalIndex++,
-            pageNumber: startPage,
+            pageNumber: quranService.getAyahPage(s, a),
             surahName: this.getSurahName(s)
           });
         }
@@ -83,8 +83,6 @@ export class UASQuestionGenerator {
       const endS = snapshot.endSurah;
 
       if (startS === endS) {
-        const surahInfo = quranService.getSurah(startS);
-        const startPage = surahInfo?.startPage || 1;
         const minA = Math.min(snapshot.startAyah, snapshot.endAyah);
         const maxA = Math.max(snapshot.startAyah, snapshot.endAyah);
 
@@ -93,7 +91,7 @@ export class UASQuestionGenerator {
             surahNumber: startS,
             ayahNumber: a,
             pedagogicalIndex: pedagogicalIndex++,
-            pageNumber: startPage,
+            pageNumber: quranService.getAyahPage(startS, a),
             surahName: this.getSurahName(startS)
           });
         }
@@ -103,15 +101,12 @@ export class UASQuestionGenerator {
           const startA = (s === startS) ? snapshot.startAyah : 1;
           const endA = (s === endS) ? snapshot.endAyah : totalAyahs;
 
-          const surahInfo = quranService.getSurah(s);
-          const startPage = surahInfo?.startPage || 1;
-
           for (let a = startA; a <= endA; a++) {
             nodes.push({
               surahNumber: s,
               ayahNumber: a,
               pedagogicalIndex: pedagogicalIndex++,
-              pageNumber: startPage,
+              pageNumber: quranService.getAyahPage(s, a),
               surahName: this.getSurahName(s)
             });
           }
@@ -312,18 +307,19 @@ export class UASQuestionGenerator {
     } catch (e) {}
 
     const surahInfo = quranService.getSurah(surahNumber);
+    const exactPage = quranService.getAyahPage(surahNumber, ayahNumber);
     return {
       verseKey: `${surahNumber}:${ayahNumber}`,
       surahNumber,
       ayahNumber,
-      pageNumber: surahInfo?.startPage || 1,
-      juzNumber: quranService.getPageJuz(surahInfo?.startPage || 1),
+      pageNumber: exactPage,
+      juzNumber: quranService.getPageJuz(exactPage),
       textUthmani: `Ayat ${ayahNumber}`,
       words: [
-        { id: `${surahNumber}_${ayahNumber}_1`, surahNumber, ayahNumber, position: 1, textUthmani: 'بِسْمِ', pageNumber: surahInfo?.startPage || 1, juzNumber: 1, charTypeName: 'word' },
-        { id: `${surahNumber}_${ayahNumber}_2`, surahNumber, ayahNumber, position: 2, textUthmani: 'اللَّهِ', pageNumber: surahInfo?.startPage || 1, juzNumber: 1, charTypeName: 'word' },
-        { id: `${surahNumber}_${ayahNumber}_3`, surahNumber, ayahNumber, position: 3, textUthmani: 'الرَّحْمَٰنِ', pageNumber: surahInfo?.startPage || 1, juzNumber: 1, charTypeName: 'word' },
-        { id: `${surahNumber}_${ayahNumber}_4`, surahNumber, ayahNumber, position: 4, textUthmani: 'الرَّحِيمِ', pageNumber: surahInfo?.startPage || 1, juzNumber: 1, charTypeName: 'word' }
+        { id: `${surahNumber}_${ayahNumber}_1`, surahNumber, ayahNumber, position: 1, textUthmani: 'بِسْمِ', pageNumber: exactPage, juzNumber: 1, charTypeName: 'word' },
+        { id: `${surahNumber}_${ayahNumber}_2`, surahNumber, ayahNumber, position: 2, textUthmani: 'اللَّهِ', pageNumber: exactPage, juzNumber: 1, charTypeName: 'word' },
+        { id: `${surahNumber}_${ayahNumber}_3`, surahNumber, ayahNumber, position: 3, textUthmani: 'الرَّحْمَٰنِ', pageNumber: exactPage, juzNumber: 1, charTypeName: 'word' },
+        { id: `${surahNumber}_${ayahNumber}_4`, surahNumber, ayahNumber, position: 4, textUthmani: 'الرَّحِيمِ', pageNumber: exactPage, juzNumber: 1, charTypeName: 'word' }
       ]
     };
   }

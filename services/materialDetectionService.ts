@@ -271,15 +271,13 @@ export class MaterialDetectionService {
       anomalies.push(`Setoran terakhir (${lastRecord.date}: ${lastRecord.surah} ayat ${lastRecord.ayahStart}-${lastRecord.ayahEnd}) mengulang/mundur dari capaian terjauh (${this.getSurahName(furthestSurah)} ayat ${furthestAyah}). Batas materi tetap dipertahankan pada capaian terjauh.`);
     }
 
-    // 5. Estimasi Halaman & Juz Standar Mushaf Madinah
-    const startSurahInfo = quranService.getSurah(startSurah);
-    const endSurahInfo = quranService.getSurah(endSurah);
-
-    const startPage = startSurahInfo?.startPage || 1;
-    const endPage = endSurahInfo?.startPage || 1;
-    const startJuz = quranService.getPageJuz(startPage);
-    const endJuz = quranService.getPageJuz(endPage);
-    const estimatedPages = Math.max(1, Math.abs(endPage - startPage) + 1);
+    // 5. Estimasi Halaman & Juz Standar Mushaf Madinah (Tepat per ayat)
+    const coverage = quranService.calculateMaterialCoverage(startSurah, startAyah, endSurah, endAyah, direction);
+    const startPage = coverage.startPage;
+    const endPage = coverage.endPage;
+    const startJuz = coverage.startJuz;
+    const endJuz = coverage.endJuz;
+    const estimatedPages = coverage.estimatedPages;
 
     // 6. Tentukan Status & Review Reason
     let status: MaterialSnapshotStatus = 'ready';

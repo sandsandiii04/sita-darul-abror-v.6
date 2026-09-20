@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ExamMaterialSnapshot, ExamParticipant, Student, TahfidzRecord, User } from '../../types';
+import { quranService } from '../../services/quranService';
 import { SetoranHistoryModal } from './SetoranHistoryModal';
 import { MaterialOverrideModal } from './MaterialOverrideModal';
 import { 
@@ -54,6 +55,25 @@ export const MaterialVerificationModal: React.FC<MaterialVerificationModalProps>
   const isFinalized = snapshot.status === 'finalized';
   const isAdmin = user.role === 'admin';
   const isTeacher = user.role === 'teacher';
+
+  const pageCoverage = useMemo(() => {
+    if (snapshot.totalRecordsAnalyzed === 0 || (snapshot.status === 'not_ready' && snapshot.startSurah === 1 && snapshot.endSurah === 1 && snapshot.startAyah === 1 && snapshot.endAyah === 1 && (snapshot.estimatedPages === 0 || !snapshot.estimatedPages))) {
+      return {
+        startPage: snapshot.startPage || 1,
+        endPage: snapshot.endPage || 1,
+        startJuz: snapshot.startJuz || 1,
+        endJuz: snapshot.endJuz || 1,
+        estimatedPages: 0
+      };
+    }
+    return quranService.calculateMaterialCoverage(
+      snapshot.startSurah,
+      snapshot.startAyah,
+      snapshot.endSurah,
+      snapshot.endAyah,
+      snapshot.memorizationDirection
+    );
+  }, [snapshot]);
 
   const relevantRecords = records.filter(r => {
     if (r.studentId !== student.id) return false;
@@ -191,7 +211,7 @@ export const MaterialVerificationModal: React.FC<MaterialVerificationModalProps>
                 Materi Ujian Ditetapkan
               </span>
               <span className="px-2.5 py-0.5 bg-emerald-200/60 text-emerald-800 rounded-full text-xs font-bold">
-                Estimasi {snapshot.estimatedPages} Halaman
+                Estimasi {pageCoverage.estimatedPages} Halaman
               </span>
             </div>
 
@@ -218,8 +238,8 @@ export const MaterialVerificationModal: React.FC<MaterialVerificationModalProps>
             </div>
 
             <div className="mt-3 flex items-center justify-between text-[11px] text-slate-600 pt-2 border-t border-emerald-200/60">
-              <span>Mushaf Madinah: <strong>Halaman {snapshot.startPage || 1} s/d {snapshot.endPage || 1}</strong></span>
-              <span>Cakupan Juz: <strong>Juz {snapshot.startJuz || 1} - {snapshot.endJuz || 1}</strong></span>
+              <span>Mushaf Madinah: <strong>Halaman {pageCoverage.startPage || 1} s/d {pageCoverage.endPage || 1}</strong></span>
+              <span>Cakupan Juz: <strong>Juz {pageCoverage.startJuz || 1} - {pageCoverage.endJuz || 1}</strong></span>
               <span>Arah Hafalan: <strong>{snapshot.memorizationDirection === 'backward' ? 'Mundur (Juz 30)' : 'Maju'}</strong></span>
             </div>
           </div>
