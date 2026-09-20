@@ -118,6 +118,82 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
         />
       </div>
 
+      {/* Admin Quick Access: Rekapitulasi Nilai UTS & UAS */}
+      {user?.role === 'admin' && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/70 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                <Award className="text-emerald-600" size={20} />
+                Rekapitulasi Nilai Evaluasi Tahfiz
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Modul rekapitulasi nilai resmi, analisis kelulusan per periode, dan ekspor laporan Excel/CSV khusus Admin.
+              </p>
+            </div>
+            <span className="self-start sm:self-auto text-[11px] font-bold px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+              Khusus Admin
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Rekap Nilai UTS Card */}
+            <div 
+              onClick={() => onNavigate && onNavigate('uts_recap')}
+              className="group cursor-pointer bg-gradient-to-br from-emerald-50/70 via-teal-50/40 to-white p-5 rounded-2xl border border-emerald-200/80 hover:border-emerald-500 hover:shadow-md transition-all duration-300 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-600/20 group-hover:scale-105 transition-transform">
+                    <Award size={20} />
+                  </div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                    UTS Modul
+                  </span>
+                </div>
+                <h4 className="font-bold text-slate-800 text-sm group-hover:text-emerald-700 transition-colors">
+                  Rekap Nilai UTS
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Pantau capaian 5 zona materi UTS santri, nilai akhir, persentase kelulusan, dan unduh laporan Excel / CSV.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t border-emerald-100 flex items-center justify-between text-xs font-bold text-emerald-700">
+                <span>Buka Rekap Nilai UTS</span>
+                <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+
+            {/* Rekap Nilai UAS Card */}
+            <div 
+              onClick={() => onNavigate && onNavigate('uas_recap')}
+              className="group cursor-pointer bg-gradient-to-br from-blue-50/70 via-indigo-50/40 to-white p-5 rounded-2xl border border-blue-200/80 hover:border-blue-500 hover:shadow-md transition-all duration-300 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20 group-hover:scale-105 transition-transform">
+                    <Award size={20} />
+                  </div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md">
+                    UAS Modul
+                  </span>
+                </div>
+                <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors">
+                  Rekap Nilai UAS
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Evaluasi komprehensif 9 butir soal UAS santri, capaian halaman & juz, status kelulusan, serta ekspor data lengkap.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t border-blue-100 flex items-center justify-between text-xs font-bold text-blue-700">
+                <span>Buka Rekap Nilai UAS</span>
+                <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Chart (Left Column) - min-w-0 mencegah flex collapse di HP */}
         <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm min-w-0">

@@ -363,7 +363,7 @@ const App: React.FC = () => {
       const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital'];
       const teacherTabs = [
         'dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'material_preparation',
-        'uts_execution', 'uas_execution', 'remedial_execution', 'uts_recap', 'uas_recap',
+        'uts_execution', 'uas_execution', 'remedial_execution',
         'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital'
       ];
       const adminTabs = [
@@ -1017,14 +1017,14 @@ const App: React.FC = () => {
           <RemedialExamExecutionView user={user!} />
         );
       case 'uts_recap':
-        if (user!.role === 'parent') {
+        if (user!.role !== 'admin') {
           return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
         }
         return (
           <UTSRecapView user={user!} />
         );
       case 'uas_recap':
-        if (user!.role === 'parent') {
+        if (user!.role !== 'admin') {
           return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
         }
         return (
