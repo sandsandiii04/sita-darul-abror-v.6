@@ -186,6 +186,42 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
     }
   };
 
+  const handleActivateItem = async (item: QuestionBankItem) => {
+    try {
+      const res = await api.activateQuestionBankItem(item.id, user);
+      if (res.success) {
+        loadQuestionBank();
+      } else {
+        alert(res.message || "Gagal mengaktifkan soal.");
+      }
+    } catch (e: any) {
+      alert("Terjadi kesalahan saat mengaktifkan soal.");
+    }
+  };
+
+  const handleBulkActivateDrafts = async () => {
+    const isFilteredExamType = filter.examType && filter.examType !== 'all';
+    const confirmMsg = isFilteredExamType 
+      ? `Aktifkan semua ${draftCount} soal draft untuk tipe ujian "${filter.examType.toUpperCase()}"?`
+      : `Aktifkan seluruh ${draftCount} soal draft menjadi status Aktif sehingga siap digunakan untuk ujian?`;
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await api.bulkActivateDraftQuestions({
+        examType: isFilteredExamType ? filter.examType : undefined
+      }, user);
+      if (res.success) {
+        alert(res.message || "Semua soal draft berhasil diaktifkan.");
+        loadQuestionBank();
+      } else {
+        alert(res.message || "Gagal mengaktifkan soal draft.");
+      }
+    } catch (e: any) {
+      alert("Terjadi kesalahan saat mengaktifkan soal draft.");
+    }
+  };
+
   const handleConfirmDeleteAll = async (scope: 'all' | 'filtered') => {
     let options: { examType?: string; status?: string } | undefined = undefined;
     if (scope === 'filtered') {
@@ -226,6 +262,17 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {draftCount > 0 && (
+            <button
+              type="button"
+              onClick={handleBulkActivateDrafts}
+              className="px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+              title="Aktifkan seluruh soal berstatus draft menjadi aktif sekaligus"
+            >
+              <CheckCircle2 size={16} />
+              <span>⚡ Aktifkan Semua Draft ({draftCount})</span>
+            </button>
+          )}
           {items.length > 0 && (
             <button
               type="button"
@@ -370,6 +417,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
         onArchive={handleArchive}
         onRestore={handleRestore}
         onDelete={handleDelete}
+        onActivate={handleActivateItem}
         onRetrySync={handleRetrySync}
       />
 

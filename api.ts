@@ -1355,18 +1355,32 @@ export const api = {
           remoteSuccess = true;
           serverDeletedCount = rpcData.deleted_count || 0;
         } else {
-          // 2. Fallback direct delete
-          let query = supabase.from('question_bank').delete();
-          if (examType && examType !== 'all') {
-            query = query.eq('exam_type', examType);
-          }
-          if (status && status !== 'all') {
-            query = query.eq('status', status);
-          }
-          const { error: directErr, count } = await query.neq('id', '___dummy_never_match___');
-          if (!directErr) {
-            remoteSuccess = true;
-            serverDeletedCount = count || 0;
+          // 2. Fallback cerdas: Ambil daftar item dan hapus per ID via delete_question_bank_item secara paralel
+          console.warn("delete_all_question_bank_items RPC warning, falling back to batch delete:", rpcErr?.message);
+          const listRes = await this.getQuestionBankList({
+            status: status && status !== 'all' ? status as any : 'all',
+            examType: examType && examType !== 'all' ? examType as any : 'all'
+          }, u);
+          
+          if (listRes.success && listRes.data.length > 0) {
+            const idsToDelete = listRes.data.map(q => q.id);
+            const chunkSize = 20;
+            let successCount = 0;
+            for (let i = 0; i < idsToDelete.length; i += chunkSize) {
+              const chunk = idsToDelete.slice(i, i + chunkSize);
+              const batchResults = await Promise.all(
+                chunk.map(id => 
+                  supabase!.rpc('delete_question_bank_item', {
+                    p_username: u.username,
+                    p_password: u.password,
+                    p_id: id
+                  })
+                )
+              );
+              successCount += batchResults.filter(r => !r.error && r.data?.success).length;
+            }
+            serverDeletedCount = successCount;
+            remoteSuccess = successCount > 0;
           }
         }
       } catch (e: any) {
@@ -1399,6 +1413,111 @@ export const api = {
       deletedCount: totalCleaned,
       message: `${totalCleaned} soal berhasil dihapus permanen.`
     };
+  },
+
+  async bulkActivateDraftQuestions(
+    options?: { examType?: string },
+    userOverride?: User | null
+  ): Promise<{ success: boolean; activatedCount: number; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (u?.role !== 'admin') {
+      return { success: false, activatedCount: 0, message: 'Akses ditolak: Hanya Admin yang berhak mengaktifkan soal.' };
+    }
+
+    const examType = options?.examType;
+    let activatedCount = 0;
+
+    if (supabase) {
+      try {
+        // 1. Coba RPC bulk_activate_question_bank_drafts
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('bulk_activate_question_bank_drafts', {
+          p_username: u.username,
+          p_password: u.password,
+          p_exam_type: examType && examType !== 'all' ? examType : null
+        });
+
+        if (!rpcErr && rpcData?.success) {
+          activatedCount = rpcData.updated_count || 0;
+        } else {
+          // 2. Fallback: Ambil draft items dan update status ke 'active' via upsert_question_bank_item
+          console.warn("RPC bulk_activate_question_bank_drafts fallback to batch:", rpcErr?.message);
+          const listRes = await this.getQuestionBankList({
+            status: 'draft',
+            examType: examType && examType !== 'all' ? examType as any : 'all'
+          }, u);
+
+          if (listRes.success && listRes.data.length > 0) {
+            const drafts = listRes.data;
+            const chunkSize = 15;
+            for (let i = 0; i < drafts.length; i += chunkSize) {
+              const chunk = drafts.slice(i, i + chunkSize);
+              const batchResults = await Promise.all(
+                chunk.map(item => {
+                  const updated = { ...item, status: 'active' as const, syncStatus: 'saved' as const };
+                  const payload = mapQuestionBankToDb(updated);
+                  return supabase!.rpc('upsert_question_bank_item', {
+                    p_username: u.username,
+                    p_password: u.password,
+                    p_data: payload
+                  });
+                })
+              );
+              activatedCount += batchResults.filter(r => !r.error && r.data?.success).length;
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn("Bulk activate remote error:", e);
+      }
+    }
+
+    // Update local cache
+    const cache = this.getLocalQuestionBankCache();
+    cache.forEach(item => {
+      if (item.status === 'draft') {
+        if (!examType || examType === 'all' || item.examType === examType) {
+          item.status = 'active';
+          item.updatedAt = new Date().toISOString();
+        }
+      }
+    });
+    this.saveLocalQuestionBankCache(cache);
+
+    return {
+      success: true,
+      activatedCount,
+      message: `${activatedCount} soal draft berhasil diaktifkan.`
+    };
+  },
+
+  async activateQuestionBankItem(id: string, userOverride?: User | null): Promise<{ success: boolean; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (u?.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak mengaktifkan soal.' };
+    }
+
+    const cache = this.getLocalQuestionBankCache();
+    const target = cache.find(q => q.id === id);
+    if (!target) {
+      const recovery = this.getRecoveryDrafts().find(q => q.id === id);
+      if (recovery) {
+        const updated = { ...recovery, status: 'active' as const };
+        return this.saveQuestionBankItem(updated, u);
+      }
+      return { success: false, message: 'Soal tidak ditemukan.' };
+    }
+
+    const updatedItem: QuestionBankItem = {
+      ...target,
+      status: 'active',
+      updatedAt: new Date().toISOString()
+    };
+
+    const res = await this.saveQuestionBankItem(updatedItem, u);
+    if (res.success) {
+      return { success: true, message: 'Soal berhasil diaktifkan!' };
+    }
+    return { success: false, message: res.message || 'Gagal mengaktifkan soal.' };
   },
 
   async checkDuplicateQuestion(

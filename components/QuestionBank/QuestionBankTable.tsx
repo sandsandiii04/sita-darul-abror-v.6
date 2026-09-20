@@ -13,7 +13,8 @@ import {
   Compass, 
   Tag as TagIcon,
   Sparkles,
-  Trash2
+  Trash2,
+  CheckCircle2
 } from 'lucide-react';
 
 interface QuestionBankTableProps {
@@ -26,6 +27,7 @@ interface QuestionBankTableProps {
   onArchive: (item: QuestionBankItem) => void;
   onRestore: (item: QuestionBankItem) => void;
   onDelete?: (item: QuestionBankItem) => void;
+  onActivate?: (item: QuestionBankItem) => void;
   onRetrySync?: (item: QuestionBankItem) => void;
 }
 
@@ -39,6 +41,7 @@ export const QuestionBankTable: React.FC<QuestionBankTableProps> = ({
   onArchive,
   onRestore,
   onDelete,
+  onActivate,
   onRetrySync
 }) => {
   const [pageSize, setPageSize] = useState<number>(20);
@@ -252,6 +255,16 @@ export const QuestionBankTable: React.FC<QuestionBankTableProps> = ({
                         >
                           <Edit3 size={15} />
                         </button>
+                        {item.status === 'draft' && onActivate && (
+                          <button
+                            type="button"
+                            onClick={() => onActivate(item)}
+                            className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-all"
+                            title="Aktifkan soal ini"
+                          >
+                            <CheckCircle2 size={15} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => onDuplicate(item)}
@@ -399,6 +412,17 @@ export const QuestionBankTable: React.FC<QuestionBankTableProps> = ({
                   <Edit3 size={13} />
                   <span>Edit</span>
                 </button>
+                {item.status === 'draft' && onActivate && (
+                  <button
+                    type="button"
+                    onClick={() => onActivate(item)}
+                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1 border border-emerald-200"
+                    title="Aktifkan soal"
+                  >
+                    <CheckCircle2 size={13} />
+                    <span>Aktifkan</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onDuplicate(item)}
