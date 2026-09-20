@@ -74,7 +74,22 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [savedCountResult, setSavedCountResult] = useState<number>(0);
 
-  if (!isOpen) return null;
+  // Effect to render canvas crop when selectedPreviewCandidate changes
+  useEffect(() => {
+    if (selectedPreviewCandidate && pdfDoc && cropCanvasRef.current && selectedPreviewCandidate.cropRect) {
+      PdfQuestionParserService.renderCropToCanvas(
+        pdfDoc,
+        selectedPreviewCandidate.pageIndex,
+        selectedPreviewCandidate.cropRect,
+        cropCanvasRef.current
+      ).then(() => {
+        setPdfCanvasLoading(false);
+      }).catch(err => {
+        console.error("Gagal render crop PDF:", err);
+        setPdfCanvasLoading(false);
+      });
+    }
+  }, [selectedPreviewCandidate, pdfDoc]);
 
   // Handle Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
@@ -170,22 +185,7 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
     setPdfCanvasLoading(true);
   };
 
-  // Effect to render canvas crop when selectedPreviewCandidate changes
-  useEffect(() => {
-    if (selectedPreviewCandidate && pdfDoc && cropCanvasRef.current && selectedPreviewCandidate.cropRect) {
-      PdfQuestionParserService.renderCropToCanvas(
-        pdfDoc,
-        selectedPreviewCandidate.pageIndex,
-        selectedPreviewCandidate.cropRect,
-        cropCanvasRef.current
-      ).then(() => {
-        setPdfCanvasLoading(false);
-      }).catch(err => {
-        console.error("Gagal render crop PDF:", err);
-        setPdfCanvasLoading(false);
-      });
-    }
-  }, [selectedPreviewCandidate, pdfDoc]);
+
 
   // Edit in Mushaf Builder
   const handleEditInMushaf = (cand: PdfImportCandidate) => {
@@ -244,6 +244,8 @@ export const PdfQuestionImporterModal: React.FC<PdfQuestionImporterModalProps> =
   });
 
   const selectedCount = candidates.filter(c => c.selected).length;
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-fade-in overflow-hidden">

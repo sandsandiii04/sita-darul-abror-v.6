@@ -487,7 +487,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
       />
 
       {/* ================= QUICK BANK SOAL GENERATOR MODAL ================= */}
-      {user && (
+      {user && isQuickGeneratorOpen && (
         <QuickQuestionGeneratorModal
           isOpen={isQuickGeneratorOpen}
           onClose={() => setIsQuickGeneratorOpen(false)}
@@ -504,7 +504,7 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
       )}
 
       {/* ================= PDF BANK SOAL IMPORTER MODAL ================= */}
-      {user && (
+      {user && isPdfImporterOpen && (
         <PdfQuestionImporterModal
           isOpen={isPdfImporterOpen}
           onClose={() => setIsPdfImporterOpen(false)}
