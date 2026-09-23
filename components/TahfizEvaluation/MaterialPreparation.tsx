@@ -9,6 +9,7 @@ import { MaterialTable } from './MaterialTable';
 import { MaterialVerificationModal } from './MaterialVerificationModal';
 import { UTSQuestionPreview } from './UTSQuestionPreview';
 import { UASQuestionPreview } from './UASQuestionPreview';
+import { UTSBulkGeneratorModal } from './UTSBulkGeneratorModal';
 import { 
   BookOpen, 
   CheckCircle2, 
@@ -69,6 +70,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
     isStale?: boolean;
   } | null>(null);
   const [isGeneratingStudentId, setIsGeneratingStudentId] = useState<string | null>(null);
+  const [showBulkGenModal, setShowBulkGenModal] = useState(false);
 
   const questionSetMap = useMemo(() => {
     const map = new Map<string, { status: string; version: number; id: string }>();
@@ -346,7 +348,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         }, user);
 
         if (saveRes.success && saveRes.questionSet && saveRes.questions) {
-          setStatusMessage({ type: 'success', text: `5 Soal UTS untuk ${student.name} berhasil dibuat dan dikunci.` });
+          setStatusMessage({ type: 'success', text: `${result.questions.length} Soal UTS untuk ${student.name} berhasil dibuat dan dikunci.` });
           await loadQuestionSets(currentPeriod.id);
           setActiveQuestionPreview({
             student,
@@ -592,7 +594,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold">
-              Tahap 4 Evaluasi Tahfiz
+              Persiapan Materi Evaluasi Tahfiz
             </span>
             <span className="text-xs text-slate-500">
               {isAdmin ? 'Akses Admin & Penguji' : `Halaqah ${user.name}`}
@@ -644,6 +646,17 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
                 <Lock size={14} />
                 <span>Finalisasi Semua yang Siap ({metrics.ready})</span>
               </button>
+
+              {currentPeriod?.examType === 'uts' && (
+                <button
+                  onClick={() => setShowBulkGenModal(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 active:from-teal-800 active:to-emerald-800 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-600/20 transition-all flex items-center gap-1.5"
+                  title="Buka panel pratinjau kelayakan dan generator soal UTS massal"
+                >
+                  <Sparkles size={14} className="text-amber-300" />
+                  <span>Generate Soal Massal</span>
+                </button>
+              )}
             </>
           )}
 
@@ -788,10 +801,29 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         questionSetMap={questionSetMap}
         isUTSPeriod={currentPeriod?.examType === 'uts'}
         examType={currentPeriod?.examType || 'uts'}
+        utsQuestionCount={currentPeriod?.utsQuestionCount || 5}
         onOpenVerificationModal={(p, s, snap) => setActiveModalItem({ participant: p, student: s, snapshot: snap })}
         onOpenQuestionPreview={handleOpenQuestionPreview}
         onGenerateQuestions={handleGenerateQuestions}
       />
+
+      {/* UTS Bulk Question Generator Modal */}
+      {showBulkGenModal && currentPeriod && currentPeriod.examType === 'uts' && (
+        <UTSBulkGeneratorModal
+          isOpen={showBulkGenModal}
+          onClose={() => setShowBulkGenModal(false)}
+          period={currentPeriod}
+          participants={participants}
+          snapshots={snapshots}
+          questionSetMap={questionSetMap}
+          user={user}
+          onSuccess={async () => {
+            if (selectedPeriodId) {
+              await loadQuestionSets(selectedPeriodId);
+            }
+          }}
+        />
+      )}
 
       {/* Verification Modal */}
       {activeModalItem && currentPeriod && currentTerm && (

@@ -32,6 +32,9 @@ export const ExamPeriodModal: React.FC<ExamPeriodModalProps> = ({
   const [examStartDate, setExamStartDate] = useState(period?.examStartDate || '2026-09-23');
   const [examEndDate, setExamEndDate] = useState(period?.examEndDate || '2026-09-24');
   const [kkm, setKkm] = useState(period?.kkm || 75);
+  const [utsQuestionCount, setUtsQuestionCount] = useState<5 | 10 | 15 | 20>(
+    ([5, 10, 15, 20].includes(period?.utsQuestionCount as any) ? period?.utsQuestionCount : 5) as 5 | 10 | 15 | 20
+  );
 
   // Participant selection mode
   const [selectionMode, setSelectionMode] = useState<'all' | 'class' | 'halaqah'>('all');
@@ -121,6 +124,7 @@ export const ExamPeriodModal: React.FC<ExamPeriodModalProps> = ({
       targetClasses: selectionMode === 'class' ? selectedClasses : [],
       targetHalaqahs: selectionMode === 'halaqah' ? selectedHalaqahs : [],
       status: period?.status || 'preparation',
+      utsQuestionCount: examType === 'uts' ? utsQuestionCount : undefined,
       createdAt: period?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -215,6 +219,45 @@ export const ExamPeriodModal: React.FC<ExamPeriodModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Konfigurasi Jumlah Soal UTS */}
+          {examType === 'uts' && (
+            <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-emerald-950">
+                  Jumlah Butir Soal UTS
+                </label>
+                <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                  Total Nilai: 100 Poin
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {([5, 10, 15, 20] as const).map(count => {
+                  const ptsPerQ = count === 5 ? '20' : count === 10 ? '10' : count === 15 ? '~6.67' : '5';
+                  return (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setUtsQuestionCount(count)}
+                      className={`py-2 px-2 rounded-xl border text-center transition-all ${
+                        utsQuestionCount === count
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-600/20 ring-2 ring-emerald-500/30'
+                          : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/30'
+                      }`}
+                    >
+                      <div className="font-extrabold text-xs">{count} Soal</div>
+                      <div className={`text-[10px] mt-0.5 ${utsQuestionCount === count ? 'text-emerald-100' : 'text-slate-400'}`}>
+                        {ptsPerQ} poin/soal
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-emerald-800/80">
+                Plafon skor per butir soal dan skala penalti kesalahan dihitung secara otomatis dan proporsional.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">

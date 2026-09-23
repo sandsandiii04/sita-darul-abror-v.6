@@ -12,9 +12,10 @@ import {
 import { quranService } from '../../services/quranService';
 import { 
   UTS_SCORING_CONFIG, 
-  FLUENCY_BUTTONS, 
-  TAJWID_BUTTONS, 
-  MAKHRAJ_BUTTONS,
+  getQuestionRubricConfig,
+  getFluencyButtons, 
+  getTajwidButtons, 
+  getMakhrajButtons,
   calculateFluencyScore,
   calculateTajwidScore,
   calculateMakhrajScore,
@@ -22,6 +23,7 @@ import {
   calculateAttemptTotalScore,
   generateEventId
 } from '../../services/utsScoringService';
+import { utsHistoryManager, UTSHistoryManager } from '../../services/utsHistoryManager';
 import { api } from '../../api';
 import { UTSExamReviewModal } from './UTSExamReviewModal';
 import { 
@@ -38,7 +40,9 @@ import {
   X, 
   AlertTriangle,
   Award,
-  BookOpen
+  BookOpen,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 
 interface UTSExamSheetProps {
@@ -76,13 +80,13 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
   onFinish,
   onExit
 }) => {
-  const [currentQIndex, setCurrentQIndex] = useState(0); // 0 to 4
+  const [currentQIndex, setCurrentQIndex] = useState(0); // 0 to N-1
   const [assessments, setAssessments] = useState<ExamQuestionAssessment[]>(initialAssessments);
   const [qTexts, setQTexts] = useState<Record<number, ReconstructedQuestionText>>({});
   const [showAnswer, setShowAnswer] = useState<Record<number, boolean>>({});
   const [notesOpen, setNotesOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'local' | 'error'>('saved');
-  const [saveMessage, setSaveMessage] = useState<string>('Tersimpan di Cloud');
+  const [saveMessage, setSaveMessage] = useState<string>('Tersimpan');
   const [isSavingNext, setIsSavingNext] = useState(false);
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -90,20 +94,86 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
   const currentQuestion = initialQuestions[currentQIndex];
   const currentQNum = currentQuestion?.questionNumber || (currentQIndex + 1);
+  const totalQuestions = initialQuestions.length || 5;
+  const qMax = currentQuestion?.maxScore || (100 / totalQuestions);
+  const rubric = getQuestionRubricConfig(qMax);
+  const fluencyButtons = getFluencyButtons(qMax);
+  const tajwidButtons = getTajwidButtons(qMax);
+  const makhrajButtons = getMakhrajButtons(qMax);
+
+  const [historyTick, setHistoryTick] = useState(0);
+  const [snackbar, setSnackbar] = useState<{
+    show: boolean;
+    text: string;
+    deduction: number;
+    timer?: NodeJS.Timeout;
+  }>({ show: false, text: '', deduction: 0 });
+
+  const canUndo = utsHistoryManager.canUndo(attempt.id, currentQNum);
+  const canRedo = utsHistoryManager.canRedo(attempt.id, currentQNum);
+
   const currentAssessment = assessments.find(a => a.questionNumber === currentQNum) || {
     id: '',
     examAttemptId: attempt.id,
     examQuestionId: currentQuestion?.id || '',
     questionNumber: currentQNum,
-    fluencyScore: 12,
-    tajwidScore: 4,
-    makhrajScore: 4,
+    fluencyScore: rubric.fluencyMax,
+    tajwidScore: rubric.tajwidMax,
+    makhrajScore: rubric.makhrajMax,
     fluencyEvents: [],
     tajwidEvents: [],
     makhrajEvents: [],
-    questionScore: 20,
+    questionScore: qMax,
     notes: '',
     version: 1
+  };
+
+  const fluencyCounts = UTSHistoryManager.getEventCounts(currentAssessment.fluencyEvents || []);
+  const tajwidCounts = UTSHistoryManager.getEventCounts(currentAssessment.tajwidEvents || []);
+  const makhrajCounts = UTSHistoryManager.getEventCounts(currentAssessment.makhrajEvents || []);
+
+  const handleUndo = () => {
+    if (attempt.status === 'submitted') return;
+    try {
+      const prev = utsHistoryManager.undo(attempt.id, currentQNum, attempt.status);
+      if (prev) {
+        updateAssessmentState(prev);
+        triggerAutosave(prev);
+        setHistoryTick(t => t + 1);
+        setSnackbar({ show: false, text: '', deduction: 0 });
+      }
+    } catch (e: any) {
+      console.warn("Undo error:", e);
+    }
+  };
+
+  const handleRedo = () => {
+    if (attempt.status === 'submitted') return;
+    try {
+      const next = utsHistoryManager.redo(attempt.id, currentQNum, attempt.status);
+      if (next) {
+        updateAssessmentState(next);
+        triggerAutosave(next);
+        setHistoryTick(t => t + 1);
+      }
+    } catch (e: any) {
+      console.warn("Redo error:", e);
+    }
+  };
+
+  const triggerSnackbar = (label: string, deduction: number) => {
+    setSnackbar(prev => {
+      if (prev.timer) clearTimeout(prev.timer);
+      const timer = setTimeout(() => {
+        setSnackbar(s => ({ ...s, show: false }));
+      }, 4000);
+      return {
+        show: true,
+        text: `${label} -${deduction}`,
+        deduction,
+        timer
+      };
+    });
   };
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -182,7 +252,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
   // Trigger debounced autosave (for counter taps)
   const triggerAutosave = (updatedAsm: ExamQuestionAssessment) => {
     setSaveStatus('saving');
-    setSaveMessage('Menyimpan perubahan...');
+    setSaveMessage('Menyimpan...');
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -206,7 +276,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan di Cloud');
+          setSaveMessage('Tersimpan');
           if (res.assessment) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updatedAsm.questionNumber 
@@ -220,14 +290,14 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
           }
         } else {
           setSaveStatus('error');
-          setSaveMessage('Belum tersimpan ke server ⚠️');
+          setSaveMessage('Belum tersimpan ⚠️');
           if (res.isConflict) {
             setNavigationError('Data ujian telah diperbarui di sesi lain. Muat ulang untuk sinkronisasi.');
           }
         }
       } catch (err) {
         setSaveStatus('error');
-        setSaveMessage('Belum tersimpan ke server ⚠️');
+        setSaveMessage('Belum tersimpan ⚠️');
       }
     }, 800);
   };
@@ -242,7 +312,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
     setIsSavingNext(true);
     setNavigationError(null);
     setSaveStatus('saving');
-    setSaveMessage('Menyimpan ke server...');
+    setSaveMessage('Menyimpan...');
 
     try {
       const res = await api.saveUTSQuestionAssessment({
@@ -262,7 +332,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       if (!res.success) {
         // Gagal menyimpan: JANGAN set completed_at. JANGAN pindah soal.
         setSaveStatus('error');
-        setSaveMessage('Belum tersimpan ke server ⚠️');
+        setSaveMessage('Belum tersimpan ⚠️');
         setNavigationError(res.message || 'Gagal menyimpan. Coba lagi sebelum melanjutkan.');
         setIsSavingNext(false);
         return;
@@ -270,7 +340,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
       // Berhasil: Server-confirmed!
       setSaveStatus('saved');
-      setSaveMessage('Tersimpan di Cloud');
+      setSaveMessage('Tersimpan');
 
       // Update state dengan completed_at dan version dari server
       const serverCompletedAt = res.assessment?.completedAt || new Date().toISOString();
@@ -288,11 +358,11 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       if (isFinal) {
         setShowReviewModal(true);
       } else {
-        setCurrentQIndex(prev => Math.min(4, prev + 1));
+        setCurrentQIndex(prev => Math.min(totalQuestions - 1, prev + 1));
       }
     } catch (err: any) {
       setSaveStatus('error');
-      setSaveMessage('Belum tersimpan ke server ⚠️');
+      setSaveMessage('Belum tersimpan ⚠️');
       setNavigationError(err.message || 'Gagal menyimpan. Coba lagi sebelum melanjutkan.');
       setIsSavingNext(false);
     }
@@ -300,6 +370,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
   // Add Fluency Event
   const handleAddFluency = (type: FluencyEventType, deduction: number, label: string) => {
+    if (attempt.status === 'submitted') return;
     const newEvent: UTSAssessmentEvent = {
       id: generateEventId('fe'),
       type,
@@ -309,9 +380,10 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
     };
 
     const newEvents = [...currentAssessment.fluencyEvents, newEvent];
-    const { score: fScore } = calculateFluencyScore(newEvents);
-    const qScore = calculateQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore);
+    const { score: fScore } = calculateFluencyScore(newEvents, qMax);
+    const qScore = calculateQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore, qMax);
 
+    const prevAssessment: ExamQuestionAssessment = { ...currentAssessment };
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
       fluencyEvents: newEvents,
@@ -319,16 +391,36 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       questionScore: qScore
     };
 
+    utsHistoryManager.recordAction({
+      attemptId: attempt.id,
+      questionNumber: currentQNum,
+      category: 'fluency',
+      eventType: type,
+      label,
+      deduction,
+      actionType: 'ADD_EVENT',
+      event: newEvent,
+      previousAssessment: prevAssessment,
+      nextAssessment: updated
+    }, attempt.status);
+
     updateAssessmentState(updated);
     triggerAutosave(updated);
+    setHistoryTick(t => t + 1);
+    triggerSnackbar(label, deduction);
   };
 
   // Remove Fluency Event
   const handleRemoveFluency = (eventId: string) => {
-    const newEvents = currentAssessment.fluencyEvents.filter(e => e.id !== eventId);
-    const { score: fScore } = calculateFluencyScore(newEvents);
-    const qScore = calculateQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore);
+    if (attempt.status === 'submitted') return;
+    const targetEvent = currentAssessment.fluencyEvents.find(e => e.id === eventId);
+    if (!targetEvent) return;
 
+    const newEvents = currentAssessment.fluencyEvents.filter(e => e.id !== eventId);
+    const { score: fScore } = calculateFluencyScore(newEvents, qMax);
+    const qScore = calculateQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore, qMax);
+
+    const prevAssessment: ExamQuestionAssessment = { ...currentAssessment };
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
       fluencyEvents: newEvents,
@@ -336,12 +428,27 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       questionScore: qScore
     };
 
+    utsHistoryManager.recordAction({
+      attemptId: attempt.id,
+      questionNumber: currentQNum,
+      category: 'fluency',
+      eventType: targetEvent.type as FluencyEventType,
+      label: targetEvent.label,
+      deduction: targetEvent.deduction || 0,
+      actionType: 'REMOVE_EVENT',
+      event: targetEvent,
+      previousAssessment: prevAssessment,
+      nextAssessment: updated
+    }, attempt.status);
+
     updateAssessmentState(updated);
     triggerAutosave(updated);
+    setHistoryTick(t => t + 1);
   };
 
   // Add Tajwid Event
   const handleAddTajwid = (type: TajwidEventType, deduction: number, label: string) => {
+    if (attempt.status === 'submitted') return;
     const newEvent: UTSAssessmentEvent = {
       id: generateEventId('te'),
       type,
@@ -351,9 +458,10 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
     };
 
     const newEvents = [...currentAssessment.tajwidEvents, newEvent];
-    const { score: tScore } = calculateTajwidScore(newEvents);
-    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore);
+    const { score: tScore } = calculateTajwidScore(newEvents, qMax);
+    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore, qMax);
 
+    const prevAssessment: ExamQuestionAssessment = { ...currentAssessment };
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
       tajwidEvents: newEvents,
@@ -361,16 +469,36 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       questionScore: qScore
     };
 
+    utsHistoryManager.recordAction({
+      attemptId: attempt.id,
+      questionNumber: currentQNum,
+      category: 'tajwid',
+      eventType: type,
+      label,
+      deduction,
+      actionType: 'ADD_EVENT',
+      event: newEvent,
+      previousAssessment: prevAssessment,
+      nextAssessment: updated
+    }, attempt.status);
+
     updateAssessmentState(updated);
     triggerAutosave(updated);
+    setHistoryTick(t => t + 1);
+    triggerSnackbar(label, deduction);
   };
 
   // Remove Tajwid Event
   const handleRemoveTajwid = (eventId: string) => {
-    const newEvents = currentAssessment.tajwidEvents.filter(e => e.id !== eventId);
-    const { score: tScore } = calculateTajwidScore(newEvents);
-    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore);
+    if (attempt.status === 'submitted') return;
+    const targetEvent = currentAssessment.tajwidEvents.find(e => e.id === eventId);
+    if (!targetEvent) return;
 
+    const newEvents = currentAssessment.tajwidEvents.filter(e => e.id !== eventId);
+    const { score: tScore } = calculateTajwidScore(newEvents, qMax);
+    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore, qMax);
+
+    const prevAssessment: ExamQuestionAssessment = { ...currentAssessment };
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
       tajwidEvents: newEvents,
@@ -378,12 +506,27 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       questionScore: qScore
     };
 
+    utsHistoryManager.recordAction({
+      attemptId: attempt.id,
+      questionNumber: currentQNum,
+      category: 'tajwid',
+      eventType: targetEvent.type as TajwidEventType,
+      label: targetEvent.label,
+      deduction: targetEvent.deduction || 0,
+      actionType: 'REMOVE_EVENT',
+      event: targetEvent,
+      previousAssessment: prevAssessment,
+      nextAssessment: updated
+    }, attempt.status);
+
     updateAssessmentState(updated);
     triggerAutosave(updated);
+    setHistoryTick(t => t + 1);
   };
 
   // Add Makhraj Event
   const handleAddMakhraj = (type: MakhrajEventType, deduction: number, label: string) => {
+    if (attempt.status === 'submitted') return;
     const newEvent: UTSAssessmentEvent = {
       id: generateEventId('me'),
       type,
@@ -393,9 +536,10 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
     };
 
     const newEvents = [...currentAssessment.makhrajEvents, newEvent];
-    const { score: mScore } = calculateMakhrajScore(newEvents);
-    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore);
+    const { score: mScore } = calculateMakhrajScore(newEvents, qMax);
+    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore, qMax);
 
+    const prevAssessment: ExamQuestionAssessment = { ...currentAssessment };
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
       makhrajEvents: newEvents,
@@ -403,16 +547,36 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       questionScore: qScore
     };
 
+    utsHistoryManager.recordAction({
+      attemptId: attempt.id,
+      questionNumber: currentQNum,
+      category: 'makhraj',
+      eventType: type,
+      label,
+      deduction,
+      actionType: 'ADD_EVENT',
+      event: newEvent,
+      previousAssessment: prevAssessment,
+      nextAssessment: updated
+    }, attempt.status);
+
     updateAssessmentState(updated);
     triggerAutosave(updated);
+    setHistoryTick(t => t + 1);
+    triggerSnackbar(label, deduction);
   };
 
   // Remove Makhraj Event
   const handleRemoveMakhraj = (eventId: string) => {
-    const newEvents = currentAssessment.makhrajEvents.filter(e => e.id !== eventId);
-    const { score: mScore } = calculateMakhrajScore(newEvents);
-    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore);
+    if (attempt.status === 'submitted') return;
+    const targetEvent = currentAssessment.makhrajEvents.find(e => e.id === eventId);
+    if (!targetEvent) return;
 
+    const newEvents = currentAssessment.makhrajEvents.filter(e => e.id !== eventId);
+    const { score: mScore } = calculateMakhrajScore(newEvents, qMax);
+    const qScore = calculateQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore, qMax);
+
+    const prevAssessment: ExamQuestionAssessment = { ...currentAssessment };
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
       makhrajEvents: newEvents,
@@ -420,8 +584,22 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
       questionScore: qScore
     };
 
+    utsHistoryManager.recordAction({
+      attemptId: attempt.id,
+      questionNumber: currentQNum,
+      category: 'makhraj',
+      eventType: targetEvent.type as MakhrajEventType,
+      label: targetEvent.label,
+      deduction: targetEvent.deduction || 0,
+      actionType: 'REMOVE_EVENT',
+      event: targetEvent,
+      previousAssessment: prevAssessment,
+      nextAssessment: updated
+    }, attempt.status);
+
     updateAssessmentState(updated);
     triggerAutosave(updated);
+    setHistoryTick(t => t + 1);
   };
 
   // Notes update
@@ -447,8 +625,8 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
   };
 
   // Handle final submit
-  const handleFinalSubmit = async () => {
-    const res = await api.submitUTSAttempt(attempt.id, user);
+  const handleFinalSubmit = async (examinerNotes?: string) => {
+    const res = await api.submitUTSAttempt(attempt.id, examinerNotes, user);
     if (!res.success) {
       throw new Error(res.message || 'Gagal mengirim nilai.');
     }
@@ -496,7 +674,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
               <span className="text-sm sm:text-base font-black text-teal-900 leading-tight">
                 {currentAssessment.questionScore}
               </span>
-              <span className="text-[10px] text-teal-600">/20</span>
+              <span className="text-[10px] text-teal-600">/{qMax}</span>
             </div>
 
             {/* Total Akumulasi */}
@@ -511,12 +689,13 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
         </div>
 
         {/* Question Stepper Buttons */}
-        <div className="max-w-3xl mx-auto pt-2.5 flex items-center justify-between gap-1.5">
+        <div className="max-w-3xl mx-auto pt-2.5 flex items-center justify-between gap-1.5 overflow-x-auto pb-1">
           {initialQuestions.map((q, idx) => {
             const isCurrent = idx === currentQIndex;
             const asm = assessments.find(a => a.questionNumber === q.questionNumber);
             const isCompleted = !!asm?.completedAt;
-            const score = asm?.questionScore ?? 20;
+            const itemQMax = q.maxScore || (100 / (initialQuestions.length || 5));
+            const score = asm?.questionScore ?? itemQMax;
 
             return (
               <button
@@ -525,7 +704,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
                   setNavigationError(null);
                   setCurrentQIndex(idx);
                 }}
-                className={`flex-1 py-1.5 px-1 rounded-xl border text-center transition-all ${
+                className={`flex-1 min-w-[65px] shrink-0 py-1.5 px-1 rounded-xl border text-center transition-all ${
                   isCurrent
                     ? 'bg-teal-700 text-white border-teal-800 shadow-sm ring-2 ring-teal-500/30'
                     : isCompleted
@@ -557,7 +736,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => handleSaveAndNext(currentQIndex === 4)}
+              onClick={() => handleSaveAndNext(currentQIndex === totalQuestions - 1)}
               className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-[11px] shrink-0 transition-colors"
             >
               Coba Lagi
@@ -640,15 +819,39 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
         {/* CARD 2: QUICK-TAP COUNTERS */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3.5 sm:p-4 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-            <h2 className="text-xs font-black uppercase tracking-wider text-slate-700">
-              Input Kesalahan & Deduksi
-            </h2>
-            <span className="text-[11px] text-slate-400">
-              Nilai otomatis berkurang saat tombol ditekan
-            </span>
+            <div>
+              <h2 className="text-xs font-black uppercase tracking-wider text-slate-700">
+                Input Kesalahan & Deduksi
+              </h2>
+              <span className="text-[11px] text-slate-400">
+                Catat kesalahan bacaan selama ujian.
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={!canUndo}
+                title="Urungkan penilaian terakhir"
+                className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Undo2 size={13} />
+                <span>Urungkan</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                disabled={!canRedo}
+                title="Ulangi penilaian yang dibatalkan"
+                className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Redo2 size={13} />
+                <span>Ulangi</span>
+              </button>
+            </div>
           </div>
 
-          {/* 1. KELANCARAN (Max 12) */}
+          {/* 1. KELANCARAN (Max fluencyMax) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -656,25 +859,35 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
                 <span className="text-xs font-bold text-slate-800">1. Kelancaran (Fashahah)</span>
               </div>
               <span className="text-xs font-black text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                {currentAssessment.fluencyScore} / 12
+                {currentAssessment.fluencyScore} / {rubric.fluencyMax}
               </span>
             </div>
 
             {/* Touch Buttons */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {FLUENCY_BUTTONS.map(btn => (
-                <button
-                  key={btn.type}
-                  onClick={() => handleAddFluency(btn.type, btn.deduction, btn.label)}
-                  className={`p-2.5 rounded-xl border text-left active:scale-95 transition-all shadow-xs flex flex-col justify-between min-h-[64px] ${btn.btnClass}`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-bold leading-tight">{btn.shortLabel}</span>
-                    <span className="text-[11px] font-black opacity-90">-{btn.deduction}</span>
-                  </div>
-                  <span className="text-[9px] opacity-70 line-clamp-1 mt-1">{btn.label}</span>
-                </button>
-              ))}
+              {fluencyButtons.map(btn => {
+                const count = fluencyCounts[btn.type] || 0;
+                return (
+                  <button
+                    key={btn.type}
+                    onClick={() => handleAddFluency(btn.type, btn.deduction, btn.label)}
+                    className={`p-2.5 rounded-xl border text-left active:scale-95 transition-all shadow-xs flex flex-col justify-between min-h-[64px] ${btn.btnClass}`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-bold leading-tight flex items-center gap-1">
+                        {btn.shortLabel}
+                        {count > 0 && (
+                          <span className="text-[10px] font-black bg-white/90 text-slate-800 px-1.5 py-0.2 rounded-full border border-slate-300 shadow-xs">
+                            ×{count}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[11px] font-black opacity-90">-{btn.deduction}</span>
+                    </div>
+                    <span className="text-[9px] opacity-70 line-clamp-1 mt-1">{btn.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Event Chips List */}
@@ -702,7 +915,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
           <hr className="border-slate-100" />
 
-          {/* 2. TAJWID (Max 4) */}
+          {/* 2. TAJWID (Max tajwidMax) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -710,24 +923,34 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
                 <span className="text-xs font-bold text-slate-800">2. Kaidah Tajwid</span>
               </div>
               <span className="text-xs font-black text-indigo-900 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
-                {currentAssessment.tajwidScore} / 4
+                {currentAssessment.tajwidScore} / {rubric.tajwidMax}
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              {TAJWID_BUTTONS.map(btn => (
-                <button
-                  key={btn.type}
-                  onClick={() => handleAddTajwid(btn.type, btn.deduction, btn.label)}
-                  className={`p-2.5 rounded-xl border text-left active:scale-95 transition-all shadow-xs flex flex-col justify-between min-h-[58px] ${btn.btnClass}`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-bold leading-tight">{btn.shortLabel}</span>
-                    <span className="text-[11px] font-black opacity-90">-{btn.deduction}</span>
-                  </div>
-                  <span className="text-[9px] opacity-70 line-clamp-1 mt-1">{btn.description}</span>
-                </button>
-              ))}
+              {tajwidButtons.map(btn => {
+                const count = tajwidCounts[btn.type] || 0;
+                return (
+                  <button
+                    key={btn.type}
+                    onClick={() => handleAddTajwid(btn.type, btn.deduction, btn.label)}
+                    className={`p-2.5 rounded-xl border text-left active:scale-95 transition-all shadow-xs flex flex-col justify-between min-h-[58px] ${btn.btnClass}`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-bold leading-tight flex items-center gap-1">
+                        {btn.shortLabel}
+                        {count > 0 && (
+                          <span className="text-[10px] font-black bg-white/90 text-slate-800 px-1.5 py-0.2 rounded-full border border-slate-300 shadow-xs">
+                            ×{count}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[11px] font-black opacity-90">-{btn.deduction}</span>
+                    </div>
+                    <span className="text-[9px] opacity-70 line-clamp-1 mt-1">{btn.description}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {currentAssessment.tajwidEvents.length > 0 && (
@@ -754,7 +977,7 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
           <hr className="border-slate-100" />
 
-          {/* 3. MAKHRAJ & SIFAT HURUF (Max 4) */}
+          {/* 3. MAKHRAJ & SIFAT HURUF (Max makhrajMax) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
@@ -762,24 +985,34 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
                 <span className="text-xs font-bold text-slate-800">3. Makhraj & Sifat Huruf</span>
               </div>
               <span className="text-xs font-black text-teal-900 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
-                {currentAssessment.makhrajScore} / 4
+                {currentAssessment.makhrajScore} / {rubric.makhrajMax}
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              {MAKHRAJ_BUTTONS.map(btn => (
-                <button
-                  key={btn.type}
-                  onClick={() => handleAddMakhraj(btn.type, btn.deduction, btn.label)}
-                  className={`p-2.5 rounded-xl border text-left active:scale-95 transition-all shadow-xs flex flex-col justify-between min-h-[58px] ${btn.btnClass}`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-bold leading-tight">{btn.shortLabel}</span>
-                    <span className="text-[11px] font-black opacity-90">-{btn.deduction}</span>
-                  </div>
-                  <span className="text-[9px] opacity-70 line-clamp-1 mt-1">{btn.description}</span>
-                </button>
-              ))}
+              {makhrajButtons.map(btn => {
+                const count = makhrajCounts[btn.type] || 0;
+                return (
+                  <button
+                    key={btn.type}
+                    onClick={() => handleAddMakhraj(btn.type, btn.deduction, btn.label)}
+                    className={`p-2.5 rounded-xl border text-left active:scale-95 transition-all shadow-xs flex flex-col justify-between min-h-[58px] ${btn.btnClass}`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-bold leading-tight flex items-center gap-1">
+                        {btn.shortLabel}
+                        {count > 0 && (
+                          <span className="text-[10px] font-black bg-white/90 text-slate-800 px-1.5 py-0.2 rounded-full border border-slate-300 shadow-xs">
+                            ×{count}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[11px] font-black opacity-90">-{btn.deduction}</span>
+                    </div>
+                    <span className="text-[9px] opacity-70 line-clamp-1 mt-1">{btn.description}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {currentAssessment.makhrajEvents.length > 0 && (
@@ -835,6 +1068,28 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
         </div>
       </main>
 
+      {/* SNACKBAR QUICK FEEDBACK WITH UNDO */}
+      {snackbar.show && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-40 animate-fade-in flex items-center gap-3 bg-slate-900/95 backdrop-blur-md text-white px-4 py-2 rounded-full shadow-2xl border border-slate-700 text-xs">
+          <span className="font-semibold text-amber-300">{snackbar.text}</span>
+          <button
+            type="button"
+            onClick={handleUndo}
+            className="px-2.5 py-1 rounded-full bg-teal-600 hover:bg-teal-500 text-white font-bold text-[11px] transition-colors flex items-center gap-1 cursor-pointer"
+          >
+            <Undo2 size={12} />
+            <span>Urungkan</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSnackbar(s => ({ ...s, show: false }))}
+            className="text-slate-400 hover:text-white p-0.5 transition-colors cursor-pointer"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       {/* 3. STICKY BOTTOM ACTION BAR */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-2.5 sm:p-3 shadow-lg z-30">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
@@ -850,11 +1105,11 @@ export const UTSExamSheet: React.FC<UTSExamSheetProps> = ({
 
           <div className="text-center">
             <span className="text-xs font-black text-slate-800">
-              Soal {currentQNum} dari 5
+              Soal {currentQNum} dari {totalQuestions}
             </span>
           </div>
 
-          {currentQIndex < 4 ? (
+          {currentQIndex < totalQuestions - 1 ? (
             <button
               type="button"
               onClick={() => handleSaveAndNext(false)}

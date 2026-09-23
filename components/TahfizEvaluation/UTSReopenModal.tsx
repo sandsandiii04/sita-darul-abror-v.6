@@ -70,7 +70,7 @@ export const UTSReopenModal: React.FC<UTSReopenModalProps> = ({
               <p className="font-bold mb-1">Perhatian Khusus Administrator:</p>
               <p>
                 Membuka kembali ujian akan mengembalikan status sesi santri menjadi <span className="font-semibold text-amber-950">Sedang Berjalan (In Progress)</span>. 
-                Penguji dapat mengubah kembali rincian kesalahan dan nilai. Tindakan ini akan dicatat ke dalam log audit.
+                Penguji dapat mengubah kembali rincian kesalahan dan nilai. Tindakan ini akan dicatat ke dalam riwayat sistem.
               </p>
             </div>
           </div>

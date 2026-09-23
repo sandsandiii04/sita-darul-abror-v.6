@@ -175,7 +175,7 @@ export const AcademicTermModal: React.FC<AcademicTermModalProps> = ({
 
           {status === 'active' && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 leading-relaxed">
-              <span className="font-semibold">Catatan:</span> Mengaktifkan semester ini akan secara otomatis menonaktifkan semester aktif sebelumnya agar data setoran terarah presisi.
+              <span className="font-semibold">Catatan:</span> Mengaktifkan semester ini akan secara otomatis menonaktifkan semester aktif sebelumnya agar pencatatan setoran santri selalu tertib dan terarah.
             </div>
           )}
 

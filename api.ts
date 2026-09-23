@@ -2021,6 +2021,7 @@ export const api = {
             targetClasses: r.targetClasses || r.target_classes || [],
             targetHalaqahs: r.targetHalaqahs || r.target_halaqahs || [],
             status: r.status,
+            utsQuestionCount: (r.utsQuestionCount || r.uts_question_count) ? Number(r.utsQuestionCount || r.uts_question_count) as any : 5,
             createdBy: r.createdBy || r.created_by,
             createdAt: r.createdAt || r.created_at,
             updatedAt: r.updatedAt || r.updated_at
@@ -2052,6 +2053,7 @@ export const api = {
             targetClasses: r.target_classes || [],
             targetHalaqahs: r.target_halaqahs || [],
             status: r.status,
+            utsQuestionCount: (r.uts_question_count) ? Number(r.uts_question_count) as any : 5,
             createdBy: r.created_by,
             createdAt: r.created_at,
             updatedAt: r.updated_at
@@ -2093,7 +2095,8 @@ export const api = {
       kkm: period.kkm || 75,
       targetClasses: period.targetClasses || [],
       targetHalaqahs: period.targetHalaqahs || [],
-      status: period.status || 'preparation'
+      status: period.status || 'preparation',
+      utsQuestionCount: period.utsQuestionCount || 5
     };
 
     if (supabase) {
@@ -2118,6 +2121,7 @@ export const api = {
             targetClasses: period.targetClasses || [],
             targetHalaqahs: period.targetHalaqahs || [],
             status: period.status as any || 'preparation',
+            utsQuestionCount: period.utsQuestionCount || 5,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           };
@@ -2172,6 +2176,7 @@ export const api = {
       targetClasses: period.targetClasses || [],
       targetHalaqahs: period.targetHalaqahs || [],
       status: period.status as any || 'preparation',
+      utsQuestionCount: period.utsQuestionCount || 5,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -2544,6 +2549,7 @@ export const api = {
       answerEndWord: q.answerEndWord,
       startPage: q.startPage || null,
       endPage: q.endPage || null,
+      maxScore: q.maxScore ?? null,
       generatedMetadata: q.generatedMetadata || {}
     }));
 
@@ -2629,6 +2635,7 @@ export const api = {
       answerEndWord: q.answerEndWord,
       startPage: q.startPage || null,
       endPage: q.endPage || null,
+      maxScore: q.maxScore ?? null,
       generatedMetadata: q.generatedMetadata || {}
     }));
 
@@ -3373,8 +3380,8 @@ export const api = {
     }
 
     const questions = qSets.questions[qSet.id] || [];
-    if (questions.length !== 5) {
-      return { success: false, message: 'Prasyarat gagal: Paket soal tidak memiliki tepat 5 butir soal.' };
+    if (![5, 10, 15, 20].includes(questions.length)) {
+      return { success: false, message: `Prasyarat gagal: Paket soal memiliki ${questions.length} butir soal, tidak valid (harus 5, 10, 15, atau 20 butir).` };
     }
 
     // Existing attempt
@@ -3403,24 +3410,30 @@ export const api = {
       };
       this.saveLocalAttempt(params.periodId, attempt);
 
-      // Create 5 empty assessments: default score 20, but completedAt MUST BE null!
-      assessments = questions.map(q => ({
-        id: `aqa_${attemptId}_q${q.questionNumber}`,
-        examAttemptId: attemptId,
-        examQuestionId: q.id,
-        questionNumber: q.questionNumber,
-        fluencyScore: 12,
-        tajwidScore: 4,
-        makhrajScore: 4,
-        fluencyEvents: [],
-        tajwidEvents: [],
-        makhrajEvents: [],
-        questionScore: 20,
-        notes: '',
-        startedAt: new Date().toISOString(),
-        completedAt: null,
-        version: 1
-      }));
+      // Inisialisasi assessment dinamis untuk seluruh butir soal (5, 10, 15, atau 20)
+      assessments = questions.map(q => {
+        const qMax = q.maxScore || (100 / questions.length);
+        const fScore = Math.round(qMax * 0.60 * 100) / 100;
+        const tScore = Math.round(qMax * 0.20 * 100) / 100;
+        const mScore = Math.round((qMax - fScore - tScore) * 100) / 100;
+        return {
+          id: `aqa_${attemptId}_q${q.questionNumber}`,
+          examAttemptId: attemptId,
+          examQuestionId: q.id,
+          questionNumber: q.questionNumber,
+          fluencyScore: fScore,
+          tajwidScore: tScore,
+          makhrajScore: mScore,
+          fluencyEvents: [],
+          tajwidEvents: [],
+          makhrajEvents: [],
+          questionScore: qMax,
+          notes: '',
+          startedAt: new Date().toISOString(),
+          completedAt: null,
+          version: 1
+        };
+      });
       this.saveLocalQuestionAssessments(attemptId, assessments);
     }
 
@@ -3479,6 +3492,9 @@ export const api = {
     if (foundAtt && foundAtt.attempt.status === 'submitted') {
       return { success: false, message: 'Ujian telah diselesaikan (submitted) dan bersifat read-only.' };
     }
+    if (foundAtt && u.role === 'teacher' && foundAtt.attempt.examinerUserId && foundAtt.attempt.examinerUserId !== u.id) {
+      return { success: false, message: 'Akses ditolak: Anda bukan penguji sesi ini.' };
+    }
 
     // Local fallback
     const assessments = this.getLocalQuestionAssessments(params.attemptId);
@@ -3496,6 +3512,19 @@ export const api = {
       };
     }
 
+    // Tentukan maxScore butir soal untuk penskalaan proporsional
+    let qMax = 20;
+    const qSets = this.getLocalQuestionSets(foundAtt.attempt.examPeriodId);
+    const questions = qSets.questions[foundAtt.attempt.questionSetId] || [];
+    const qDef = questions.find(q => q.questionNumber === params.questionNumber);
+    if (qDef && qDef.maxScore) {
+      qMax = qDef.maxScore;
+    }
+    const scale = qMax / 20;
+    const maxF = Math.round(qMax * 0.60 * 100) / 100;
+    const maxT = Math.round(qMax * 0.20 * 100) / 100;
+    const maxM = Math.round((qMax - maxF - maxT) * 100) / 100;
+
     // Validate events whitelist and server calculation
     const validFluency = ['self_correction', 'reminder', 'prompt', 'unable'];
     let fDeduction = 0;
@@ -3503,12 +3532,12 @@ export const api = {
       if (!validFluency.includes(ev.type)) {
         return { success: false, message: `Event kelancaran tidak dikenal: ${ev.type}` };
       }
-      if (ev.type === 'self_correction') fDeduction += 0.5;
-      else if (ev.type === 'reminder') fDeduction += 1.0;
-      else if (ev.type === 'prompt') fDeduction += 2.0;
-      else if (ev.type === 'unable') fDeduction += 4.0;
+      if (ev.type === 'self_correction') fDeduction += 0.5 * scale;
+      else if (ev.type === 'reminder') fDeduction += 1.0 * scale;
+      else if (ev.type === 'prompt') fDeduction += 2.0 * scale;
+      else if (ev.type === 'unable') fDeduction += 4.0 * scale;
     }
-    const fScore = Math.max(0, 12 - fDeduction);
+    const fScore = Math.max(0, Math.round((maxF - fDeduction) * 100) / 100);
 
     const validTajwid = ['minor', 'major'];
     let tDeduction = 0;
@@ -3516,10 +3545,10 @@ export const api = {
       if (!validTajwid.includes(ev.type)) {
         return { success: false, message: `Event tajwid tidak dikenal: ${ev.type}` };
       }
-      if (ev.type === 'minor') tDeduction += 0.5;
-      else if (ev.type === 'major') tDeduction += 1.0;
+      if (ev.type === 'minor') tDeduction += 0.5 * scale;
+      else if (ev.type === 'major') tDeduction += 1.0 * scale;
     }
-    const tScore = Math.max(0, 4 - tDeduction);
+    const tScore = Math.max(0, Math.round((maxT - tDeduction) * 100) / 100);
 
     const validMakhraj = ['minor', 'major'];
     let mDeduction = 0;
@@ -3527,10 +3556,10 @@ export const api = {
       if (!validMakhraj.includes(ev.type)) {
         return { success: false, message: `Event makhraj tidak dikenal: ${ev.type}` };
       }
-      if (ev.type === 'minor') mDeduction += 0.5;
-      else if (ev.type === 'major') mDeduction += 1.0;
+      if (ev.type === 'minor') mDeduction += 0.5 * scale;
+      else if (ev.type === 'major') mDeduction += 1.0 * scale;
     }
-    const mScore = Math.max(0, 4 - mDeduction);
+    const mScore = Math.max(0, Math.round((maxM - mDeduction) * 100) / 100);
 
     const qScore = Math.round((fScore + tScore + mScore) * 100) / 100;
     const newVersion = (currentAsm.version || 1) + 1;
@@ -3604,14 +3633,23 @@ export const api = {
 
     // Local fallback: search across attempts
     const assessments = this.getLocalQuestionAssessments(attemptId);
+    const foundAtt = this.findLocalAttemptById(attemptId);
+    let questions: ExamQuestion[] = [];
+    if (foundAtt) {
+      const qSets = this.getLocalQuestionSets(foundAtt.attempt.examPeriodId);
+      questions = qSets.questions[foundAtt.attempt.questionSetId] || [];
+    }
     return {
       success: true,
+      attempt: foundAtt?.attempt,
+      questions,
       assessments
     };
   },
 
   async submitUTSAttempt(
     attemptId: string,
+    examinerNotesOrUser?: string | User | null,
     userOverride?: User | null
   ): Promise<{
     success: boolean;
@@ -3621,10 +3659,23 @@ export const api = {
     kkm?: number;
     isPassed?: boolean;
     submittedAt?: string;
+    examinerNotes?: string | null;
   }> {
-    const u = userOverride || getLoggedUser();
+    let examinerNotes: string | undefined = undefined;
+    let actualUser: User | null | undefined = userOverride;
+    if (examinerNotesOrUser && typeof examinerNotesOrUser === 'object' && 'username' in examinerNotesOrUser) {
+      actualUser = examinerNotesOrUser as User;
+    } else if (typeof examinerNotesOrUser === 'string') {
+      examinerNotes = examinerNotesOrUser;
+    }
+
+    const u = actualUser || getLoggedUser();
     if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
       return { success: false, message: 'Akses ditolak.' };
+    }
+
+    if (examinerNotes && examinerNotes.length > 500) {
+      return { success: false, message: 'Catatan penguji maksimal 500 karakter.' };
     }
 
     if (supabase) {
@@ -3632,7 +3683,8 @@ export const api = {
         const { data, error } = await supabase.rpc('submit_uts_attempt', {
           p_username: u.username,
           p_password: u.password,
-          p_attempt_id: attemptId
+          p_attempt_id: attemptId,
+          p_examiner_notes: examinerNotes || null
         });
 
         if (!error && data) {
@@ -3645,6 +3697,9 @@ export const api = {
 
     // Local fallback
     const foundAtt = this.findLocalAttemptById(attemptId);
+    if (foundAtt && u.role === 'teacher' && foundAtt.attempt.examinerUserId && foundAtt.attempt.examinerUserId !== u.id) {
+      return { success: false, message: 'Akses ditolak: Anda bukan penguji sesi ini.' };
+    }
     if (foundAtt && foundAtt.attempt.status === 'submitted') {
       return {
         success: true,
@@ -3653,45 +3708,56 @@ export const api = {
         kkm: 75,
         isPassed: (foundAtt.attempt.totalScore || 0) >= 75,
         submittedAt: foundAtt.attempt.submittedAt || new Date().toISOString(),
+        examinerNotes: foundAtt.attempt.examinerNotes || null,
         message: 'Ujian sudah disubmit sebelumnya.'
       };
     }
 
     const assessments = this.getLocalQuestionAssessments(attemptId);
     const completedCount = assessments.filter(a => !!a.completedAt).length;
-    if (assessments.length !== 5 || completedCount !== 5) {
+    if (assessments.length === 0 || completedCount !== assessments.length) {
       return {
         success: false,
-        message: `Validasi gagal: Seluruh 5 butir soal wajib diselesaikan (completed) sebelum submit final. Saat ini ${completedCount} dari 5 soal selesai.`
+        message: `Validasi gagal: Seluruh ${assessments.length} butir soal wajib diselesaikan sebelum submit final. Saat ini baru ${completedCount} soal selesai.`
       };
     }
 
     // Authoritative recalculation
+    const qSets = foundAtt ? this.getLocalQuestionSets(foundAtt.attempt.examPeriodId) : null;
+    const questions = (qSets && foundAtt) ? (qSets.questions[foundAtt.attempt.questionSetId] || []) : [];
+
     let totalCalculated = 0;
     for (let i = 0; i < assessments.length; i++) {
       const a = assessments[i];
+      const qDef = questions.find(q => q.questionNumber === a.questionNumber);
+      const qMax = qDef?.maxScore || (100 / assessments.length);
+      const scale = qMax / 20;
+      const maxF = Math.round(qMax * 0.60 * 100) / 100;
+      const maxT = Math.round(qMax * 0.20 * 100) / 100;
+      const maxM = Math.round((qMax - maxF - maxT) * 100) / 100;
+
       let fDed = 0;
       for (const ev of (a.fluencyEvents || [])) {
-        if (ev.type === 'self_correction') fDed += 0.5;
-        else if (ev.type === 'reminder') fDed += 1.0;
-        else if (ev.type === 'prompt') fDed += 2.0;
-        else if (ev.type === 'unable') fDed += 4.0;
+        if (ev.type === 'self_correction') fDed += 0.5 * scale;
+        else if (ev.type === 'reminder') fDed += 1.0 * scale;
+        else if (ev.type === 'prompt') fDed += 2.0 * scale;
+        else if (ev.type === 'unable') fDed += 4.0 * scale;
       }
-      const fScore = Math.max(0, 12 - fDed);
+      const fScore = Math.max(0, Math.round((maxF - fDed) * 100) / 100);
 
       let tDed = 0;
       for (const ev of (a.tajwidEvents || [])) {
-        if (ev.type === 'minor') tDed += 0.5;
-        else if (ev.type === 'major') tDed += 1.0;
+        if (ev.type === 'minor') tDed += 0.5 * scale;
+        else if (ev.type === 'major') tDed += 1.0 * scale;
       }
-      const tScore = Math.max(0, 4 - tDed);
+      const tScore = Math.max(0, Math.round((maxT - tDed) * 100) / 100);
 
       let mDed = 0;
       for (const ev of (a.makhrajEvents || [])) {
-        if (ev.type === 'minor') mDed += 0.5;
-        else if (ev.type === 'major') mDed += 1.0;
+        if (ev.type === 'minor') mDed += 0.5 * scale;
+        else if (ev.type === 'major') mDed += 1.0 * scale;
       }
-      const mScore = Math.max(0, 4 - mDed);
+      const mScore = Math.max(0, Math.round((maxM - mDed) * 100) / 100);
       const qScore = Math.round((fScore + tScore + mScore) * 100) / 100;
 
       assessments[i] = {
@@ -3712,7 +3778,10 @@ export const api = {
       foundAtt.attempt.status = 'submitted';
       foundAtt.attempt.totalScore = totalCalculated;
       foundAtt.attempt.submittedAt = new Date().toISOString();
-      this.saveLocalAttempt(foundAtt.periodId, foundAtt.attempt);
+      if (examinerNotes !== undefined) {
+        foundAtt.attempt.examinerNotes = examinerNotes;
+      }
+      this.saveLocalAttempt(foundAtt.attempt.examPeriodId, foundAtt.attempt);
     }
 
     return {

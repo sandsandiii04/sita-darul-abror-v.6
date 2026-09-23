@@ -169,7 +169,7 @@ export const StudentEvaluationDetailModal: React.FC<StudentEvaluationDetailModal
             }`}
           >
             <Clock className="w-4 h-4" />
-            Jejak Timeline Audit ({data?.timeline?.length || 0})
+            Riwayat Aktivitas ({data?.timeline?.length || 0})
           </button>
         </div>
 
@@ -178,7 +178,7 @@ export const StudentEvaluationDetailModal: React.FC<StudentEvaluationDetailModal
           {isLoading ? (
             <div className="py-16 text-center space-y-3">
               <RefreshCw className="w-8 h-8 text-teal-600 animate-spin mx-auto" />
-              <p className="text-sm font-medium text-gray-600">Memuat riwayat dan audit trail santri...</p>
+              <p className="text-sm font-medium text-gray-600">Memuat riwayat aktivitas santri...</p>
             </div>
           ) : errorMessage ? (
             <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm flex items-center gap-3">
@@ -389,16 +389,16 @@ export const StudentEvaluationDetailModal: React.FC<StudentEvaluationDetailModal
 
             </div>
           ) : (
-            /* Timeline Audit Trail */
+            /* Timeline Riwayat Aktivitas */
             <div className="space-y-4">
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 shrink-0 text-blue-600" />
-                <span>Seluruh riwayat di bawah ini bersumber dari jejak audit kanonikal server (exam_audit_logs).</span>
+                <span>Seluruh riwayat di bawah ini dicatat secara otomatis oleh sistem evaluasi.</span>
               </div>
 
               {(!data?.timeline || data.timeline.length === 0) ? (
                 <div className="py-12 text-center text-gray-400 text-sm">
-                  Belum ada jejak audit untuk santri ini.
+                  Belum ada riwayat aktivitas untuk santri ini.
                 </div>
               ) : (
                 <div className="relative pl-6 border-l-2 border-teal-200 space-y-6 my-2">

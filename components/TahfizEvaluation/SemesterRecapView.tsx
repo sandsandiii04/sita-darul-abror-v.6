@@ -136,7 +136,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
         setIsLoading(false);
       }
     } catch (e: any) {
-      setErrorMessage(e?.message || 'Gagal memuat metadata evaluasi semester.');
+      setErrorMessage(e?.message || 'Gagal memuat data evaluasi semester.');
       setIsLoading(false);
     }
   };
@@ -1399,7 +1399,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
               <div>
                 <h2 className="text-base font-bold text-slate-900">Daftar Santri Remedial & Paket Soal</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Paket soal resmi diikat pada finalized material snapshot dan terproteksi anti-reuse
+                  Paket soal resmi disusun dari data hafalan terverifikasi santri.
                 </p>
               </div>
               <button
@@ -1937,7 +1937,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
                 <div className="p-3 bg-slate-100 rounded-xl text-xs text-slate-600 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
                   <p>
-                    Kelayakan remedial dicatat secara sistem. Pelaksanaan dan pembuatan paket soal remedial akan dikelola pada tahap selanjutnya (Tahap 7B).
+                    Kelayakan remedial dicatat secara sistem. Pelaksanaan dan pembuatan paket soal remedial dikelola pada menu Remedial.
                   </p>
                 </div>
               )}

@@ -197,7 +197,7 @@ export const UTSQuestionPreview: React.FC<UTSQuestionPreviewProps> = ({
         <div className="px-6 py-3 bg-slate-50 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
             <BookOpen size={14} className="text-emerald-600" />
-            <span className="font-semibold text-slate-700">Rentang Hafalan Snapshot:</span>
+            <span className="font-semibold text-slate-700">Rentang Hafalan Terverifikasi:</span>
             <strong className="text-slate-900">
               {snapshot.startSurahName} {snapshot.startAyah}
             </strong>
@@ -223,7 +223,7 @@ export const UTSQuestionPreview: React.FC<UTSQuestionPreviewProps> = ({
               <div>
                 <strong className="font-bold block">Materi Ujian Santri Telah Berubah!</strong>
                 <p className="text-amber-700">
-                  Snapshot materi santri telah diubah/dibuka kembali setelah soal ini dibuat. Soal ini dinyatakan <strong>stale</strong> dan harus di-generate ulang sebelum pelaksanaan ujian.
+                  Materi hafalan santri telah diperbarui setelah paket soal dibuat. Paket soal ini perlu dibuat ulang sebelum pelaksanaan ujian.
                 </p>
               </div>
             </div>
@@ -238,11 +238,11 @@ export const UTSQuestionPreview: React.FC<UTSQuestionPreviewProps> = ({
           </div>
         )}
 
-        {/* Content: 5 Zona Soal */}
+        {/* Content: Zona Soal */}
         <div className="p-6 overflow-y-auto flex-1 space-y-4 bg-slate-50/40">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Distribusi 5 Soal UTS (1 Soal per Zona Materi)
+              Distribusi {questions.length || questionSet?.totalQuestions || 5} Soal UTS (1 Soal per Zona Materi)
             </h3>
             {isLoadingTexts && (
               <div className="flex items-center gap-1.5 text-xs text-emerald-700">
@@ -274,16 +274,21 @@ export const UTSQuestionPreview: React.FC<UTSQuestionPreviewProps> = ({
                           Zona {q.zoneNumber} Materi
                         </strong>
                         <span className="text-[10px] text-slate-400">
-                          {q.zoneNumber === 1 && 'Cakupan 0% - 20% (Awal Materi)'}
-                          {q.zoneNumber === 2 && 'Cakupan 20% - 40%'}
-                          {q.zoneNumber === 3 && 'Cakupan 40% - 60% (Tengah Materi)'}
-                          {q.zoneNumber === 4 && 'Cakupan 60% - 80%'}
-                          {q.zoneNumber === 5 && 'Cakupan 80% - 100% (Akhir Materi)'}
+                          {(() => {
+                            const totalQ = questions.length || 5;
+                            const startPct = Math.round(((q.zoneNumber - 1) * 100) / totalQ);
+                            const endPct = Math.round((q.zoneNumber * 100) / totalQ);
+                            return `Cakupan ${startPct}% - ${endPct}% ${q.zoneNumber === 1 ? '(Awal Materi)' : q.zoneNumber === totalQ ? '(Akhir Materi)' : ''}`;
+                          })()}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-teal-50 border border-teal-200 text-teal-800 font-bold text-[10px] rounded-md">
+                        {q.maxScore || (100 / (questions.length || 5))} Poin
+                      </span>
+
                       {q.sourceType === 'bank' ? (
                         <span className="px-2.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-[10px] rounded-full inline-flex items-center gap-1">
                           <FileText size={10} /> Bank Soal
@@ -389,7 +394,7 @@ export const UTSQuestionPreview: React.FC<UTSQuestionPreviewProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Soal lama (Versi {questionSet.version}) akan dibatalkan (<strong>status: void</strong>) dan digantikan dengan soal baru (<strong>Versi {questionSet.version + 1}</strong>). Tindakan ini akan dicatat ke dalam log audit evaluasi.
+              Soal lama (Versi {questionSet.version}) akan digantikan dengan paket soal baru (Versi {questionSet.version + 1}). Tindakan ini akan dicatat ke dalam riwayat evaluasi.
             </p>
 
             <div className="space-y-1.5">

@@ -273,7 +273,7 @@ export const MaterialVerificationModal: React.FC<MaterialVerificationModalProps>
                 <span>Buka Kembali Materi Final (Khusus Admin)</span>
               </div>
               <p className="text-[11px] text-rose-700">
-                Membuka kembali materi akan mengubah status dari <strong>Final</strong> menjadi <strong>Siap (Ready)</strong> agar dapat dikoreksi. Alasan pembukaan akan dicatat di log audit.
+                Membuka kembali materi akan mengubah status dari <strong>Final</strong> menjadi <strong>Siap</strong> agar dapat dikoreksi. Alasan pembukaan akan dicatat di riwayat sistem.
               </p>
               {reopenError && (
                 <p className="text-[11px] text-rose-800 font-semibold">{reopenError}</p>

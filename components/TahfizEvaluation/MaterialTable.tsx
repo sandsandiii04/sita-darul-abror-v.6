@@ -45,6 +45,7 @@ interface MaterialTableProps {
   questionSetMap?: Map<string, { status: string; version: number; id: string }>;
   isUTSPeriod?: boolean;
   examType?: 'uts' | 'uas';
+  utsQuestionCount?: number;
   onOpenVerificationModal: (participant: ExamParticipant, student: Student, snapshot: ExamMaterialSnapshot) => void;
   onOpenQuestionPreview?: (participant: ExamParticipant, student: Student, snapshot: ExamMaterialSnapshot) => void;
   onGenerateQuestions?: (participant: ExamParticipant, student: Student, snapshot: ExamMaterialSnapshot) => void;
@@ -58,15 +59,17 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
   questionSetMap = new Map(),
   isUTSPeriod = true,
   examType = 'uts',
+  utsQuestionCount,
   onOpenVerificationModal,
   onOpenQuestionPreview,
   onGenerateQuestions
 }) => {
   const isQuestionPeriod = isUTSPeriod || examType === 'uas';
   const isUAS = examType === 'uas';
-  const questionCount = isUAS ? 9 : 5;
-  const questionColTitle = isUAS ? 'Soal UAS (9 Soal)' : 'Soal UTS (5 Zona)';
-  const questionGenerateBtnLabel = isUAS ? 'Generate 9 Soal' : 'Generate 5 Soal';
+  const utsCount = utsQuestionCount || 5;
+  const questionCount = isUAS ? 9 : utsCount;
+  const questionColTitle = isUAS ? 'Soal UAS (9 Soal)' : `Soal UTS (${utsCount} Soal)`;
+  const questionGenerateBtnLabel = isUAS ? 'Generate 9 Soal' : `Generate ${utsCount} Soal`;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [selectedHalaqah, setSelectedHalaqah] = useState<string>('all');
@@ -343,7 +346,9 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                     {isQuestionPeriod && (
                       <td className="py-3 px-4 text-center">
                         {status !== 'finalized' ? (
-                          <span className="text-[10px] text-slate-400 italic">Menunggu Final</span>
+                          <span className="text-[10px] text-slate-400 italic">
+                            {status === 'needs_review' ? 'Perlu Ditinjau' : 'Materi Belum Final'}
+                          </span>
                         ) : qInfo ? (
                           <button
                             onClick={() => effectiveSnap && onOpenQuestionPreview && onOpenQuestionPreview(participant, student, effectiveSnap)}
@@ -357,18 +362,20 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                             {qInfo.status === 'stale' ? (
                               <>
                                 <AlertTriangle size={11} className="text-rose-600" />
-                                <span>Soal Stale (v{qInfo.version})</span>
+                                <span>Perlu Ditinjau (v{qInfo.version})</span>
                               </>
                             ) : (
                               <>
                                 <Lock size={11} className="text-indigo-600" />
-                                <span>{questionCount} Soal (v{qInfo.version})</span>
+                                <span>Sudah Dibuat ({questionCount} Soal)</span>
                               </>
                             )}
                           </button>
                         ) : (
                           <div className="flex items-center justify-center gap-1">
-                            {user.role === 'admin' && onGenerateQuestions ? (
+                            {effectiveSnap && (effectiveSnap.estimatedPages === 0 || !effectiveSnap.estimatedPages) ? (
+                              <span className="text-[10px] text-amber-600 font-medium italic">Materi Tidak Cukup</span>
+                            ) : user.role === 'admin' && onGenerateQuestions ? (
                               <button
                                 onClick={() => effectiveSnap && onGenerateQuestions(participant, student, effectiveSnap)}
                                 className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-[10px] font-bold shadow-xs shadow-indigo-600/20 transition-all flex items-center gap-1 cursor-pointer"

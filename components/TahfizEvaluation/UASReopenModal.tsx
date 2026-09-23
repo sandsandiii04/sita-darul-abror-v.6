@@ -70,7 +70,7 @@ export const UASReopenModal: React.FC<UASReopenModalProps> = ({
               <p className="font-bold mb-1">Perhatian Khusus Administrator:</p>
               <p>
                 Membuka kembali ujian akan mengembalikan status sesi santri menjadi <span className="font-semibold text-amber-950">Sedang Berjalan (In Progress)</span>. 
-                Penguji dapat merevisi rincian catatan dan nilai pada 9 butir soal UAS. Tindakan ini akan dicatat ke dalam log audit resmi.
+                Penguji dapat merevisi rincian catatan dan nilai pada 9 butir soal UAS. Tindakan ini akan dicatat ke dalam riwayat sistem.
               </p>
             </div>
           </div>

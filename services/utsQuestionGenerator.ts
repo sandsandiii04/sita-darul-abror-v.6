@@ -184,6 +184,20 @@ export function createPRNG(seedStr: string): () => number {
   };
 }
 
+// ============================================================
+// DETERMINISTIC QUESTION MAX SCORE ALLOCATION (EXACT 100.00)
+// ============================================================
+export function calculateUTSQuestionMaxScore(qNum: number, totalQuestions: number): number {
+  if (totalQuestions === 5) return 20.00;
+  if (totalQuestions === 10) return 10.00;
+  if (totalQuestions === 20) return 5.00;
+  if (totalQuestions === 15) {
+    // 10 soal pertama @ 6.67, 5 soal terakhir @ 6.66 = Total 100.00
+    return qNum <= 10 ? 6.67 : 6.66;
+  }
+  return Math.round((100 / totalQuestions) * 100) / 100;
+}
+
 export class UTSQuestionGenerator {
   /**
    * Helper nama surah
@@ -290,27 +304,31 @@ export class UTSQuestionGenerator {
   }
 
   /**
-   * 4. KONSEP 5 ZONA (Stratified Randomization)
-   * Membagi MaterialPath menjadi tepat 5 zona yang mewakili masing-masing ~20% materi.
+   * 4. KONSEP N ZONA (Stratified Randomization)
+   * Membagi MaterialPath menjadi tepat N zona (5, 10, 15, atau 20) secara proporsional.
    */
-  public divideIntoZones(path: MaterialPath): MaterialZone[] {
+  public divideIntoZones(path: MaterialPath, zoneCount: number = 5): MaterialZone[] {
     const total = path.nodes.length;
     if (total === 0) {
       throw new Error('Materi santri kosong.');
     }
 
+    const N = [5, 10, 15, 20].includes(zoneCount) ? zoneCount : 5;
     const zones: MaterialZone[] = [];
-    for (let k = 0; k < 5; k++) {
-      const startIndex = Math.floor((k * total) / 5);
-      const endIndex = (k === 4) ? total - 1 : Math.floor(((k + 1) * total) / 5) - 1;
+    for (let k = 0; k < N; k++) {
+      const startIndex = Math.floor((k * total) / N);
+      const endIndex = (k === N - 1) ? total - 1 : Math.floor(((k + 1) * total) / N) - 1;
       const zoneNodes = path.nodes.slice(startIndex, endIndex + 1);
+
+      const startPct = Math.round((k * 100) / N);
+      const endPct = Math.round(((k + 1) * 100) / N);
 
       zones.push({
         zoneNumber: k + 1,
         startIndex,
         endIndex: Math.max(startIndex, endIndex),
         nodes: zoneNodes.length > 0 ? zoneNodes : [path.nodes[Math.min(startIndex, total - 1)]],
-        label: `Zona ${k + 1} (${Math.round((k * 20))}% - ${Math.round(((k + 1) * 20))}%)`
+        label: `Zona ${k + 1} (${startPct}% - ${endPct}%)`
       });
     }
 
@@ -664,10 +682,10 @@ export class UTSQuestionGenerator {
     path: MaterialPath,
     snapshot: ExamMaterialSnapshot
   ): { valid: boolean; reason?: string } {
-    // 1. Zone 1-5
-    if (q.zoneNumber < 1 || q.zoneNumber > 5) return { valid: false, reason: 'Nomor zona harus antara 1 dan 5.' };
-    // 2. Question number 1-5
-    if (q.questionNumber < 1 || q.questionNumber > 5) return { valid: false, reason: 'Nomor soal harus antara 1 dan 5.' };
+    // 1. Zone 1-20
+    if (q.zoneNumber < 1 || q.zoneNumber > 20) return { valid: false, reason: 'Nomor zona harus antara 1 dan 20.' };
+    // 2. Question number 1-20
+    if (q.questionNumber < 1 || q.questionNumber > 20) return { valid: false, reason: 'Nomor soal harus antara 1 dan 20.' };
     // 3. A <= A'
     if (comparePositions(q.promptStart, q.promptEnd) > 0) return { valid: false, reason: 'Urutan A ke A\' tidak valid.' };
     // 4. A' < B
@@ -685,7 +703,7 @@ export class UTSQuestionGenerator {
   }
 
   /**
-   * FUNGSI UTAMA: GENERATE 5 SOAL UTS SANTRI
+   * FUNGSI UTAMA: GENERATE SOAL UTS SANTRI (5, 10, 15, atau 20 Butir Soal)
    */
   public async generateUTSQuestionSet(params: {
     period: ExamPeriod;
@@ -706,29 +724,34 @@ export class UTSQuestionGenerator {
       throw new Error('Generator ini khusus untuk periode ujian UTS.');
     }
 
+    // Tentukan jumlah soal dari periode (strictly 5, 10, 15, atau 20; fallback 5)
+    const targetQCount = [5, 10, 15, 20].includes(period.utsQuestionCount || 5) 
+      ? (period.utsQuestionCount || 5) 
+      : 5;
+
     // 2. BENTUK MATERIAL PATH
     const path = this.buildMaterialPath(snapshot);
     if (path.nodes.length === 0) {
-      throw new Error('Materi terlalu pendek untuk menghasilkan 5 titik soal berbeda.');
+      throw new Error(`Materi terlalu pendek untuk menghasilkan ${targetQCount} titik soal berbeda.`);
     }
 
-    // 23. MATERIAL SANGAT PENDEK
-    // Jika ayat kurang dari 3 dan total estimasi kata < 15, tidak cukup untuk 5 soal sambung ayat
-    if (path.nodes.length < 3) {
+    // Validasi kecukupan rentang materi terhadap target jumlah soal
+    const minRequiredAyahs = Math.max(3, Math.ceil(targetQCount / 2));
+    if (path.nodes.length < minRequiredAyahs) {
       let totalEstWords = 0;
       for (const n of path.nodes) {
         const v = await this.getVerseSafe(n.surahNumber, n.ayahNumber);
         totalEstWords += (v?.words || []).length;
       }
-      if (totalEstWords < 15) {
-        throw new Error('Materi terlalu pendek untuk menghasilkan 5 titik soal berbeda.');
+      if (totalEstWords < targetQCount * 3) {
+        throw new Error('Materi hafalan belum mencukupi untuk membuat jumlah soal yang dipilih.');
       }
     }
 
-    // 3. DIVIDE INTO 5 ZONES
-    const zones = this.divideIntoZones(path);
-    if (zones.length !== 5) {
-      throw new Error('Pembagian zona gagal menghasilkan tepat 5 zona.');
+    // 3. DIVIDE INTO N ZONES
+    const zones = this.divideIntoZones(path, targetQCount);
+    if (zones.length !== targetQCount) {
+      throw new Error(`Pembagian zona gagal menghasilkan tepat ${targetQCount} zona.`);
     }
 
     // 4. RANDOM SEED DETERMINISTIK
@@ -741,9 +764,10 @@ export class UTSQuestionGenerator {
 
     const makeBKey = (pos: QuranPosition) => `${pos.surahNumber}:${pos.ayahNumber}:${pos.wordPosition}`;
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < targetQCount; i++) {
       const zone = zones[i];
       const zoneNum = i + 1;
+      const qMax = calculateUTSQuestionMaxScore(zoneNum, targetQCount);
 
       // Cek kandidat dari Bank Soal
       let chosenFromBank: QuestionBankItem | null = null;
@@ -775,6 +799,7 @@ export class UTSQuestionGenerator {
           zoneNumber: zoneNum,
           sourceType: 'bank',
           questionBankId: chosenFromBank.id,
+          maxScore: qMax,
           promptStart: chosenFromBank.promptStart,
           promptEnd: chosenFromBank.promptEnd,
           answerStart: chosenFromBank.answerStart,
@@ -830,6 +855,7 @@ export class UTSQuestionGenerator {
                   zoneNumber: zoneNum,
                   sourceType: 'auto',
                   questionBankId: null,
+                  maxScore: qMax,
                   promptStart: points.promptStart,
                   promptEnd: points.promptEnd,
                   answerStart: points.answerStart,
@@ -846,7 +872,7 @@ export class UTSQuestionGenerator {
       }
 
       if (!q) {
-        throw new Error('Materi terlalu pendek untuk menghasilkan 5 titik soal berbeda.');
+        throw new Error(`Materi terlalu pendek untuk menghasilkan ${targetQCount} titik soal berbeda.`);
       }
 
       // Validasi individu
@@ -857,7 +883,7 @@ export class UTSQuestionGenerator {
 
       const currentBKey = makeBKey(q.answerStart);
       if (usedBKeys.has(currentBKey)) {
-        throw new Error('Materi terlalu pendek untuk menghasilkan 5 titik soal berbeda.');
+        throw new Error(`Materi terlalu pendek untuk menghasilkan ${targetQCount} titik soal berbeda.`);
       }
 
       usedBKeys.add(currentBKey);
@@ -865,8 +891,8 @@ export class UTSQuestionGenerator {
     }
 
     // 6. VALIDASI AKHIR PAKET SOAL (44. SET VALIDATION)
-    if (generatedQuestions.length !== 5) {
-      throw new Error(`Jumlah soal tidak tepat 5 (ditemukan ${generatedQuestions.length}).`);
+    if (generatedQuestions.length !== targetQCount) {
+      throw new Error(`Jumlah soal tidak tepat ${targetQCount} (ditemukan ${generatedQuestions.length}).`);
     }
 
     const uniqueBCount = new Set(
@@ -874,8 +900,8 @@ export class UTSQuestionGenerator {
     ).size;
 
     // Strict Unique B: Dilarang keras menduplikasi B atau membuat posisi palsu
-    if (uniqueBCount < 5) {
-      throw new Error('Materi terlalu pendek untuk menghasilkan 5 titik soal berbeda.');
+    if (uniqueBCount < targetQCount) {
+      throw new Error('Materi hafalan belum mencukupi untuk membuat jumlah soal yang dipilih.');
     }
 
     const materialFingerprint = this.calculateMaterialFingerprint(snapshot);
@@ -891,6 +917,7 @@ export class UTSQuestionGenerator {
       generationSeed: seed,
       materialFingerprint,
       status: 'locked',
+      totalQuestions: targetQCount,
       generatedBy: actorId || null,
       generatedAt: new Date().toISOString(),
       lockedAt: new Date().toISOString(),
@@ -905,6 +932,7 @@ export class UTSQuestionGenerator {
       zoneNumber: g.zoneNumber,
       sourceType: g.sourceType,
       questionBankId: g.questionBankId || null,
+      maxScore: g.maxScore ?? calculateUTSQuestionMaxScore(g.questionNumber, targetQCount),
       promptStartSurah: g.promptStart.surahNumber,
       promptStartAyah: g.promptStart.ayahNumber,
       promptStartWord: g.promptStart.wordPosition,

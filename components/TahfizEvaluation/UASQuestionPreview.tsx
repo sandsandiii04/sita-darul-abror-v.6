@@ -427,7 +427,7 @@ export const UASQuestionPreview: React.FC<UASQuestionPreviewProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Tindakan ini akan membatalkan paket soal versi saat ini (<code className="font-mono">v{questionSet.version}</code>) dan menghasilkan 9 soal baru (2 Wajib + 7 Acak) dengan nomor versi berikutnya. Alasan pembuatan ulang wajib dicatat dalam log audit.
+              Tindakan ini akan menggantikan paket soal versi saat ini (<code className="font-mono">v{questionSet.version}</code>) dengan 9 soal baru (2 Wajib + 7 Acak). Alasan pembuatan ulang akan dicatat ke dalam riwayat sistem.
             </p>
 
             {errorMsg && (

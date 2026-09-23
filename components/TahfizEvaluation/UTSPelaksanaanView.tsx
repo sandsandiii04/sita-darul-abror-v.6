@@ -35,7 +35,7 @@ interface UTSPelaksanaanViewProps {
   user: User;
 }
 
-export const UTSPelaksanaanView: React.FC<UTSPelaksanaanViewProps> = ({ user }) => {
+export const UTSPelaksanaanView: React.FC<UTSPelaksanaanViewProps> = React.memo(({ user }) => {
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [students, setStudents] = useState<ExaminerStudentItem[]>([]);
@@ -61,6 +61,7 @@ export const UTSPelaksanaanView: React.FC<UTSPelaksanaanViewProps> = ({ user }) 
   const [reopenModalStudent, setReopenModalStudent] = useState<ExaminerStudentItem | null>(null);
   const [viewResultStudent, setViewResultStudent] = useState<{
     student: ExaminerStudentItem;
+    attempt?: ExamAttempt;
     questions: ExamQuestion[];
     assessments: ExamQuestionAssessment[];
   } | null>(null);
@@ -161,6 +162,7 @@ export const UTSPelaksanaanView: React.FC<UTSPelaksanaanViewProps> = ({ user }) 
       if (res.success && res.questions && res.assessments) {
         setViewResultStudent({
           student,
+          attempt: res.attempt,
           questions: res.questions,
           assessments: res.assessments
         });
@@ -598,6 +600,7 @@ export const UTSPelaksanaanView: React.FC<UTSPelaksanaanViewProps> = ({ user }) 
           kkm={periodInfo?.kkm || 75}
           questions={viewResultStudent.questions}
           assessments={viewResultStudent.assessments}
+          initialExaminerNotes={viewResultStudent.attempt?.examinerNotes}
           onSubmitFinal={async () => {
             // Read-only modal for completed test
             setViewResultStudent(null);
@@ -609,4 +612,4 @@ export const UTSPelaksanaanView: React.FC<UTSPelaksanaanViewProps> = ({ user }) 
       )}
     </div>
   );
-};
+});

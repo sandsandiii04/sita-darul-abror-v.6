@@ -140,7 +140,7 @@ export const UASAssignExaminerModal: React.FC<UASAssignExaminerModalProps> = ({
                 Alasan Pengalihan / Penggantian Penguji <span className="text-red-500">*</span>
               </label>
               <p className="text-[11px] text-amber-700">
-                Sesi ujian santri sedang berjalan. Perubahan penguji akan dicatat dalam audit trail resmi.
+                Sesi ujian santri sedang berjalan. Perubahan penguji akan dicatat dalam riwayat sistem.
               </p>
               <textarea
                 value={reason}

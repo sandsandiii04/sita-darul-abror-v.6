@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ExamQuestion, ExamQuestionAssessment } from '../../types';
-import { CheckCircle2, AlertCircle, Award, ArrowLeft, Send, ShieldAlert } from 'lucide-react';
-import { calculateAttemptTotalScore } from '../../services/utsScoringService';
+import { CheckCircle2, AlertCircle, Award, ArrowLeft, Send, ShieldAlert, MessageSquare } from 'lucide-react';
+import { calculateAttemptTotalScore, getQuestionRubricConfig } from '../../services/utsScoringService';
 
 interface UTSExamReviewModalProps {
   studentName: string;
@@ -9,10 +9,11 @@ interface UTSExamReviewModalProps {
   kkm: number;
   questions: ExamQuestion[];
   assessments: ExamQuestionAssessment[];
-  onSubmitFinal: () => Promise<void>;
+  onSubmitFinal: (examinerNotes?: string) => Promise<void>;
   onClose: () => void;
   onNavigateToQuestion: (qNumber: number) => void;
   isReadOnly?: boolean;
+  initialExaminerNotes?: string | null;
 }
 
 export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
@@ -24,13 +25,16 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
   onSubmitFinal,
   onClose,
   onNavigateToQuestion,
-  isReadOnly = false
+  isReadOnly = false,
+  initialExaminerNotes = null
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [examinerNotes, setExaminerNotes] = useState<string>(initialExaminerNotes || '');
 
+  const totalQuestions = questions.length || 5;
   const completedCount = assessments.filter(a => !!a.completedAt).length;
-  const isAllCompleted = completedCount === 5;
+  const isAllCompleted = completedCount === totalQuestions;
   const incompleteQuestions = questions.filter(q => {
     const asm = assessments.find(a => a.questionNumber === q.questionNumber);
     return !asm?.completedAt;
@@ -41,14 +45,18 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
 
   const handleSubmit = async () => {
     if (!isAllCompleted) {
-      setError(`Tidak dapat submit: Baru ${completedCount} dari 5 butir soal yang diselesaikan.`);
+      setError(`Tidak dapat menyelesaikan ujian: Baru ${completedCount} dari ${totalQuestions} soal yang diselesaikan.`);
+      return;
+    }
+
+    if (!window.confirm("Selesaikan ujian?\n\nPastikan seluruh penilaian sudah sesuai sebelum menyimpan hasil akhir.")) {
       return;
     }
 
     setIsSubmitting(true);
     setError(null);
     try {
-      await onSubmitFinal();
+      await onSubmitFinal(examinerNotes.trim() ? examinerNotes.trim() : undefined);
       onClose();
     } catch (err: any) {
       setError(err.message || 'Gagal mengirim hasil ujian.');
@@ -94,7 +102,7 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
               </div>
               <div>
                 <div className="text-xs font-bold flex items-center gap-2">
-                  <span>{isAllCompleted ? 'SIAP SUBMIT (5/5 SOAL SELESAI)' : `BELUM LENGKAP: ${completedCount}/5 SELESAI`}</span>
+                  <span>{isAllCompleted ? `SIAP SUBMIT (${totalQuestions}/${totalQuestions} SOAL SELESAI)` : `BELUM LENGKAP: ${completedCount}/${totalQuestions} SELESAI`}</span>
                 </div>
                 <p className="text-[11px] opacity-80 mt-0.5">
                   {isAllCompleted 
@@ -144,16 +152,18 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
           )}
 
           <div className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
-            <span>Rincian 5 Butir Soal</span>
+            <span>Rincian {totalQuestions} Butir Soal</span>
             <span className="text-[11px] text-slate-400 font-normal">Klik butir soal untuk membuka</span>
           </div>
 
           {questions.map((q) => {
             const asm = assessments.find(a => a.questionNumber === q.questionNumber);
             const isCompleted = !!asm?.completedAt;
-            const fluency = asm?.fluencyScore ?? 12;
-            const tajwid = asm?.tajwidScore ?? 4;
-            const makhraj = asm?.makhrajScore ?? 4;
+            const qMax = q.maxScore || (100 / totalQuestions);
+            const rubric = getQuestionRubricConfig(qMax);
+            const fluency = asm?.fluencyScore ?? rubric.fluencyMax;
+            const tajwid = asm?.tajwidScore ?? rubric.tajwidMax;
+            const makhraj = asm?.makhrajScore ?? rubric.makhrajMax;
             const qScore = asm?.questionScore ?? (fluency + tajwid + makhraj);
             const notes = asm?.notes;
 
@@ -189,12 +199,12 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
                     {isCompleted ? (
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
                         <CheckCircle2 size={11} />
-                        <span>Selesai — {qScore}/20</span>
+                        <span>Selesai — {qScore}/{qMax}</span>
                       </span>
                     ) : (
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 flex items-center gap-1">
                         <AlertCircle size={11} />
-                        <span>Belum Selesai (Preview: {qScore}/20)</span>
+                        <span>Belum Selesai (Preview: {qScore}/{qMax})</span>
                       </span>
                     )}
                   </div>
@@ -204,7 +214,7 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
                 <div className="grid grid-cols-3 gap-2 text-[11px]">
                   <div className="p-2 rounded-lg bg-white border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">Kelancaran</span>
-                    <span className="font-bold text-slate-800">{fluency} / 12</span>
+                    <span className="font-bold text-slate-800">{fluency} / {rubric.fluencyMax}</span>
                     {asm?.fluencyEvents?.length ? (
                       <span className="text-[10px] text-rose-600 block mt-0.5">
                         {asm.fluencyEvents.length} catatan
@@ -216,7 +226,7 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
 
                   <div className="p-2 rounded-lg bg-white border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">Tajwid</span>
-                    <span className="font-bold text-slate-800">{tajwid} / 4</span>
+                    <span className="font-bold text-slate-800">{tajwid} / {rubric.tajwidMax}</span>
                     {asm?.tajwidEvents?.length ? (
                       <span className="text-[10px] text-indigo-600 block mt-0.5">
                         {asm.tajwidEvents.length} catatan
@@ -228,7 +238,7 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
 
                   <div className="p-2 rounded-lg bg-white border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">Makhraj</span>
-                    <span className="font-bold text-slate-800">{makhraj} / 4</span>
+                    <span className="font-bold text-slate-800">{makhraj} / {rubric.makhrajMax}</span>
                     {asm?.makhrajEvents?.length ? (
                       <span className="text-[10px] text-teal-600 block mt-0.5">
                         {asm.makhrajEvents.length} catatan
@@ -248,13 +258,49 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
             );
           })}
 
+          {/* Catatan Penguji */}
+          {!isReadOnly ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-1.5 mt-2">
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <MessageSquare size={13} className="text-teal-700" />
+                  <span>Catatan Penguji</span>
+                  <span className="text-[10px] font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">Opsional</span>
+                </label>
+                <span className={`text-[10px] ${examinerNotes.length > 500 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                  {examinerNotes.length} / 500
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Catatan ini digunakan untuk evaluasi internal.
+              </p>
+              <textarea
+                value={examinerNotes}
+                onChange={(e) => setExaminerNotes(e.target.value.slice(0, 500))}
+                maxLength={500}
+                placeholder="Tambahkan catatan evaluasi peserta jika diperlukan..."
+                rows={3}
+                className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none resize-none text-slate-800"
+              />
+            </div>
+          ) : examinerNotes ? (
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-1 mt-2">
+              <span className="text-[11px] font-bold text-slate-700 block uppercase">
+                Catatan Penguji:
+              </span>
+              <p className="text-xs text-slate-700 italic leading-relaxed">
+                "{examinerNotes}"
+              </p>
+            </div>
+          ) : null}
+
           {!isReadOnly && (
-            <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed flex items-start gap-2 mt-4">
+            <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed flex items-start gap-2 mt-2">
               <ShieldAlert size={16} className="text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <p className="font-bold">Konfirmasi Penguncian Nilai:</p>
+                <p className="font-bold">Konfirmasi Penyelesaian Ujian:</p>
                 <p className="text-[11px] mt-0.5">
-                  Setelah tombol submit ditekan, server akan menghitung ulang seluruh skor dari catatan event dan mengunci sesi ujian secara permanen.
+                  Pastikan seluruh penilaian sudah sesuai sebelum menyimpan hasil akhir.
                 </p>
               </div>
             </div>
@@ -270,7 +316,7 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
             className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 transition-colors flex items-center gap-1.5"
           >
             <ArrowLeft size={14} />
-            <span>{isReadOnly ? 'Tutup' : 'Kembali ke Soal'}</span>
+            <span>{isReadOnly ? 'Tutup' : 'Batal'}</span>
           </button>
 
           {!isReadOnly && (
@@ -287,10 +333,10 @@ export const UTSExamReviewModal: React.FC<UTSExamReviewModalProps> = ({
               <Send size={14} className={isSubmitting ? 'animate-spin' : ''} />
               <span>
                 {isSubmitting 
-                  ? 'Mengirim Nilai...' 
+                  ? 'Menyimpan...' 
                   : isAllCompleted 
-                    ? 'Konfirmasi Submit Final' 
-                    : `Belum Lengkap (${completedCount}/5 Soal)`}
+                    ? 'Selesaikan Ujian' 
+                    : `Belum Lengkap (${completedCount}/${totalQuestions} Soal)`}
               </span>
             </button>
           )}

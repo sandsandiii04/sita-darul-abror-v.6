@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Role, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest, QuestionDraft } from './types';
 import { MOCK_USERS, MOCK_STUDENTS, MOCK_RECORDS, MOCK_ATTENDANCE, MOCK_EXAMS, LOGO_URL, GOOGLE_SCRIPT_URL, getLocalDateString } from './constants';
 import Layout from './components/Layout';
@@ -354,6 +354,14 @@ const App: React.FC = () => {
     }
   });
 
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const isFetchingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+
   useEffect(() => {
     if (user) {
       try {
@@ -657,12 +665,27 @@ const App: React.FC = () => {
 
   useEffect(() => {
      const fetchData = async (isSilent = false) => {
-        // api.ts will fall back to default credentials if neither env nor local storage variables are defined
-        // so we don't block the data loading logic.
+        // Concurrency guard: cegah request bertumpuk saat koneksi lambat
+        if (isFetchingRef.current) return;
+
+        // Exam Mode Guard: Jika guru/admin sedang berada di tab ujian/evaluasi, skip background polling
+        const currentTab = activeTabRef.current;
+        const isExamMode = [
+          'uts_execution', 'uas_execution', 'remedial_execution', 
+          'material_preparation', 'evaluation_periods', 
+          'uts_recap', 'uas_recap', 'semester_recap', 'final_recap'
+        ].includes(currentTab);
+
+        if (isSilent && isExamMode) {
+           return;
+        }
+
+        isFetchingRef.current = true;
         if (!isSilent) setIsLoadingData(true);
         try {
             const data = await api.load(user);
             if (data) {
+               lastFetchTimeRef.current = Date.now();
                setUsers(data.users || []);
                const serverStudents = data.students || [];
                const pendingStudents = api.getPendingStudents();
@@ -687,18 +710,23 @@ const App: React.FC = () => {
                });
                setRecords(mergedRecords);
                
+               // Optimasi deduplikasi absensi menggunakan Map O(1)
                const serverAttendance = data.attendance ? data.attendance.map((a: any) => ({ ...a, userId: cleanId(a.userId) })) : [];
                const pendingAttendance = api.getPendingAttendance();
-               const mergedAttendance = [...serverAttendance];
-               pendingAttendance.forEach(pa => {
-                 const idx = mergedAttendance.findIndex(a => a.id === pa.id || (a.userId === pa.userId && a.date === pa.date && a.session === pa.session && a.type === pa.type));
-                 if (idx >= 0) {
-                   mergedAttendance[idx] = pa;
-                 } else {
-                   mergedAttendance.push(pa);
-                 }
-               });
-               setAttendance(mergedAttendance);
+               if (!pendingAttendance || pendingAttendance.length === 0) {
+                 setAttendance(serverAttendance);
+               } else {
+                 const attMap = new Map<string, any>();
+                 serverAttendance.forEach((a: any) => {
+                   const key = a.id || `${a.userId}_${a.date}_${a.session}_${a.type}`;
+                   attMap.set(key, a);
+                 });
+                 pendingAttendance.forEach((pa: any) => {
+                   const key = pa.id || `${pa.userId}_${pa.date}_${pa.session}_${pa.type}`;
+                   attMap.set(key, pa);
+                 });
+                 setAttendance(Array.from(attMap.values()));
+               }
                
                const serverExams = data.exams ? data.exams.map((e: any) => ({ ...e, studentId: cleanId(e.studentId) })) : [];
                const pendingExams = api.getPendingExams();
@@ -710,8 +738,8 @@ const App: React.FC = () => {
                });
                setExams(mergedExams);
                
-              const serverRequests = data.openRequests ? data.openRequests.map((r: any) => ({ ...r, teacherId: cleanId(r.teacherId) })) : [];
-                setAttendanceOpenRequests(serverRequests);
+               const serverRequests = data.openRequests ? data.openRequests.map((r: any) => ({ ...r, teacherId: cleanId(r.teacherId) })) : [];
+               setAttendanceOpenRequests(serverRequests);
                
                setConnectionError(null);
                setHasFetched(true);
@@ -719,29 +747,36 @@ const App: React.FC = () => {
         } catch (e) {
             if (!isSilent) setConnectionError('fetch_failed');
         } finally {
+            isFetchingRef.current = false;
             if (!isSilent) setIsLoadingData(false);
         }
      };
      
      fetchData(false);
      
-     // Set polling interval 12 detik untuk sinkronisasi data real-time antar perangkat secara background (silent)
+     // Polling interval 90 detik (hanya saat online dan tab terlihat, diabaikan saat mode ujian)
      const intervalId = setInterval(() => {
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
+        if (typeof navigator !== 'undefined' && navigator.onLine && (typeof document === 'undefined' || !document.hidden)) {
            fetchData(true);
         }
-     }, 12000);
+     }, 90000);
      
-     // Listener saat tab kembali aktif atau difokuskan (misal setelah buka WA / aplikasi lain)
+     // Listener saat tab kembali aktif atau difokuskan (dengan cooldown 60 detik)
      const handleVisibilityChange = () => {
         if (typeof document !== 'undefined' && document.visibilityState === 'visible' && navigator.onLine) {
-           fetchData(true);
+           const now = Date.now();
+           if (now - lastFetchTimeRef.current >= 60000) {
+              fetchData(true);
+           }
            api.processQueue();
         }
      };
      const handleWindowFocus = () => {
         if (typeof navigator !== 'undefined' && navigator.onLine) {
-           fetchData(true);
+           const now = Date.now();
+           if (now - lastFetchTimeRef.current >= 60000) {
+              fetchData(true);
+           }
            api.processQueue();
         }
      };

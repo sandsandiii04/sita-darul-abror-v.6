@@ -307,9 +307,9 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
               <Send size={14} className={isSubmitting ? 'animate-spin' : ''} />
               <span>
                 {isSubmitting 
-                  ? 'Mengirim Nilai UAS...' 
+                  ? 'Menyimpan...' 
                   : isAllCompleted 
-                    ? 'Konfirmasi Submit Final' 
+                    ? 'Selesaikan Ujian' 
                     : `Belum Lengkap (${completedCount}/9 Soal)`}
               </span>
             </button>

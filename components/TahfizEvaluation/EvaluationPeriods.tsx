@@ -180,7 +180,7 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="px-3 py-1 bg-emerald-500/20 border border-emerald-400/30 rounded-full text-xs font-semibold text-emerald-300">
-                Tahap 4 Evaluasi Tahfiz
+                Kelola Periode Evaluasi Tahfiz
               </span>
               {activeTerm && (
                 <span className="px-3 py-1 bg-white/10 rounded-full text-xs font-medium text-slate-200">

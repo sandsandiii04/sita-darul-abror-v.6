@@ -199,7 +199,10 @@ BEGIN
      ) u;
      SELECT json_agg(s) INTO v_students FROM students s;
      SELECT json_agg(r) INTO v_records FROM records r;
-     SELECT json_agg(a) INTO v_attendance FROM attendance a;
+     SELECT json_agg(a) INTO v_attendance FROM (
+       SELECT * FROM attendance a 
+       WHERE a.date >= (CURRENT_DATE - INTERVAL '90 days')
+     ) a;
      SELECT json_agg(e) INTO v_exams FROM exams e;
      SELECT json_agg(o) INTO v_open_requests FROM attendance_open_requests o;
   ELSIF v_role = 'teacher' THEN
@@ -215,7 +218,11 @@ BEGIN
       SELECT json_agg(r) INTO v_records FROM records r 
       WHERE r.student_id IN (SELECT id FROM students WHERE teacher_id = v_user_id);
       
-      SELECT json_agg(a) INTO v_attendance FROM attendance a; -- Absen guru & santri
+      -- Absen guru & santri: dibatasi 35 hari terakhir untuk efisiensi transfer data dan mencegah CPU exhaustion
+      SELECT json_agg(a) INTO v_attendance FROM (
+        SELECT * FROM attendance a 
+        WHERE a.date >= (CURRENT_DATE - INTERVAL '35 days')
+      ) a;
       
       -- Memuat seluruh data ujian agar riwayat ujian dapat dilihat dan diuji lintas halaqah
       SELECT json_agg(e) INTO v_exams FROM exams e;
@@ -1121,6 +1128,7 @@ DECLARE
     v_kkm NUMERIC;
     v_student RECORD;
     v_count INTEGER := 0;
+    v_uts_q_count INTEGER;
 BEGIN
     SELECT * INTO v_user FROM users 
     WHERE username = p_username 
@@ -1148,11 +1156,17 @@ BEGIN
     v_period_id := COALESCE(p_period->>'id', 'period_' || extract(epoch from now())::bigint);
     v_kkm := COALESCE((p_period->>'kkm')::NUMERIC, 75);
 
+    v_uts_q_count := COALESCE(
+        (p_period->>'utsQuestionCount')::INTEGER,
+        (p_period->>'uts_question_count')::INTEGER,
+        5
+    );
+
     -- 1. Insert exam_period
     INSERT INTO exam_periods (
         id, academic_term_id, name, exam_type, material_cutoff_date,
         exam_start_date, exam_end_date, kkm, target_classes, target_halaqahs,
-        status, created_by, created_at, updated_at
+        status, uts_question_count, created_by, created_at, updated_at
     ) VALUES (
         v_period_id,
         v_term_id,
@@ -1165,6 +1179,7 @@ BEGIN
         ARRAY(SELECT jsonb_array_elements_text(COALESCE(p_period->'targetClasses', '[]'::jsonb))),
         ARRAY(SELECT jsonb_array_elements_text(COALESCE(p_period->'targetHalaqahs', '[]'::jsonb))),
         COALESCE(p_period->>'status', 'preparation'),
+        v_uts_q_count,
         v_user.id,
         now(),
         now()
@@ -1179,6 +1194,7 @@ BEGIN
         target_classes = EXCLUDED.target_classes,
         target_halaqahs = EXCLUDED.target_halaqahs,
         status = EXCLUDED.status,
+        uts_question_count = COALESCE(EXCLUDED.uts_question_count, exam_periods.uts_question_count, 5),
         updated_at = now();
 
     -- 2. Insert participants with profile snapshots

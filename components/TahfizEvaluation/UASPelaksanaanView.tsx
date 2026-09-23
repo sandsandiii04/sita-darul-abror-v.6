@@ -36,7 +36,7 @@ interface UASPelaksanaanViewProps {
   user: User;
 }
 
-export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = ({ user }) => {
+export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(({ user }) => {
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [students, setStudents] = useState<ExaminerStudentItem[]>([]);
@@ -294,14 +294,14 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = ({ user }) 
                 <ClipboardCheck size={22} className="text-emerald-300" />
               </div>
               <span className="text-xs font-bold uppercase tracking-widest text-emerald-300 bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-500/30">
-                TAHAP 6B — PENGUJI RESMI
+                PENGUJI RESMI
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Pelaksanaan & Penilaian UAS Tahfiz
             </h1>
             <p className="text-sm text-teal-100/80 mt-1 max-w-2xl leading-relaxed">
-              Pengujian 9 butir soal UAS resmi (2 Wajib Halaman Penuh @15p + 7 Acak @10p = 100p) dengan counter penilaian presisi, rekapitulasi real-time, dan audit trail.
+              Pelaksanaan Ujian Tahfiz Akhir Semester (9 soal • Total nilai 100).
             </p>
           </div>
 
@@ -622,4 +622,4 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = ({ user }) 
       )}
     </div>
   );
-};
+});

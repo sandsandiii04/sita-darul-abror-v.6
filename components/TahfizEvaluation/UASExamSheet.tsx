@@ -88,7 +88,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
   const [showAnswer, setShowAnswer] = useState<Record<number, boolean>>({});
   const [notesOpen, setNotesOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'local' | 'error'>('saved');
-  const [saveMessage, setSaveMessage] = useState<string>('Tersimpan di Cloud');
+  const [saveMessage, setSaveMessage] = useState<string>('Tersimpan');
   const [isSavingNext, setIsSavingNext] = useState(false);
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -237,7 +237,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan di Cloud');
+          setSaveMessage('Tersimpan');
           if (res.assessment?.version) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updatedAsm.questionNumber 
@@ -432,7 +432,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
       }, user).then(res => {
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan di Cloud');
+          setSaveMessage('Tersimpan');
           if (res.assessment?.version) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updated.questionNumber 

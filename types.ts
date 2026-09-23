@@ -330,6 +330,7 @@ export interface ExamPeriod {
   targetClasses: string[];
   targetHalaqahs: string[];
   status: 'draft' | 'preparation' | 'active' | 'completed';
+  utsQuestionCount?: 5 | 10 | 15 | 20;
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
@@ -418,6 +419,7 @@ export interface ExamQuestionSet {
   generationSeed: string;
   materialFingerprint: string;
   status: QuestionSetStatus;
+  totalQuestions?: number;
   generatedBy?: string | null;
   generatedAt: string;
   lockedAt?: string | null;
@@ -507,6 +509,7 @@ export interface GeneratedUTSQuestion {
   zoneNumber: number;
   sourceType: QuestionSourceType;
   questionBankId?: string | null;
+  maxScore?: number;
   promptStart: QuranPosition;
   promptEnd: QuranPosition;
   answerStart: QuranPosition;
@@ -624,6 +627,7 @@ export interface ExamAttempt {
   lastSavedAt: string;
   submittedAt?: string | null;
   totalScore: number; // 0 to 100
+  examinerNotes?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
