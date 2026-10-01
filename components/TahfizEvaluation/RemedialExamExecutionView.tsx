@@ -26,15 +26,18 @@ import {
   Send,
   X,
   Eye,
-  Check
+  Check,
+  HelpCircle,
+  ArrowRight
 } from 'lucide-react';
 import { quranService } from '../../services/quranService';
 
 interface RemedialExamExecutionViewProps {
   user: User;
+  onNavigate?: (tab: string) => void;
 }
 
-export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps> = ({ user }) => {
+export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps> = ({ user, onNavigate }) => {
   const [students, setStudents] = useState<RemedialExaminerStudentItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -850,14 +853,27 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
           </p>
         </div>
 
-        <button
-          onClick={loadAssignedStudents}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition self-start md:self-auto"
-        >
-          <RefreshCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Perbarui Data</span>
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          {user.role === 'admin' && onNavigate && (
+            <button
+              onClick={() => onNavigate('semester_recap')}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl transition border border-emerald-200"
+              title="Buka menu Rekap Semester untuk melihat status kelulusan dan generate paket remedial"
+            >
+              <Award className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Rekap Semester</span>
+            </button>
+          )}
+
+          <button
+            onClick={loadAssignedStudents}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+          >
+            <RefreshCcw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Perbarui Data</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -912,12 +928,53 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
             <p className="text-sm font-medium">Memuat daftar santri remedial...</p>
           </div>
         ) : filteredStudents.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <Users className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-            <p className="font-semibold text-slate-700 text-base">Tidak Ada Santri Ditugaskan</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Belum ada santri remedial yang ditugaskan kepada Anda atau sesuai dengan filter pencarian.
-            </p>
+          <div className="p-8 sm:p-12 text-center max-w-lg mx-auto space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200 shadow-inner">
+              <RotateCcw className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-800 text-lg">Belum Ada Santri di Sesi Remedial</p>
+              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                Santri yang nilainya di bawah KKM (<span className="font-semibold text-rose-600">&lt; KKM</span>) pada ujian utama UTS atau UAS harus digenerate paket soal remedialnya terlebih dahulu oleh Admin melalui menu <span className="font-semibold text-emerald-700">Rekap Semester &rarr; Persiapan Remedial</span>.
+              </p>
+            </div>
+
+            {/* Panduan Alur Ujian Remedial */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2.5">
+              <p className="font-bold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                <HelpCircle size={14} className="text-emerald-600" />
+                <span>Alur Memunculkan Ujian Remedial:</span>
+              </p>
+              <div className="space-y-2 text-slate-600 text-[11px]">
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
+                  <span>Santri menyelesaikan ujian UTS atau UAS, dan total skornya tidak mencapai batas KKM.</span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
+                  <span>Admin membuka menu <strong>Rekap Semester</strong> lalu berpindah ke tab <strong>Persiapan &amp; Bank Remedial</strong>.</span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center shrink-0 text-[11px]">3</span>
+                  <span>Admin menekan tombol <strong>"Generate Paket Remedial"</strong> dan <strong>"Tugaskan Penguji"</strong> untuk santri tersebut.</span>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center shrink-0 text-[11px]">4</span>
+                  <span>Santri akan langsung muncul di halaman ini dan siap diuji dengan rubrik deduksi interaktif.</span>
+                </div>
+              </div>
+            </div>
+
+            {user.role === 'admin' && onNavigate && (
+              <button
+                onClick={() => onNavigate('semester_recap')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-xl text-xs font-bold transition shadow-sm"
+              >
+                <Award size={15} />
+                <span>Buka Menu Rekap Semester &amp; Generate Remedial</span>
+                <ArrowRight size={14} />
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

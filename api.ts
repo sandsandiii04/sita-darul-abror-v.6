@@ -602,6 +602,123 @@ export const api = {
     }
   },
 
+  async adminBulkOpenAttendanceDirect(
+    requests: AttendanceOpenRequest[],
+    userOverride?: User | null
+  ): Promise<{ success: boolean; count?: number; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak membuka absensi santri massal.' };
+    }
+
+    if (!requests || requests.length === 0) {
+      return { success: true, count: 0, message: 'Tidak ada data permohonan yang diproses.' };
+    }
+
+    // 1. Simpan di antrean sinkronisasi offline (background sync)
+    requests.forEach(req => {
+      api.send('addAttendanceOpenRequest', {
+        ...req,
+        teacherId: req.teacherId
+      });
+    });
+
+    // 2. Jika Supabase terhubung, jalankan RPC cepat atau batch upsert
+    if (supabase) {
+      try {
+        const firstReq = requests[0];
+        const teacherIds = Array.from(new Set(requests.map(r => r.teacherId)));
+        const dates = requests.map(r => r.date).sort();
+        const minDate = dates[0];
+        const maxDate = dates[dates.length - 1];
+
+        // Coba panggil RPC khusus jika sudah dideploy
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_bulk_open_attendance', {
+          p_username: u.username,
+          p_password: u.password,
+          p_teacher_id: teacherIds.length === 1 ? teacherIds[0] : 'ALL',
+          p_start_date: minDate,
+          p_end_date: maxDate,
+          p_session: 'all',
+          p_type: firstReq.type,
+          p_reason: firstReq.lateReason || 'Buka absen massal oleh Admin'
+        });
+
+        if (!rpcErr && rpcData && rpcData.success) {
+          return { success: true, count: rpcData.count || requests.length, message: rpcData.message };
+        }
+
+        // Fallback jika RPC belum dideploy: batch upsert via upsert_data
+        for (const req of requests) {
+          await supabase.rpc('upsert_data', {
+            p_username: u.username,
+            p_password: u.password,
+            p_table: 'attendance_open_requests',
+            p_data: mapAttendanceOpenRequestToDb(req)
+          });
+        }
+      } catch (err: any) {
+        console.warn('Fallback sync used for bulk open attendance:', err);
+      }
+    }
+
+    return {
+      success: true,
+      count: requests.length,
+      message: `Berhasil membuka akses absensi untuk ${requests.length} sesi.`
+    };
+  },
+
+  async adminBulkDeleteOpenRequestsDirect(
+    ids: string[],
+    userOverride?: User | null
+  ): Promise<{ success: boolean; count?: number; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak mencabut akses absensi.' };
+    }
+
+    if (!ids || ids.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    ids.forEach(id => {
+      api.send('deleteData', { id, sheetName: 'AttendanceOpenRequests' });
+    });
+
+    if (supabase) {
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_bulk_revoke_attendance', {
+          p_username: u.username,
+          p_password: u.password,
+          p_request_ids: ids
+        });
+
+        if (!rpcErr && rpcData && rpcData.success) {
+          return { success: true, count: rpcData.count, message: rpcData.message };
+        }
+
+        // Fallback
+        for (const id of ids) {
+          await supabase.rpc('delete_data_secure', {
+            p_username: u.username,
+            p_password: u.password,
+            p_table: 'attendance_open_requests',
+            p_id: id
+          });
+        }
+      } catch (err: any) {
+        console.warn('Fallback delete used for open requests:', err);
+      }
+    }
+
+    return {
+      success: true,
+      count: ids.length,
+      message: `Berhasil mengunci kembali ${ids.length} sesi absensi.`
+    };
+  },
+
   // Fungsi mengirim data (POST) - Offline First
   async send(action: ActionType, data: any) {
     const queue = getQueue();

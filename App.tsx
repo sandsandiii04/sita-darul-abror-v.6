@@ -872,6 +872,28 @@ const App: React.FC = () => {
     });
   };
 
+  const handleBulkOpenAttendance = async (newRequests: AttendanceOpenRequest[]) => {
+    setAttendanceOpenRequests(prev => {
+      const copy = [...prev];
+      newRequests.forEach(req => {
+        const idx = copy.findIndex(r => r.id === req.id);
+        if (idx >= 0) {
+          copy[idx] = req;
+        } else {
+          copy.unshift(req);
+        }
+      });
+      return copy;
+    });
+
+    return await api.adminBulkOpenAttendanceDirect(newRequests, user);
+  };
+
+  const handleBulkDeleteOpenRequests = async (ids: string[]) => {
+    setAttendanceOpenRequests(prev => prev.filter(r => !ids.includes(r.id)));
+    return await api.adminBulkDeleteOpenRequestsDirect(ids, user);
+  };
+
   const handleAddExam = (newExam: Exam) => {
     setExams(prev => [newExam, ...prev]);
     const student = students.find(s => s.id === newExam.studentId);
@@ -960,8 +982,8 @@ const App: React.FC = () => {
         onBulkUpdateStudents={handleBulkUpdateStudents}
       />;
       case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} onDeleteOpenRequest={handleDeleteOpenRequest} />;
-      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
-      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
+      case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} onBulkOpenAttendance={handleBulkOpenAttendance} onBulkDeleteOpenRequests={handleBulkDeleteOpenRequests} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
+      case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} onBulkOpenAttendance={handleBulkOpenAttendance} onBulkDeleteOpenRequests={handleBulkDeleteOpenRequests} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
       case 'mushaf_digital': 
         return (
           <MushafDigital 
@@ -1049,7 +1071,7 @@ const App: React.FC = () => {
           return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
         }
         return (
-          <RemedialExamExecutionView user={user!} />
+          <RemedialExamExecutionView user={user!} onNavigate={setActiveTab} />
         );
       case 'uts_recap':
         if (user!.role !== 'admin') {

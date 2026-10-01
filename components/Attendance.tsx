@@ -1,7 +1,10 @@
-
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { User, Student, Attendance, AttendanceOpenRequest } from '../types';
-import { CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, Lock, QrCode, Camera, Printer, Download, Key, History, Trash2 } from 'lucide-react';
+import { 
+  CheckCircle, XCircle, AlertCircle, Clock, Check, X, Sun, Moon, 
+  Lock, QrCode, Camera, Printer, Download, Key, History, Trash2,
+  Unlock, Calendar, Users, Info, ShieldCheck, Filter, ChevronRight
+} from 'lucide-react';
 import { ADMIN_PHONE, getLocalDateString } from '../constants';
 import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
@@ -18,6 +21,8 @@ interface AttendanceProps {
   openRequests?: AttendanceOpenRequest[];
   onMarkOpenRequest?: (req: AttendanceOpenRequest) => void;
   onDeleteOpenRequest?: (id: string) => void;
+  onBulkOpenAttendance?: (requests: AttendanceOpenRequest[]) => Promise<{ success: boolean; count?: number; message?: string }>;
+  onBulkDeleteOpenRequests?: (ids: string[]) => Promise<{ success: boolean; count?: number; message?: string }>;
   targetDate?: string;
   targetSession?: 'pagi' | 'malam';
 }
@@ -33,9 +38,28 @@ const formatWhatsAppPhone = (phone: string | undefined): string => {
   return clean;
 };
 
+const INDO_MONTH_NAMES = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+
+export const formatMonthYearLabel = (mStr: string) => {
+  if (!mStr || !mStr.includes('-')) return mStr;
+  const [y, m] = mStr.split('-');
+  const idx = parseInt(m, 10) - 1;
+  return `${INDO_MONTH_NAMES[idx] || m} ${y}`;
+};
+
+export const getMonthDaysCount = (mStr: string) => {
+  if (!mStr || !mStr.includes('-')) return 30;
+  const [y, m] = mStr.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+};
+
 const AttendanceView: React.FC<AttendanceProps> = ({ 
   user, students, users, attendance, onMarkAttendance, onDeleteAttendance, type,
   openRequests = [], onMarkOpenRequest, onDeleteOpenRequest,
+  onBulkOpenAttendance, onBulkDeleteOpenRequests,
   targetDate, targetSession
 }) => {
   const adminUser = (users || []).find(u => u.role === 'admin');
@@ -59,6 +83,29 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   const [lateReason, setLateReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showRequestHistory, setShowRequestHistory] = useState(false);
+
+  // State Modal Buka Absen Massal / Per Bulan (Khusus Admin)
+  const [showAdminBulkOpenModal, setShowAdminBulkOpenModal] = useState(false);
+  const [bulkMode, setBulkMode] = useState<'month' | 'custom'>('month');
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const today = getLocalDateString();
+    return today.substring(0, 7);
+  });
+  const [bulkStartDate, setBulkStartDate] = useState(getLocalDateString());
+  const [bulkEndDate, setBulkEndDate] = useState(getLocalDateString());
+  const [bulkTeacherId, setBulkTeacherId] = useState<'ALL' | string>('ALL');
+  const [bulkSession, setBulkSession] = useState<'all' | 'pagi' | 'malam'>('all');
+  const [bulkType, setBulkType] = useState<'student' | 'teacher'>(type);
+  const [bulkReason, setBulkReason] = useState('');
+  const [isProcessingBulk, setIsProcessingBulk] = useState(false);
+  const [bulkActiveTab, setBulkActiveTab] = useState<'form' | 'history'>('form');
+  const [bulkNotification, setBulkNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [bulkHistoryFilterMonth, setBulkHistoryFilterMonth] = useState<string>('ALL');
+
+  // Update bulkType jika tipe halaman absensi berubah
+  React.useEffect(() => {
+    setBulkType(type);
+  }, [type]);
 
   // Fungsi pengecekan apakah guru terlambat
   const checkIsLate = (sess: 'pagi' | 'malam', targetDate: string) => {
@@ -91,16 +138,17 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       return { locked: true, reason: 'Belum bisa mengisi absensi untuk hari esok.', status: 'future' };
     }
 
-    // Cari permohonan buka absensi untuk guru ini pada tanggal & sesi & tipe terpilih
+    // Cari permohonan / izin buka absensi untuk guru ini pada tanggal & sesi & tipe terpilih
+    // Mendukung: tanggal spesifik, bulan penuh (YYYY-MM), semua guru (ALL), semua sesi (all)
     const request = openRequests.find(r => 
-      cleanSubId(r.teacherId) === user.id && 
-      r.date === date && 
-      r.session === sess && 
+      (cleanSubId(r.teacherId) === user.id || r.teacherId === 'ALL') && 
+      (r.date === date || (r.date.length === 7 && date.startsWith(r.date))) && 
+      (r.session === sess || (r.session as any) === 'all') && 
       r.type === type
     );
 
     if (request && request.status === 'approved') {
-      return { locked: false, reason: '', status: 'approved' };
+      return { locked: false, reason: '', status: 'approved', request };
     }
 
     const now = new Date();
@@ -448,8 +496,152 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     }
   };
 
+  // Handler Buka Absen Massal (Admin)
+  const handleExecuteBulkOpen = async () => {
+    setIsProcessingBulk(true);
+    setBulkNotification(null);
+    try {
+      let startDateStr = bulkStartDate;
+      let endDateStr = bulkEndDate;
+
+      if (bulkMode === 'month') {
+        const lastDay = getMonthDaysCount(selectedMonth);
+        startDateStr = `${selectedMonth}-01`;
+        endDateStr = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+      }
+
+      if (startDateStr > endDateStr) {
+        throw new Error('Tanggal mulai tidak boleh melebihi tanggal selesai.');
+      }
+
+      const teacherUsers = (users || []).filter(u => u.role === 'teacher');
+      const targetTeachers = bulkTeacherId === 'ALL'
+        ? teacherUsers
+        : teacherUsers.filter(u => u.id === bulkTeacherId);
+
+      if (targetTeachers.length === 0) {
+        throw new Error('Tidak ada guru yang ditemukan sebagai target pembukaan absensi.');
+      }
+
+      const sessionsToOpen: ('pagi' | 'malam')[] = bulkSession === 'all'
+        ? ['pagi', 'malam']
+        : [bulkSession];
+
+      // Generate daftar tanggal dari startDate s/d endDate
+      const datesToOpen: string[] = [];
+      const curr = new Date(startDateStr + 'T00:00:00');
+      const end = new Date(endDateStr + 'T00:00:00');
+      while (curr <= end) {
+        const y = curr.getFullYear();
+        const m = String(curr.getMonth() + 1).padStart(2, '0');
+        const d = String(curr.getDate()).padStart(2, '0');
+        datesToOpen.push(`${y}-${m}-${d}`);
+        curr.setDate(curr.getDate() + 1);
+      }
+
+      const defaultReason = bulkReason.trim() || 
+        (bulkMode === 'month' 
+          ? `Buka akses susulan absensi ${bulkType === 'student' ? 'santri' : 'guru'} bulan ${formatMonthYearLabel(selectedMonth)} oleh Admin`
+          : `Buka akses susulan absensi ${bulkType === 'student' ? 'santri' : 'guru'} (${startDateStr} s/d ${endDateStr}) oleh Admin`);
+
+      const newRequests: AttendanceOpenRequest[] = [];
+      for (const dStr of datesToOpen) {
+        for (const s of sessionsToOpen) {
+          for (const t of targetTeachers) {
+            newRequests.push({
+              id: `req_${t.id}_${dStr}_${s}_${bulkType}`,
+              teacherId: t.id,
+              date: dStr,
+              session: s,
+              type: bulkType,
+              status: 'approved',
+              lateReason: defaultReason,
+              createdAt: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      if (onBulkOpenAttendance) {
+        const res = await onBulkOpenAttendance(newRequests);
+        setBulkNotification({
+          type: 'success',
+          message: res?.message || `Berhasil membuka akses absensi untuk ${datesToOpen.length} hari (${newRequests.length} sesi) untuk ${targetTeachers.length} guru.`
+        });
+      } else if (onMarkOpenRequest) {
+        newRequests.forEach(req => onMarkOpenRequest(req));
+        setBulkNotification({
+          type: 'success',
+          message: `Berhasil membuka akses absensi untuk ${datesToOpen.length} hari (${newRequests.length} sesi).`
+        });
+      }
+    } catch (err: any) {
+      setBulkNotification({
+        type: 'error',
+        message: err?.message || 'Gagal memproses pembukaan absensi massal.'
+      });
+    } finally {
+      setIsProcessingBulk(false);
+    }
+  };
+
+  // Handler Kunci Kembali Massal Per Bulan (Admin)
+  const handleBulkRevokeMonth = async (monthStr: string) => {
+    if (!confirm(`Yakin ingin mengunci kembali semua absensi bulan ${formatMonthYearLabel(monthStr)} yang pernah dibuka?`)) {
+      return;
+    }
+    const matching = openRequests.filter(r => 
+      r.status === 'approved' && 
+      r.type === bulkType &&
+      r.date.startsWith(monthStr)
+    );
+    if (matching.length === 0) {
+      alert(`Tidak ada akses absensi terbuka untuk bulan ${formatMonthYearLabel(monthStr)}.`);
+      return;
+    }
+    const ids = matching.map(r => r.id);
+    if (onBulkDeleteOpenRequests) {
+      await onBulkDeleteOpenRequests(ids);
+    } else if (onDeleteOpenRequest) {
+      ids.forEach(id => onDeleteOpenRequest(id));
+    }
+    setBulkNotification({
+      type: 'success',
+      message: `Berhasil mengunci kembali ${ids.length} sesi absensi untuk bulan ${formatMonthYearLabel(monthStr)}.`
+    });
+  };
+
   return (
     <div className="space-y-6">
+      {user.role === 'admin' && (
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Unlock size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-gray-800 text-sm">Pusat Pembukaan Akses Absen Santri (Admin)</span>
+                <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Admin</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Buka kunci absensi santri susulan untuk guru halaqah 1 bulan penuh (misal: September) atau rentang tanggal tertentu.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setShowAdminBulkOpenModal(true);
+              setBulkNotification(null);
+            }}
+            className="shrink-0 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-sm hover:shadow active:scale-95"
+          >
+            <Unlock size={16} />
+            <span>Buka Akses Sekarang</span>
+          </button>
+        </div>
+      )}
+
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
            <h2 className="font-bold text-gray-800">Absensi {type === 'student' ? 'Santri' : 'Guru'}</h2>
@@ -457,6 +649,19 @@ const AttendanceView: React.FC<AttendanceProps> = ({
         </div>
         
         <div className="flex gap-4 items-center flex-wrap justify-end">
+            {user.role === 'admin' && (
+                <button 
+                  onClick={() => {
+                    setShowAdminBulkOpenModal(true);
+                    setBulkNotification(null);
+                  }} 
+                  className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-sm border border-emerald-500/30"
+                  title="Buka akses absensi santri untuk guru secara massal (1 bulan penuh atau rentang tanggal)"
+                >
+                    <Unlock size={15} /> 
+                    <span>Buka Akses (Bulan/Rentang)</span>
+                </button>
+            )}
             {user.role === 'admin' && type === 'teacher' && (
                 <button onClick={() => setShowAdminQR(true)} className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100">
                     <QrCode size={16} /> QR Absensi
@@ -504,6 +709,26 @@ const AttendanceView: React.FC<AttendanceProps> = ({
             />
         </div>
       </div>
+
+      {/* Banner informasi jika absensi pada tanggal ini terbuka berkat izin Admin */}
+      {lockInfo.status === 'approved' && user.role !== 'admin' && (
+        <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-center justify-between gap-3 text-xs text-emerald-900 shadow-sm animate-fade-in">
+          <div className="flex items-center gap-3">
+            <span className="p-2 bg-emerald-100 text-emerald-700 rounded-xl flex-shrink-0">
+              <CheckCircle size={18} />
+            </span>
+            <div>
+              <p className="font-bold text-emerald-950 text-sm">Akses Absensi Terbuka (Izin Admin)</p>
+              <p className="text-emerald-700 text-xs mt-0.5">
+                Anda diizinkan mengisi dan memperbarui data absensi pada tanggal dan sesi ini: <span className="font-semibold italic">"{lockInfo.request?.lateReason || 'Dibuka oleh Admin'}"</span>.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-emerald-600 text-white font-extrabold rounded-lg text-[10px] uppercase tracking-wider shadow-sm flex-shrink-0">
+            Terbuka
+          </span>
+        </div>
+      )}
 
       {user.role === 'admin' && openRequests.filter(r => r.status === 'pending').length > 0 && (
         <div className="bg-white p-4 rounded-xl shadow-sm border border-amber-200 bg-amber-50/10 space-y-3">
@@ -962,6 +1187,438 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                     </button>
                 </div>
             </form>
+        </div>
+      )}
+
+      {/* MODAL BUKA AKSES ABSENSI MASSAL / BULANAN (KHUSUS ADMIN) */}
+      {showAdminBulkOpenModal && user.role === 'admin' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-emerald-800 to-teal-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 bg-white/10 rounded-xl border border-white/20">
+                  <Key className="w-5 h-5 text-emerald-300" />
+                </span>
+                <div>
+                  <h3 className="font-bold text-base">Buka Akses Absensi Santri (Admin)</h3>
+                  <p className="text-xs text-emerald-200/90 mt-0.5">
+                    Izinkan guru halaqah mengisi absensi susulan per bulan penuh atau rentang tanggal
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAdminBulkOpenModal(false)}
+                className="p-1.5 rounded-xl hover:bg-white/10 text-white/80 hover:text-white transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Notification alert */}
+            {bulkNotification && (
+              <div className={`p-4 text-xs font-semibold flex items-center justify-between border-b ${
+                bulkNotification.type === 'success' 
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                  : 'bg-rose-50 text-rose-800 border-rose-200'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {bulkNotification.type === 'success' ? <CheckCircle size={16} className="text-emerald-600" /> : <AlertCircle size={16} className="text-rose-600" />}
+                  <span>{bulkNotification.message}</span>
+                </div>
+                <button onClick={() => setBulkNotification(null)} className="text-slate-400 hover:text-slate-600">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Modal Tab Switcher */}
+            <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2">
+              <button
+                onClick={() => setBulkActiveTab('form')}
+                className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 flex items-center gap-2 ${
+                  bulkActiveTab === 'form'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Unlock size={14} />
+                <span>Formulir Buka Akses</span>
+              </button>
+              <button
+                onClick={() => setBulkActiveTab('history')}
+                className={`pb-2.5 px-3 text-xs font-bold transition border-b-2 flex items-center gap-2 ${
+                  bulkActiveTab === 'history'
+                    ? 'border-emerald-600 text-emerald-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <History size={14} />
+                <span>Daftar Akses Terbuka ({openRequests.filter(r => r.status === 'approved' && r.type === bulkType).length})</span>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              {bulkActiveTab === 'form' ? (
+                <>
+                  {/* Mode Selector: Bulan Penuh vs Rentang Tanggal */}
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-2">
+                      Pilihan Cakupan Waktu
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBulkMode('month')}
+                        className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition ${
+                          bulkMode === 'month'
+                            ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900 shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Calendar className={`w-4 h-4 mt-0.5 ${bulkMode === 'month' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                        <div>
+                          <span className="font-bold block text-xs">Bulan Penuh (Rekomendasi)</span>
+                          <span className="text-[10px] text-slate-500 mt-0.5 block">
+                            Buka 1 bulan utuh (misal September 30 hari penuh)
+                          </span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setBulkMode('custom')}
+                        className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition ${
+                          bulkMode === 'custom'
+                            ? 'bg-emerald-50/70 border-emerald-300 text-emerald-900 shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Clock className={`w-4 h-4 mt-0.5 ${bulkMode === 'custom' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                        <div>
+                          <span className="font-bold block text-xs">Rentang Tanggal Kustom</span>
+                          <span className="text-[10px] text-slate-500 mt-0.5 block">
+                            Tentukan tanggal mulai dan selesai secara fleksibel
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Input Waktu */}
+                  {bulkMode === 'month' ? (
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <label className="font-bold text-slate-700">Pilih Bulan & Tahun:</label>
+                        <input
+                          type="month"
+                          value={selectedMonth}
+                          onChange={(e) => setSelectedMonth(e.target.value)}
+                          className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                        />
+                      </div>
+
+                      {/* Quick preset buttons */}
+                      <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-200 text-[11px]">
+                        <span className="text-slate-400 font-medium">Jalan Pintas:</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMonth('2026-09')}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold transition"
+                        >
+                          September 2026
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = getLocalDateString().substring(0, 7);
+                            setSelectedMonth(cur);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition"
+                        >
+                          Bulan Ini ({formatMonthYearLabel(getLocalDateString().substring(0, 7))})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const [y, m] = getLocalDateString().substring(0, 7).split('-').map(Number);
+                            const prevD = new Date(y, m - 2, 1);
+                            const prevStr = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, '0')}`;
+                            setSelectedMonth(prevStr);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition"
+                        >
+                          Bulan Lalu
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Tanggal Mulai:</label>
+                        <input
+                          type="date"
+                          value={bulkStartDate}
+                          onChange={(e) => setBulkStartDate(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">Tanggal Selesai:</label>
+                        <input
+                          type="date"
+                          value={bulkEndDate}
+                          onChange={(e) => setBulkEndDate(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Target Guru & Sesi */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Sasaran Guru Halaqah
+                      </label>
+                      <select
+                        value={bulkTeacherId}
+                        onChange={(e) => setBulkTeacherId(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                      >
+                        <option value="ALL">🌟 Semua Guru Halaqah ({users.filter(u => u.role === 'teacher').length} Guru)</option>
+                        {users.filter(u => u.role === 'teacher').map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Sesi Halaqah
+                      </label>
+                      <select
+                        value={bulkSession}
+                        onChange={(e) => setBulkSession(e.target.value as any)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                      >
+                        <option value="all">Pagi & Malam (Semua Sesi)</option>
+                        <option value="pagi">Hanya Sesi Pagi</option>
+                        <option value="malam">Hanya Sesi Malam</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Tipe Absensi */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Tipe Absensi
+                      </label>
+                      <select
+                        value={bulkType}
+                        onChange={(e) => setBulkType(e.target.value as any)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                      >
+                        <option value="student">Absensi Santri (Rekomendasi)</option>
+                        <option value="teacher">Absensi Guru</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                        Alasan / Catatan Admin
+                      </label>
+                      <input
+                        type="text"
+                        value={bulkReason}
+                        onChange={(e) => setBulkReason(e.target.value)}
+                        placeholder={`Buka absen ${bulkType === 'student' ? 'santri' : 'guru'} susulan oleh Admin`}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Ringkasan & Kalkulasi Live */}
+                  {(() => {
+                    const daysCount = bulkMode === 'month' 
+                      ? getMonthDaysCount(selectedMonth)
+                      : (bulkStartDate && bulkEndDate && bulkStartDate <= bulkEndDate
+                          ? Math.round((new Date(bulkEndDate + 'T00:00:00').getTime() - new Date(bulkStartDate + 'T00:00:00').getTime()) / (1000 * 3600 * 24)) + 1
+                          : 0);
+                    const teachersCount = bulkTeacherId === 'ALL'
+                      ? users.filter(u => u.role === 'teacher').length
+                      : 1;
+                    const sessionMultiplier = bulkSession === 'all' ? 2 : 1;
+                    const totalSessions = daysCount * sessionMultiplier * teachersCount;
+
+                    return (
+                      <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                        <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                          <ShieldCheck size={16} className="text-emerald-600" />
+                          <span>Ringkasan Izin Buka Absen:</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-700 text-[11px]">
+                          <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                            <span className="text-slate-400 block text-[10px]">Periode:</span>
+                            <span className="font-bold text-slate-900 truncate block">
+                              {bulkMode === 'month' ? formatMonthYearLabel(selectedMonth) : `${bulkStartDate} s/d ${bulkEndDate}`}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                            <span className="text-slate-400 block text-[10px]">Total Hari:</span>
+                            <span className="font-bold text-slate-900">{daysCount} Hari</span>
+                          </div>
+                          <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                            <span className="text-slate-400 block text-[10px]">Target Guru:</span>
+                            <span className="font-bold text-slate-900 truncate block">
+                              {bulkTeacherId === 'ALL' ? `Semua Guru (${teachersCount})` : (users.find(u => u.id === bulkTeacherId)?.name || '1 Guru')}
+                            </span>
+                          </div>
+                          <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                            <span className="text-slate-400 block text-[10px]">Total Sesi Dibuka:</span>
+                            <span className="font-bold text-emerald-700">{totalSessions} Sesi</span>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-emerald-800">
+                          Guru halaqah dapat langsung membuka aplikasi dan mengisi absensi santri pada seluruh tanggal tersebut tanpa terkendala batas waktu.
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : (
+                /* History / Manage Active Tab */
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 font-semibold">Filter Bulan:</span>
+                      <select
+                        value={bulkHistoryFilterMonth}
+                        onChange={(e) => setBulkHistoryFilterMonth(e.target.value)}
+                        className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs text-slate-700"
+                      >
+                        <option value="ALL">Semua Bulan</option>
+                        {Array.from(new Set(openRequests.filter(r => r.status === 'approved').map(r => r.date.substring(0, 7)))).sort().reverse().map(m => (
+                          <option key={m} value={m}>{formatMonthYearLabel(m)}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {bulkHistoryFilterMonth !== 'ALL' && (
+                      <button
+                        type="button"
+                        onClick={() => handleBulkRevokeMonth(bulkHistoryFilterMonth)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl border border-rose-200 transition text-xs self-start"
+                      >
+                        <Trash2 size={13} />
+                        <span>Kunci Kembali Bulan Ini ({formatMonthYearLabel(bulkHistoryFilterMonth)})</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* List of open requests */}
+                  {(() => {
+                    const approvedList = openRequests.filter(r => {
+                      if (r.status !== 'approved' || r.type !== bulkType) return false;
+                      if (bulkHistoryFilterMonth !== 'ALL' && !r.date.startsWith(bulkHistoryFilterMonth)) return false;
+                      return true;
+                    });
+
+                    if (approvedList.length === 0) {
+                      return (
+                        <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          Belum ada akses absensi yang dibuka untuk filter ini.
+                        </div>
+                      );
+                    }
+
+                    // Group by month for cleaner presentation
+                    const groupedByMonth: Record<string, typeof approvedList> = {};
+                    approvedList.forEach(r => {
+                      const m = r.date.substring(0, 7);
+                      if (!groupedByMonth[m]) groupedByMonth[m] = [];
+                      groupedByMonth[m].push(r);
+                    });
+
+                    return (
+                      <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+                        {Object.entries(groupedByMonth).map(([monthKey, items]) => (
+                          <div key={monthKey} className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                <Calendar size={14} className="text-emerald-600" />
+                                {formatMonthYearLabel(monthKey)} ({items.length} sesi terbuka)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleBulkRevokeMonth(monthKey)}
+                                className="text-rose-600 hover:text-rose-800 font-bold text-[11px] flex items-center gap-1"
+                              >
+                                <Trash2 size={12} /> Kunci Kembali
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {items.slice(0, 10).map(item => {
+                                const t = users.find(u => u.id === cleanSubId(item.teacherId));
+                                return (
+                                  <div key={item.id} className="bg-white p-2 rounded-lg border border-slate-200/80 flex items-center justify-between text-[11px]">
+                                    <div>
+                                      <span className="font-semibold text-slate-800">{item.date}</span>
+                                      <span className="text-slate-400 mx-1">•</span>
+                                      <span className="capitalize text-slate-600">{item.session}</span>
+                                      <span className="text-slate-400 mx-1">•</span>
+                                      <span className="text-emerald-700 font-medium">{t?.name || 'Semua Guru'}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => onDeleteOpenRequest && onDeleteOpenRequest(item.id)}
+                                      className="text-slate-400 hover:text-rose-600 p-1"
+                                      title="Kunci sesi ini"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {items.length > 10 && (
+                              <p className="text-[10px] text-slate-500 italic text-center">
+                                ...dan {items.length - 10} sesi lainnya pada bulan ini.
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {bulkActiveTab === 'form' && (
+              <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminBulkOpenModal(false)}
+                  className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-700 transition"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteBulkOpen}
+                  disabled={isProcessingBulk}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Unlock size={14} className={isProcessingBulk ? 'animate-spin' : ''} />
+                  <span>{isProcessingBulk ? 'Memproses Buka Absen...' : 'Buka Akses Absensi Sekarang'}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
