@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { User, Student, TahfidzRecord, Grade, Attendance, AttendanceOpenRequest } from '../types';
-import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download, Trash2 } from 'lucide-react';
+import { Printer, Calendar, FileText, ChevronLeft, ChevronRight, Filter, Users, UserCheck, AlertTriangle, Download, Trash2, Layers } from 'lucide-react';
 import { LOGO_URL, getLocalMonthString } from '../constants';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { HalaqahReportView } from './HalaqahMonitoring/HalaqahReportView';
 
 interface ReportsViewProps {
   user: User;
@@ -14,14 +15,15 @@ interface ReportsViewProps {
   attendance: Attendance[];
   openRequests?: AttendanceOpenRequest[];
   onDeleteOpenRequest?: (id: string) => void;
+  initialReportType?: 'student' | 'teacher' | 'halaqah';
 }
 
 type Period = 'weekly' | 'monthly' | 'semester' | 'yearly';
-type ReportType = 'student' | 'teacher';
+type ReportType = 'student' | 'teacher' | 'halaqah';
 
-const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, users, attendance, openRequests = [], onDeleteOpenRequest }) => {
+const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, users, attendance, openRequests = [], onDeleteOpenRequest, initialReportType }) => {
   const [period, setPeriod] = useState<Period>('monthly');
-  const [reportType, setReportType] = useState<ReportType>('student');
+  const [reportType, setReportType] = useState<ReportType>(initialReportType || 'student');
   const [studentTab, setStudentTab] = useState<'hafalan' | 'absen'>('hafalan');
   
   // Bulk PDF Export States
@@ -1257,6 +1259,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                     💡 Tips Cetak Bersih: Hilangkan centang "Headers and footers" di opsi printer browser untuk menyembunyikan URL & tanggal.
                  </p>
              </div>
+             {reportType !== 'halaqah' && (
              <div className="flex flex-wrap gap-2">
                  {reportType === 'student' && (user.role === 'teacher' || user.role === 'admin') && myStudents.length > 0 && (
                     <button 
@@ -1285,13 +1288,14 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                     Cetak / Print
                  </button>
              </div>
+             )}
          </div>
 
          {/* Filters Row */}
          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 pt-4 border-t">
              {/* Report Type Toggle (ADMIN ONLY) */}
              {user.role === 'admin' && (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 sm:col-span-2">
                    <label className="text-xs font-bold text-gray-500">Jenis Laporan</label>
                    <div className="flex bg-gray-100 p-1 rounded-lg border h-9">
                         <button
@@ -1306,10 +1310,18 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                         >
                             <UserCheck size={12}/> Guru
                         </button>
+                        <button
+                            onClick={() => setReportType('halaqah')}
+                            className={`flex-1 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-1 ${reportType === 'halaqah' ? 'bg-white shadow text-primary font-extrabold' : 'text-gray-500'}`}
+                        >
+                            <Layers size={12}/> Halaqah
+                        </button>
                    </div>
                 </div>
              )}
 
+             {reportType !== 'halaqah' && (
+             <>
              {/* Period Toggle */}
              <div className="flex flex-col gap-1">
                  <label className="text-xs font-bold text-gray-500">Periode</label>
@@ -1474,6 +1486,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                      </div>
                   </>
               )}
+             </>
+             )}
          </div>
       </div>
 
@@ -1499,7 +1513,9 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
       )}
 
       <div className={`min-h-screen print:h-auto printable-area ${isExporting ? 'exporting' : ''}`}>
-        {reportType === 'teacher' && user.role === 'admin' ? (
+        {reportType === 'halaqah' ? (
+            <HalaqahReportView students={students} records={records} users={users} />
+        ) : reportType === 'teacher' && user.role === 'admin' ? (
             <TeacherAttendanceRecap />
         ) : (
             (user.role === 'parent' || filterStudentId) ? <ParentReportCard /> : <TeacherRecapTable />

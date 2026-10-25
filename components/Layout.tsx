@@ -21,7 +21,8 @@ import {
   CheckSquare,
   Calendar,
   ListChecks,
-  ClipboardCheck
+  ClipboardCheck,
+  Layers
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -98,6 +99,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
       { id: 'final_recap', label: 'Rekap Nilai Final', icon: Award, section: 'Evaluasi Tahfiz', isSubItem: true },
       { id: 'exam', label: 'Data Ujian', icon: Award, isSubItem: true },
       { id: 'reports', label: 'Laporan', icon: FileText },
+      { id: 'halaqah_reports', label: 'Perkembangan Halaqah', icon: Layers },
       { id: 'tutorial', label: 'Panduan Sistem', icon: HelpCircle },
       profileMenu
     ];

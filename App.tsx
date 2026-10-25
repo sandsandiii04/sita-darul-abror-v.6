@@ -378,7 +378,7 @@ const App: React.FC = () => {
         'dashboard', 'master_data', 'attendance_student', 'attendance_teacher',
         'mushaf_digital', 'question_bank', 'evaluation_periods', 'material_preparation',
         'uts_execution', 'uas_execution', 'remedial_execution', 'uts_recap', 'uas_recap',
-        'semester_recap', 'final_recap', 'exam', 'reports', 'tutorial', 'profile', 'ziyadah', 'murojaah'
+        'semester_recap', 'final_recap', 'exam', 'reports', 'halaqah_reports', 'tutorial', 'profile', 'ziyadah', 'murojaah'
       ];
       
       if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
@@ -963,7 +963,7 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+      case 'dashboard': return <Dashboard user={user!} students={students} records={records} users={users} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
       case 'ziyadah': return <TahfidzLog key="ziyadah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateRecord={handleUpdateRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabaq" allowedTabs={['sabaq']} />;
       case 'murojaah': return <TahfidzLog key="murojaah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateRecord={handleUpdateRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabqi" allowedTabs={['sabqi', 'manzil']} />;
       case 'master_data': return <AdminPanel 
@@ -982,6 +982,7 @@ const App: React.FC = () => {
         onBulkUpdateStudents={handleBulkUpdateStudents}
       />;
       case 'reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} onDeleteOpenRequest={handleDeleteOpenRequest} />;
+      case 'halaqah_reports': return <ReportsView user={user!} students={students} records={records} users={users} attendance={attendance} openRequests={attendanceOpenRequests} onDeleteOpenRequest={handleDeleteOpenRequest} initialReportType="halaqah" />;
       case 'attendance_student': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="student" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} onBulkOpenAttendance={handleBulkOpenAttendance} onBulkDeleteOpenRequests={handleBulkDeleteOpenRequests} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
       case 'attendance_teacher': case 'attendance_self': return <AttendanceView user={user!} students={students} users={users} attendance={attendance} onMarkAttendance={handleMarkAttendance} onDeleteAttendance={handleDeleteAttendance} type="teacher" openRequests={attendanceOpenRequests} onMarkOpenRequest={handleMarkAttendanceOpenRequest} onDeleteOpenRequest={handleDeleteOpenRequest} onBulkOpenAttendance={handleBulkOpenAttendance} onBulkDeleteOpenRequests={handleBulkDeleteOpenRequests} targetDate={targetAttendanceDate} targetSession={targetAttendanceSession} />;
       case 'mushaf_digital': 

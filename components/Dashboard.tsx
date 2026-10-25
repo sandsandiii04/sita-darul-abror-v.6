@@ -3,11 +3,13 @@ import React from 'react';
 import { User, Student, TahfidzRecord, Exam } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Trophy, Book, Calendar, TrendingUp, Users, Wifi, WifiOff, AlertTriangle, Award, ArrowRight } from 'lucide-react';
+import { HalaqahDashboardSection } from './HalaqahMonitoring/HalaqahDashboardSection';
 
 interface DashboardProps {
   user: User;
   students: Student[];
   records: TahfidzRecord[];
+  users?: User[];
   exams?: Exam[];
   connectionError?: string | null;
   onNavigate?: (tab: string) => void;
@@ -25,7 +27,7 @@ const StatCard = ({ title, value, icon: Icon, gradient, shadowColor }: any) => (
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = [], connectionError, onNavigate }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, students, records, users = [], exams = [], connectionError, onNavigate }) => {
   // Check connection status based on URL config AND actual fetch result
   const isOnline = !connectionError;
 
@@ -192,6 +194,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, students, records, exams = 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Admin Monitoring Perkembangan Halaqah Section */}
+      {user?.role === 'admin' && (
+        <HalaqahDashboardSection 
+          students={students} 
+          records={records} 
+          users={users} 
+          onNavigateToReports={() => onNavigate && onNavigate('halaqah_reports')} 
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
