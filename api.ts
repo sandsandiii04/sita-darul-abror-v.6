@@ -143,7 +143,8 @@ const mapRecordFromDb = (row: any): TahfidzRecord => ({
   ayahEnd: row.ayah_end,
   grade: row.grade,
   notes: row.notes,
-  class: row.class
+  class: row.class,
+  createdAt: row.created_at || row.createdAt || undefined
 });
 
 const mapRecordToDb = (model: TahfidzRecord): any => ({

@@ -47,6 +47,8 @@ interface HalaqahReportViewProps {
   students: Student[];
   records: TahfidzRecord[];
   users?: User[];
+  initialMonth?: string;
+  onMonthChange?: (month: string) => void;
 }
 
 type SortField = 'name' | 'teacher' | 'students' | 'setoran' | 'juz' | 'average' | 'trend';
@@ -251,6 +253,16 @@ const HalaqahSheetTemplate: React.FC<{
           </p>
         </div>
       </div>
+
+      {/* METADATA CETAK & PERIODE DOKUMEN */}
+      <div className="mt-8 pt-3 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-500">
+        <div>
+          <span>Periode Laporan: <strong className="text-slate-800">{dateRange.label}</strong></span>
+        </div>
+        <div>
+          <span>Tanggal Cetak Dokumen: <strong className="text-slate-800">{currentDateFormatted}</strong></span>
+        </div>
+      </div>
     </div>
   );
 };
@@ -258,15 +270,40 @@ const HalaqahSheetTemplate: React.FC<{
 export const HalaqahReportView: React.FC<HalaqahReportViewProps> = ({
   students,
   records,
-  users = []
+  users = [],
+  initialMonth,
+  onMonthChange
 }) => {
   const now = new Date();
 
   // Filter States
   const [filterPeriodMode, setFilterPeriodMode] = useState<'month' | 'range' | 'semester'>('month');
-  const [selectedMonth, setSelectedMonth] = useState(
-    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  );
+  const getInitialMonth = () => {
+    if (initialMonth) return initialMonth;
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('sita_report_selected_month');
+      if (stored) return stored;
+    }
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(getInitialMonth);
+
+  React.useEffect(() => {
+    if (initialMonth && initialMonth !== selectedMonth) {
+      setSelectedMonth(initialMonth);
+    }
+  }, [initialMonth]);
+
+  const handleMonthChange = (newMonth: string) => {
+    setSelectedMonth(newMonth);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('sita_report_selected_month', newMonth);
+    }
+    if (onMonthChange) {
+      onMonthChange(newMonth);
+    }
+  };
   const [customStartDate, setCustomStartDate] = useState(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   );
@@ -607,7 +644,7 @@ export const HalaqahReportView: React.FC<HalaqahReportViewProps> = ({
               <input
                 type="month"
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
+                onChange={(e) => handleMonthChange(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold bg-white h-9 focus:ring-2 focus:ring-emerald-500 outline-none"
               />
             )}

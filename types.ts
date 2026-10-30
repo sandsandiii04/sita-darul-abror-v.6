@@ -44,6 +44,7 @@ export interface TahfidzRecord {
   grade: string;
   notes?: string;
   class?: string;
+  createdAt?: string;
 }
 
 export interface Attendance {

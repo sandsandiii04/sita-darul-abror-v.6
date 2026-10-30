@@ -39,10 +39,18 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
   const [filterStartNo, setFilterStartNo] = useState('');
   const [filterEndNo, setFilterEndNo] = useState('');
   
-  // Default to current month
+  // Default to current month or saved month
   const today = new Date();
   const defaultMonth = getLocalMonthString(today); // YYYY-MM
-  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+  const savedMonth = typeof window !== 'undefined' ? sessionStorage.getItem('sita_report_selected_month') : null;
+  const [selectedMonth, setSelectedMonth] = useState(savedMonth || defaultMonth);
+
+  const handleMonthChange = (newMonth: string) => {
+    setSelectedMonth(newMonth);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('sita_report_selected_month', newMonth);
+    }
+  };
   
   const getWeekNumber = (d: Date) => {
     d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -1352,7 +1360,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                    <input 
                      type="month"
                      value={selectedMonth}
-                     onChange={(e) => setSelectedMonth(e.target.value)}
+                     onChange={(e) => handleMonthChange(e.target.value)}
                      className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none h-9"
                    />
                  )}
@@ -1514,7 +1522,13 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
       <div className={`min-h-screen print:h-auto printable-area ${isExporting ? 'exporting' : ''}`}>
         {reportType === 'halaqah' ? (
-            <HalaqahReportView students={students} records={records} users={users} />
+            <HalaqahReportView
+              students={students}
+              records={records}
+              users={users}
+              initialMonth={selectedMonth}
+              onMonthChange={handleMonthChange}
+            />
         ) : reportType === 'teacher' && user.role === 'admin' ? (
             <TeacherAttendanceRecap />
         ) : (

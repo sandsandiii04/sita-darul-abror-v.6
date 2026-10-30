@@ -9,6 +9,10 @@ export interface DateRange {
   previousStartDate: Date;
   previousEndDate: Date;
   previousLabel: string;
+  startDateStr?: string;
+  endDateStrExclusive?: string;
+  previousStartDateStr?: string;
+  previousEndDateStrExclusive?: string;
 }
 
 export type TrendStatus = 'up' | 'down' | 'stable' | 'no_data';
@@ -63,8 +67,50 @@ export interface OverallHalaqahStats {
   previousPeriodLabel: string;
 }
 
+export function formatDateShort(d: Date): string {
+  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export function formatLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function extractJakartaDateString(dateInput: string | Date): string {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    if (trimmed.includes('T')) {
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(d);
+      }
+      return trimmed.split('T')[0];
+    }
+  }
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(d);
+}
+
 /**
- * Menghitung rentang tanggal periode berjalan dan periode pembanding sebelumnya (durasi setara).
+ * Menghitung rentang tanggal periode berjalan dan periode pembanding sebelumnya.
+ * Untuk bulanan: awal inklusif tanggal 1 00:00:00, akhir eksklusif tanggal 1 bulan berikutnya 00:00:00 (Asia/Jakarta).
  */
 export function calculateDateRange(
   periodType: HalaqahPeriodType,
@@ -83,34 +129,144 @@ export function calculateDateRange(
   let label = '';
 
   if (periodType === 'daily') {
-    // 7 hari terakhir
-    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-    startDate = new Date(endDate.getTime() - 6 * 24 * 60 * 60 * 1000);
-    startDate.setHours(0, 0, 0, 0);
-    label = `7 Hari Terakhir (${formatDateShort(startDate)} - ${formatDateShort(endDate)})`;
+    // 7 hari terakhir (sampai besok 00:00 eksklusif)
+    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0);
+    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+    const displayEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    label = `7 Hari Terakhir (${formatDateShort(startDate)} - ${formatDateShort(displayEndDate)})`;
+
+    const previousStartDate = new Date(startDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const previousEndDate = new Date(startDate);
+    const prevDisplayEnd = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+    const previousLabel = `${formatDateShort(previousStartDate)} - ${formatDateShort(prevDisplayEnd)}`;
+
+    return {
+      startDate,
+      endDate,
+      label,
+      previousStartDate,
+      previousEndDate,
+      previousLabel,
+      startDateStr: formatLocalDateStr(startDate),
+      endDateStrExclusive: formatLocalDateStr(endDate),
+      previousStartDateStr: formatLocalDateStr(previousStartDate),
+      previousEndDateStrExclusive: formatLocalDateStr(previousEndDate)
+    };
   } else if (periodType === 'weekly') {
-    // 4 pekan terakhir (28 hari)
-    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-    startDate = new Date(endDate.getTime() - 27 * 24 * 60 * 60 * 1000);
-    startDate.setHours(0, 0, 0, 0);
-    label = `4 Pekan Terakhir (${formatDateShort(startDate)} - ${formatDateShort(endDate)})`;
+    // 4 pekan terakhir (28 hari, sampai besok 00:00 eksklusif)
+    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 27, 0, 0, 0);
+    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+    const displayEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    label = `4 Pekan Terakhir (${formatDateShort(startDate)} - ${formatDateShort(displayEndDate)})`;
+
+    const previousStartDate = new Date(startDate.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const previousEndDate = new Date(startDate);
+    const prevDisplayEnd = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+    const previousLabel = `${formatDateShort(previousStartDate)} - ${formatDateShort(prevDisplayEnd)}`;
+
+    return {
+      startDate,
+      endDate,
+      label,
+      previousStartDate,
+      previousEndDate,
+      previousLabel,
+      startDateStr: formatLocalDateStr(startDate),
+      endDateStrExclusive: formatLocalDateStr(endDate),
+      previousStartDateStr: formatLocalDateStr(previousStartDate),
+      previousEndDateStrExclusive: formatLocalDateStr(previousEndDate)
+    };
   } else if (periodType === 'monthly') {
     const monthStr = options?.selectedMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const [year, month] = monthStr.split('-').map(Number);
+    // Awal inklusif: tanggal 1 pukul 00:00:00 Asia/Jakarta
     startDate = new Date(year, month - 1, 1, 0, 0, 0);
-    endDate = new Date(year, month, 0, 23, 59, 59);
+    // Akhir eksklusif: tanggal 1 bulan berikutnya pukul 00:00:00 Asia/Jakarta
+    endDate = new Date(year, month, 1, 0, 0, 0);
     label = `Bulan ${startDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}`;
+
+    // Periode pembanding kalender 1 bulan penuh sebelumnya
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const previousStartDate = new Date(prevYear, prevMonth - 1, 1, 0, 0, 0);
+    const previousEndDate = new Date(prevYear, prevMonth, 1, 0, 0, 0);
+    const previousLabel = `Bulan ${previousStartDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}`;
+
+    const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonthYear = month === 12 ? year + 1 : year;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const endDateStrExclusive = `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+    const previousStartDateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
+    const previousEndDateStrExclusive = startDateStr;
+
+    return {
+      startDate,
+      endDate,
+      label,
+      previousStartDate,
+      previousEndDate,
+      previousLabel,
+      startDateStr,
+      endDateStrExclusive,
+      previousStartDateStr,
+      previousEndDateStrExclusive
+    };
   } else if (periodType === 'semester') {
     const sYear = options?.selectedSemesterYear || now.getFullYear();
     const sType = options?.selectedSemesterType || (now.getMonth() >= 6 ? 'ganjil' : 'genap');
     if (sType === 'ganjil') {
       startDate = new Date(sYear, 6, 1, 0, 0, 0); // 1 Juli
-      endDate = new Date(sYear, 11, 31, 23, 59, 59); // 31 Des
+      endDate = new Date(sYear + 1, 0, 1, 0, 0, 0); // 1 Jan tahun berikutnya eksklusif
       label = `Semester Ganjil ${sYear} (Jul - Des)`;
+
+      const previousStartDate = new Date(sYear, 0, 1, 0, 0, 0);
+      const previousEndDate = new Date(sYear, 6, 1, 0, 0, 0);
+      const previousLabel = `Semester Genap ${sYear} (Jan - Jun)`;
+
+      const startDateStr = `${sYear}-07-01`;
+      const endDateStrExclusive = `${sYear + 1}-01-01`;
+      const previousStartDateStr = `${sYear}-01-01`;
+      const previousEndDateStrExclusive = startDateStr;
+
+      return {
+        startDate,
+        endDate,
+        label,
+        previousStartDate,
+        previousEndDate,
+        previousLabel,
+        startDateStr,
+        endDateStrExclusive,
+        previousStartDateStr,
+        previousEndDateStrExclusive
+      };
     } else {
       startDate = new Date(sYear, 0, 1, 0, 0, 0); // 1 Jan
-      endDate = new Date(sYear, 5, 30, 23, 59, 59); // 30 Jun
+      endDate = new Date(sYear, 6, 1, 0, 0, 0); // 1 Juli eksklusif
       label = `Semester Genap ${sYear} (Jan - Jun)`;
+
+      const previousStartDate = new Date(sYear - 1, 6, 1, 0, 0, 0);
+      const previousEndDate = new Date(sYear, 0, 1, 0, 0, 0);
+      const previousLabel = `Semester Ganjil ${sYear - 1} (Jul - Des)`;
+
+      const startDateStr = `${sYear}-01-01`;
+      const endDateStrExclusive = `${sYear}-07-01`;
+      const previousStartDateStr = `${sYear - 1}-07-01`;
+      const previousEndDateStrExclusive = startDateStr;
+
+      return {
+        startDate,
+        endDate,
+        label,
+        previousStartDate,
+        previousEndDate,
+        previousLabel,
+        startDateStr,
+        endDateStrExclusive,
+        previousStartDateStr,
+        previousEndDateStrExclusive
+      };
     }
   } else {
     // Custom date range
@@ -118,46 +274,88 @@ export function calculateDateRange(
       const [sy, sm, sd] = options.customStartDate.split('-').map(Number);
       const [ey, em, ed] = options.customEndDate.split('-').map(Number);
       startDate = new Date(sy, sm - 1, sd, 0, 0, 0);
-      endDate = new Date(ey, em - 1, ed, 23, 59, 59);
-      label = `${formatDateShort(startDate)} - ${formatDateShort(endDate)}`;
+      endDate = new Date(ey, em - 1, ed + 1, 0, 0, 0); // Akhir eksklusif
+      const displayEndDate = new Date(ey, em - 1, ed, 0, 0, 0);
+      label = `${formatDateShort(startDate)} - ${formatDateShort(displayEndDate)}`;
+
+      const durationMs = endDate.getTime() - startDate.getTime();
+      const previousEndDate = new Date(startDate);
+      const previousStartDate = new Date(previousEndDate.getTime() - durationMs);
+      const prevDisplayEnd = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+      const previousLabel = `${formatDateShort(previousStartDate)} - ${formatDateShort(prevDisplayEnd)}`;
+
+      return {
+        startDate,
+        endDate,
+        label,
+        previousStartDate,
+        previousEndDate,
+        previousLabel,
+        startDateStr: formatLocalDateStr(startDate),
+        endDateStrExclusive: formatLocalDateStr(endDate),
+        previousStartDateStr: formatLocalDateStr(previousStartDate),
+        previousEndDateStrExclusive: formatLocalDateStr(previousEndDate)
+      };
     } else {
       // Default ke bulan berjalan
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      startDate = new Date(year, month - 1, 1, 0, 0, 0);
+      endDate = new Date(year, month, 1, 0, 0, 0);
       label = `Bulan ${startDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}`;
+
+      const prevYear = month === 1 ? year - 1 : year;
+      const prevMonth = month === 1 ? 12 : month - 1;
+      const previousStartDate = new Date(prevYear, prevMonth - 1, 1, 0, 0, 0);
+      const previousEndDate = new Date(prevYear, prevMonth, 1, 0, 0, 0);
+      const previousLabel = `Bulan ${previousStartDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}`;
+
+      const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+      const nextMonthYear = month === 12 ? year + 1 : year;
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const endDateStrExclusive = `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+      return {
+        startDate,
+        endDate,
+        label,
+        previousStartDate,
+        previousEndDate,
+        previousLabel,
+        startDateStr,
+        endDateStrExclusive,
+        previousStartDateStr: `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`,
+        previousEndDateStrExclusive: startDateStr
+      };
     }
   }
-
-  // Hitung durasi milidetik untuk periode pembanding yang setara persis
-  const durationMs = endDate.getTime() - startDate.getTime();
-  const previousEndDate = new Date(startDate.getTime() - 1000);
-  const previousStartDate = new Date(previousEndDate.getTime() - durationMs);
-  const previousLabel = `${formatDateShort(previousStartDate)} - ${formatDateShort(previousEndDate)}`;
-
-  return {
-    startDate,
-    endDate,
-    label,
-    previousStartDate,
-    previousEndDate,
-    previousLabel
-  };
-}
-
-function formatDateShort(d: Date): string {
-  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /**
- * Filter data setoran apakah berada dalam rentang tanggal tertentu (inklusif).
+ * Filter data setoran apakah berada dalam rentang tanggal tertentu.
+ * Default exclusiveEnd = true (eksklusif di batas akhir tanggal).
  */
-export function isRecordInDateRange(recordDateStr: string, startDate: Date, endDate: Date): boolean {
+export function isRecordInDateRange(
+  recordDateStr: string,
+  startDate: Date | string,
+  endDate: Date | string,
+  exclusiveEnd = true
+): boolean {
   if (!recordDateStr) return false;
-  // Menggunakan tanggal lokal tanpa pergeseran zona waktu
-  const parts = recordDateStr.split('T')[0].split('-');
-  if (parts.length !== 3) return false;
-  const rDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
-  return rDate >= startDate && rDate <= endDate;
+  const recDate = extractJakartaDateString(recordDateStr);
+  if (!recDate) return false;
+
+  const startStr = typeof startDate === 'string'
+    ? extractJakartaDateString(startDate)
+    : formatLocalDateStr(startDate);
+  const endStr = typeof endDate === 'string'
+    ? extractJakartaDateString(endDate)
+    : formatLocalDateStr(endDate);
+
+  if (exclusiveEnd) {
+    return recDate >= startStr && recDate < endStr;
+  }
+  return recDate >= startStr && recDate <= endStr;
 }
 
 /**
@@ -215,8 +413,22 @@ export function analyzeHalaqahData(
   ).sort((a, b) => a.localeCompare(b, 'id', { numeric: true }));
 
   // Setoran periode berjalan dan periode sebelumnya yang sudah difilter waktu
-  const currentRecords = safeRecords.filter(r => isRecordInDateRange(r.date, dateRange.startDate, dateRange.endDate));
-  const previousRecords = safeRecords.filter(r => isRecordInDateRange(r.date, dateRange.previousStartDate, dateRange.previousEndDate));
+  const currentRecords = safeRecords.filter(r =>
+    isRecordInDateRange(
+      r.date,
+      dateRange.startDateStr || dateRange.startDate,
+      dateRange.endDateStrExclusive || dateRange.endDate,
+      true
+    )
+  );
+  const previousRecords = safeRecords.filter(r =>
+    isRecordInDateRange(
+      r.date,
+      dateRange.previousStartDateStr || dateRange.previousStartDate,
+      dateRange.previousEndDateStrExclusive || dateRange.previousEndDate,
+      true
+    )
+  );
 
   // Buat map cepat untuk pencarian record berdasarkan studentId
   const currentRecordsByStudent = new Map<string, TahfidzRecord[]>();
@@ -231,14 +443,6 @@ export function analyzeHalaqahData(
     const arr = previousRecordsByStudent.get(r.studentId) || [];
     arr.push(r);
     previousRecordsByStudent.set(r.studentId, arr);
-  }
-
-  // Semua record santri (untuk cari last record)
-  const allRecordsByStudent = new Map<string, TahfidzRecord[]>();
-  for (const r of safeRecords) {
-    const arr = allRecordsByStudent.get(r.studentId) || [];
-    arr.push(r);
-    allRecordsByStudent.set(r.studentId, arr);
   }
 
   const halaqahList: HalaqahDetailData[] = [];
@@ -290,11 +494,18 @@ export function analyzeHalaqahData(
     for (const s of studentsInHalaqah) {
       const sRecords = currentRecordsByStudent.get(s.id) || [];
       const sPrevRecords = previousRecordsByStudent.get(s.id) || [];
-      const sAllRecords = allRecordsByStudent.get(s.id) || [];
 
-      // Sort sAllRecords untuk last record
-      const sortedAll = [...sAllRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      const lastRec = sortedAll[0];
+      // Setoran terakhir HANYA dalam rentang periode laporan yang dipilih (bukan sepanjang waktu)
+      const sortedPeriodRecords = [...sRecords].sort((a, b) => {
+        const dateDiff = (b.date || '').localeCompare(a.date || '');
+        if (dateDiff !== 0) return dateDiff;
+        if (b.createdAt && a.createdAt) {
+          const createdDiff = b.createdAt.localeCompare(a.createdAt);
+          if (createdDiff !== 0) return createdDiff;
+        }
+        return (b.id || '').localeCompare(a.id || '');
+      });
+      const lastRec = sortedPeriodRecords[0];
 
       const sZiyadah = sRecords.filter(r => isNewHafalan(r.type)).length;
       const sMurojaah = sRecords.filter(r => isMurojaah(r.type)).length;
@@ -455,7 +666,7 @@ export function generateTimeSeriesChartData(
 
     for (const r of safeRecords) {
       if (!targetStudentIds.has(r.studentId)) continue;
-      if (!isRecordInDateRange(r.date, dateRange.startDate, dateRange.endDate)) continue;
+      if (!isRecordInDateRange(r.date, dateRange.startDateStr || dateRange.startDate, dateRange.endDateStrExclusive || dateRange.endDate, true)) continue;
       const key = (r.date || '').split('T')[0];
       const item = daysMap.get(key);
       if (item) {
@@ -481,7 +692,7 @@ export function generateTimeSeriesChartData(
 
   for (const r of safeRecords) {
     if (!targetStudentIds.has(r.studentId)) continue;
-    if (!isRecordInDateRange(r.date, dateRange.startDate, dateRange.endDate)) continue;
+    if (!isRecordInDateRange(r.date, dateRange.startDateStr || dateRange.startDate, dateRange.endDateStrExclusive || dateRange.endDate, true)) continue;
     const parts = r.date.split('T')[0].split('-');
     const rDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
     const offset = rDate.getTime() - dateRange.startDate.getTime();

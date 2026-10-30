@@ -304,6 +304,9 @@ export const HalaqahDetailModal: React.FC<HalaqahDetailModalProps> = ({
             {onNavigateToReports && (
               <button
                 onClick={() => {
+                  if (typeof window !== 'undefined' && dateRange?.startDateStr) {
+                    sessionStorage.setItem('sita_report_selected_month', dateRange.startDateStr.substring(0, 7));
+                  }
                   onClose();
                   onNavigateToReports();
                 }}

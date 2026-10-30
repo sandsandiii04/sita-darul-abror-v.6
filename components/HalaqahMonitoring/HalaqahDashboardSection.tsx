@@ -57,9 +57,21 @@ export const HalaqahDashboardSection: React.FC<HalaqahDashboardSectionProps> = (
   // Period State
   const [periodType, setPeriodType] = useState<HalaqahPeriodType>('monthly');
   const now = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(
-    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  );
+  const getInitialMonth = () => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('sita_report_selected_month');
+      if (stored) return stored;
+    }
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const [selectedMonth, setSelectedMonth] = useState<string>(getInitialMonth);
+
+  const handleMonthChange = (val: string) => {
+    setSelectedMonth(val);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('sita_report_selected_month', val);
+    }
+  };
   const [selectedSemesterYear, setSelectedSemesterYear] = useState(now.getFullYear());
   const [selectedSemesterType, setSelectedSemesterType] = useState<'ganjil' | 'genap'>(
     now.getMonth() >= 6 ? 'ganjil' : 'genap'
@@ -200,7 +212,7 @@ export const HalaqahDashboardSection: React.FC<HalaqahDashboardSectionProps> = (
             <input
               type="month"
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              onChange={(e) => handleMonthChange(e.target.value)}
               className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-semibold text-slate-700 outline-none focus:border-emerald-500"
             />
           )}
@@ -723,7 +735,12 @@ export const HalaqahDashboardSection: React.FC<HalaqahDashboardSectionProps> = (
         {onNavigateToReports && (
           <div className="pt-2 flex justify-end">
             <button
-              onClick={onNavigateToReports}
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  sessionStorage.setItem('sita_report_selected_month', selectedMonth);
+                }
+                onNavigateToReports();
+              }}
               className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 transition-colors"
             >
               <span>Buka Laporan Perkembangan Halaqah Terperinci</span>
