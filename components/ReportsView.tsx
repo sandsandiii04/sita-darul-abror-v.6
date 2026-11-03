@@ -177,6 +177,153 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
   const [isExporting, setIsExporting] = useState(false);
 
+  /**
+   * Pemotongan canvas cerdas untuk ekspor jsPDF:
+   * 1. Menjaga batas baris tabel agar teks/garis tidak terpotong horizontal.
+   * 2. Menjaga bagian tanda tangan agar tidak terbelah atau tertimpa.
+   * 3. Mengulang header tabel (thead) di halaman lanjutan agar kolom tetap jelas terbaca.
+   * 4. Mendukung dokumen 1 halaman maupun multi-halaman secara dinamis.
+   */
+  const sliceCanvasToPdf = (
+    pdf: jsPDF,
+    canvas: HTMLCanvasElement,
+    element: HTMLElement,
+    isFirstPageOfDocument: boolean = true
+  ) => {
+    const pageHeightPx = 1123;
+    const pageWidthPx = 794;
+    const paddingY = 55; // ~15mm margin atas/bawah
+    const paddingX = 42; // ~11mm margin kiri/kanan
+
+    const contentWidthPx = pageWidthPx - paddingX * 2;
+    const contentHeightPx = pageHeightPx - paddingY * 2;
+
+    const totalHeight = canvas.height;
+    const totalWidth = canvas.width;
+    const scale = contentWidthPx / totalWidth;
+
+    const defaultSourceHeight = contentHeightPx / scale;
+
+    // Pemetaan koordinat DOM ke piksel Canvas
+    const elemRect = element.getBoundingClientRect();
+    const scaleY = element.offsetHeight > 0 ? (canvas.height / element.offsetHeight) : scale;
+
+    // Titik batas setiap baris tabel dalam piksel canvas
+    const rows = Array.from(element.querySelectorAll('tbody tr')) as HTMLElement[];
+    const rowPositions = rows.map(row => {
+      const r = row.getBoundingClientRect();
+      return {
+        top: (r.top - elemRect.top) * scaleY,
+        bottom: (r.bottom - elemRect.top) * scaleY
+      };
+    }).filter(r => r.bottom > r.top);
+
+    // Informasi header tabel
+    const thead = element.querySelector('thead') as HTMLElement | null;
+    const theadRect = thead ? thead.getBoundingClientRect() : null;
+    const theadInfo = theadRect ? {
+      top: (theadRect.top - elemRect.top) * scaleY,
+      bottom: (theadRect.bottom - elemRect.top) * scaleY,
+      height: theadRect.height * scaleY
+    } : null;
+
+    // Informasi bagian tanda tangan
+    const sig = element.querySelector('.signature-section') as HTMLElement | null;
+    const sigRect = sig ? sig.getBoundingClientRect() : null;
+    const sigTop = sigRect ? (sigRect.top - elemRect.top) * scaleY : null;
+    const sigBottom = sigRect ? (sigRect.bottom - elemRect.top) * scaleY : null;
+
+    let yOffset = 0;
+    let pageNum = 0;
+
+    while (yOffset < totalHeight - 2) {
+      if (!isFirstPageOfDocument || pageNum > 0) {
+        pdf.addPage('a4', 'p');
+      }
+
+      // Periksa apakah perlu mengulang header tabel di halaman 2+
+      const repeatThead = pageNum > 0 && theadInfo && yOffset >= theadInfo.top;
+      const theadCanvasHeight = repeatThead && theadInfo ? theadInfo.height : 0;
+      const theadDrawHeightPx = theadCanvasHeight * scale;
+
+      const availableCanvasHeight = Math.max(120, defaultSourceHeight - theadCanvasHeight);
+
+      let tentativeY = yOffset + availableCanvasHeight;
+      let cutY = tentativeY;
+
+      if (tentativeY >= totalHeight) {
+        cutY = totalHeight;
+      } else {
+        // 1. Cek tanda tangan: jangan sampai terpotong di tengah
+        if (sigTop !== null && sigBottom !== null) {
+          if (tentativeY > sigTop && tentativeY < sigBottom) {
+            cutY = sigTop - 4;
+          } else if (tentativeY < sigTop && (sigTop - tentativeY < 50)) {
+            cutY = sigTop - 4;
+          }
+        }
+
+        // 2. Cek baris tabel: jangan sampai terbelah di tengah teks baris
+        const intersectingRow = rowPositions.find(r => r.top < cutY && r.bottom > cutY);
+        if (intersectingRow) {
+          cutY = intersectingRow.top - 2;
+        }
+
+        // Pengaman jika jarak terlalu kecil
+        if (cutY <= yOffset + 30) {
+          cutY = tentativeY;
+        }
+      }
+
+      const sliceHeight = cutY - yOffset;
+
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = pageWidthPx;
+      pageCanvas.height = pageHeightPx;
+      const ctx = pageCanvas.getContext('2d')!;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
+
+      let destY = paddingY;
+
+      // Gambar header tabel berulang jika di halaman lanjutan
+      if (repeatThead && theadInfo) {
+        ctx.drawImage(
+          canvas,
+          0,
+          theadInfo.top,
+          totalWidth,
+          theadCanvasHeight,
+          paddingX,
+          destY,
+          contentWidthPx,
+          theadDrawHeightPx
+        );
+        destY += theadDrawHeightPx;
+      }
+
+      // Gambar potongan konten utama
+      ctx.drawImage(
+        canvas,
+        0,
+        yOffset,
+        totalWidth,
+        sliceHeight,
+        paddingX,
+        destY,
+        contentWidthPx,
+        sliceHeight * scale
+      );
+
+      const pageImgData = pageCanvas.toDataURL('image/png');
+      pdf.addImage(pageImgData, 'PNG', 0, 0, 210, 297);
+
+      yOffset = cutY;
+      pageNum++;
+    }
+  };
+
   useEffect(() => {
     if (!isExporting) return;
 
@@ -197,53 +344,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
         const pdf = new jsPDF('p', 'mm', 'a4');
         
-        // Pixel-perfect canvas slicing
-        const pageHeightPx = 1123;
-        const pageWidthPx = 794;
-        const paddingY = 60; // 16mm top/bottom margin
-        const paddingX = 45; // 12mm left/right margin
-        
-        const contentWidthPx = pageWidthPx - paddingX * 2;
-        const contentHeightPx = pageHeightPx - paddingY * 2;
-        
-        const totalHeight = canvas.height;
-        const totalWidth = canvas.width;
-        const scale = contentWidthPx / totalWidth;
-        
-        let yOffset = 0;
-        let pageNum = 0;
-
-        while (yOffset < totalHeight) {
-          if (pageNum > 0) pdf.addPage();
-          
-          const pageCanvas = document.createElement('canvas');
-          pageCanvas.width = pageWidthPx;
-          pageCanvas.height = pageHeightPx;
-          const ctx = pageCanvas.getContext('2d')!;
-          
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
-          
-          const sourceHeight = contentHeightPx / scale;
-          
-          ctx.drawImage(
-            canvas,
-            0,
-            yOffset,
-            totalWidth,
-            Math.min(sourceHeight, totalHeight - yOffset),
-            paddingX,
-            paddingY,
-            contentWidthPx,
-            Math.min(contentHeightPx, (totalHeight - yOffset) * scale)
-          );
-          
-          const pageImgData = pageCanvas.toDataURL('image/png');
-          pdf.addImage(pageImgData, 'PNG', 0, 0, 210, 297);
-          
-          yOffset += sourceHeight;
-          pageNum++;
-        }
+        // Pemotongan canvas cerdas tanpa memotong baris tabel
+        sliceCanvasToPdf(pdf, canvas, element, true);
 
         // Tentukan nama file PDF yang disesuaikan
         let fileName = `Laporan_SITA_${periodLabel.replace(/\s+/g, '_')}.pdf`;
@@ -277,8 +379,6 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     setBulkExportProgress(0);
 
     const pdf = new jsPDF('p', 'mm', 'a4');
-    const imgWidth = 210;
-    const pageHeight = 297;
 
     try {
       for (let i = 0; i < myStudents.length; i++) {
@@ -300,58 +400,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           backgroundColor: '#ffffff'
         });
 
-        // Pixel-perfect canvas slicing
-        const pageHeightPx = 1123;
-        const pageWidthPx = 794;
-        const paddingY = 60; // 16mm top/bottom margin
-        const paddingX = 45; // 12mm left/right margin
-        
-        const contentWidthPx = pageWidthPx - paddingX * 2;
-        const contentHeightPx = pageHeightPx - paddingY * 2;
-        
-        const totalHeight = canvas.height;
-        const totalWidth = canvas.width;
-        const scale = contentWidthPx / totalWidth;
-        
-        let yOffset = 0;
-        let pageNum = 0;
-
-        while (yOffset < totalHeight) {
-          if (pageNum > 0) pdf.addPage();
-          
-          const pageCanvas = document.createElement('canvas');
-          pageCanvas.width = pageWidthPx;
-          pageCanvas.height = pageHeightPx;
-          const ctx = pageCanvas.getContext('2d')!;
-          
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
-          
-          const sourceHeight = contentHeightPx / scale;
-          
-          ctx.drawImage(
-            canvas,
-            0,
-            yOffset,
-            totalWidth,
-            Math.min(sourceHeight, totalHeight - yOffset),
-            paddingX,
-            paddingY,
-            contentWidthPx,
-            Math.min(contentHeightPx, (totalHeight - yOffset) * scale)
-          );
-          
-          const pageImgData = pageCanvas.toDataURL('image/png');
-          pdf.addImage(pageImgData, 'PNG', 0, 0, 210, 297);
-          
-          yOffset += sourceHeight;
-          pageNum++;
-        }
-
-        // If it's not the last student, add a page for the next student
-        if (i < myStudents.length - 1) {
-          pdf.addPage();
-        }
+        // Pemotongan canvas cerdas untuk setiap santri
+        sliceCanvasToPdf(pdf, canvas, element, i === 0);
       }
 
       // Tentukan nama file PDF yang disesuaikan
@@ -392,9 +442,20 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
     const progressPercent = Math.min(Math.round((currentJuz / targetInfo.target) * 100), 100);
 
     const studentRecords = records.filter(r => {
-      const rDate = new Date(r.date);
-      return r.studentId === student.id && rDate >= startDate && rDate <= endDate;
-    }).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      if (r.studentId !== student.id || !r.date) return false;
+      const dStr = r.date.slice(0, 10);
+      const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+      const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+      return dStr >= startStr && dStr <= endStr;
+    }).sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      if (a.createdAt && b.createdAt) {
+        const cDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        if (cDiff !== 0) return cDiff;
+      }
+      return (a.id || '').localeCompare(b.id || '');
+    });
 
     const studentAtt = attendance.filter(a => {
       const aDate = new Date(a.date);
@@ -564,7 +625,7 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
 
         <div className="mb-4 flex-1">
            <h3 className="text-xs font-bold text-gray-800 mb-2 border-b pb-1">
-              Riwayat Setoran {period === 'weekly' || period === 'monthly' ? '(Terbaru)' : '(Lengkap)'}
+              Riwayat Setoran {period === 'monthly' ? periodLabel : `(${periodLabel})`}
            </h3>
            <table className="w-full text-xs border-collapse border border-gray-300">
              <thead>
@@ -580,13 +641,21 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                {studentRecords.length === 0 ? (
                  <tr><td colSpan={5} className="p-4 text-center text-gray-400">Tidak ada setoran pada periode ini.</td></tr>
                ) : (
-                 (() => {
-                   const displayRecords = (period === 'weekly' || period === 'monthly') ? studentRecords.slice(-12) : studentRecords;
-                   return displayRecords.map((rec, idx) => (
-                     <tr key={rec.id}>
-                       <td className="border border-gray-300 p-1.5 text-center">{idx + 1}</td>
-                       <td className="border border-gray-300 p-1.5">{new Date(rec.date).toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit'})}</td>
-                       <td className="border border-gray-300 p-1.5 text-center capitalize">{rec.type}</td>
+                 studentRecords.map((rec, idx) => (
+                   <tr key={rec.id}>
+                     <td className="border border-gray-300 p-1.5 text-center">{idx + 1}</td>
+                     <td className="border border-gray-300 p-1.5 text-center">
+                       {(() => {
+                         if (rec.date && rec.date.includes('-')) {
+                           const parts = rec.date.split('-');
+                           if (parts.length >= 3) {
+                             return `${parts[2].slice(0, 2)}/${parts[1]}`;
+                           }
+                         }
+                         return new Date(rec.date).toLocaleDateString('id-ID', {day: '2-digit', month: '2-digit'});
+                       })()}
+                     </td>
+                     <td className="border border-gray-300 p-1.5 text-center capitalize">{rec.type}</td>
                        <td className="border border-gray-300 p-1.5">
                           {rec.ayahStart > 0 ? (
                             <>
@@ -633,9 +702,8 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
                           })()}
                        </td>
                      </tr>
-                   ));
-                 })()
-               )}
+                   ))
+                )}
              </tbody>
            </table>
         </div>
@@ -1034,10 +1102,11 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             padding: 0 !important;
             box-shadow: none !important;
           }
-          .printable-area.exporting .parent-report-card {
+          .printable-area.exporting .parent-report-card,
+          #bulk-pdf-container .parent-report-card {
             width: 210mm !important;
             max-width: 210mm !important;
-            min-height: 275mm !important;
+            min-height: auto !important;
             height: auto !important;
             padding: 8mm 10mm !important;
             box-shadow: none !important;
@@ -1060,56 +1129,57 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             max-width: 210mm !important;
             background: white !important;
           }
-          #bulk-pdf-container .parent-report-card {
-            width: 210mm !important;
-            max-width: 210mm !important;
-            min-height: 275mm !important;
-            height: auto !important;
-            padding: 8mm 10mm !important;
-            box-shadow: none !important;
-            border: none !important;
-            background: white !important;
-            box-sizing: border-box !important;
-          }
           
           /* Kompresi spasi saat mengekspor ke PDF */
-          .printable-area.exporting .parent-report-card .border-b-2 {
+          .printable-area.exporting .parent-report-card .border-b-2,
+          #bulk-pdf-container .parent-report-card .border-b-2 {
             margin-bottom: 6px !important;
             padding-bottom: 4px !important;
           }
-          .printable-area.exporting .parent-report-card .text-center {
+          .printable-area.exporting .parent-report-card .text-center,
+          #bulk-pdf-container .parent-report-card .text-center {
             margin-bottom: 6px !important;
           }
-          .printable-area.exporting .parent-report-card .grid {
+          .printable-area.exporting .parent-report-card .grid,
+          #bulk-pdf-container .parent-report-card .grid {
             margin-bottom: 6px !important;
             gap: 6px !important;
           }
-          .printable-area.exporting .parent-report-card div[class*="bg-emerald-50"] {
+          .printable-area.exporting .parent-report-card div[class*="bg-emerald-50"],
+          #bulk-pdf-container .parent-report-card div[class*="bg-emerald-50"] {
             margin-bottom: 6px !important;
             padding: 6px 10px !important;
           }
-          .printable-area.exporting .parent-report-card .h-36 {
+          .printable-area.exporting .parent-report-card .h-36,
+          #bulk-pdf-container .parent-report-card .h-36 {
             height: 90px !important;
             margin-bottom: 0 !important;
           }
-          .printable-area.exporting .parent-report-card .bg-white.p-3 {
+          .printable-area.exporting .parent-report-card .bg-white.p-3,
+          #bulk-pdf-container .parent-report-card .bg-white.p-3 {
             margin-bottom: 6px !important;
             padding: 4px !important;
           }
-          .printable-area.exporting .parent-report-card .mb-4.flex-1 {
+          .printable-area.exporting .parent-report-card .mb-4.flex-1,
+          #bulk-pdf-container .parent-report-card .mb-4.flex-1 {
             margin-bottom: 4px !important;
           }
           .printable-area.exporting .parent-report-card table th, 
-          .printable-area.exporting .parent-report-card table td {
+          .printable-area.exporting .parent-report-card table td,
+          #bulk-pdf-container .parent-report-card table th,
+          #bulk-pdf-container .parent-report-card table td {
             padding: 3px 5px !important;
             font-size: 10px !important;
           }
-          .printable-area.exporting .parent-report-card .flex.justify-between.mt-auto {
-            margin-top: 4px !important;
-            padding-top: 4px !important;
+          .printable-area.exporting .parent-report-card .signature-section,
+          #bulk-pdf-container .parent-report-card .signature-section {
+            margin-top: 20px !important;
+            padding-top: 8px !important;
           }
           .printable-area.exporting .parent-report-card .mb-12,
-          .printable-area.exporting .parent-report-card .mb-20 {
+          .printable-area.exporting .parent-report-card .mb-20,
+          #bulk-pdf-container .parent-report-card .mb-12,
+          #bulk-pdf-container .parent-report-card .mb-20 {
             margin-bottom: 8mm !important;
           }
         }
@@ -1150,9 +1220,10 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
             box-shadow: none !important;
             border: none !important;
             background: white !important;
-            min-height: 265mm !important;
+            min-height: auto !important;
             height: auto !important;
             box-sizing: border-box !important;
+            display: block !important;
           }
           
           /* Kompresi spasi cetak */
@@ -1182,9 +1253,12 @@ const ReportsView: React.FC<ReportsViewProps> = ({ user, students, records, user
           .parent-report-card .mb-4.flex-1 {
             margin-bottom: 4px !important;
           }
-          .parent-report-card .flex.justify-between.mt-auto {
-            margin-top: 4px !important;
-            padding-top: 4px !important;
+          .parent-report-card .signature-section {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            margin-top: 24px !important;
+            display: flex !important;
+            justify-content: space-between !important;
           }
           .parent-report-card .mb-12,
           .parent-report-card .mb-20 {
