@@ -413,9 +413,76 @@ export class TahsinService {
     localStorage.setItem(this.getStorageKey('sessions'), JSON.stringify(sessions));
   }
 
-  public async fetchSessions(periodId?: string): Promise<TahsinSession[]> {
+  public async fetchSessions(periodId?: string, currentUser?: User): Promise<TahsinSession[]> {
     try {
-      if (supabase) {
+      if (supabase && periodId) {
+        // Ambil user aktif dari parameter atau dari sesi login lokal
+        let activeUser = currentUser;
+        if (!activeUser && typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem('sita_user');
+            if (raw) activeUser = JSON.parse(raw);
+          } catch (e) {}
+        }
+
+        // Coba panggil RPC get_tahsin_sessions_secure jika ada kredensial pengguna
+        if (activeUser?.username && activeUser?.password) {
+          try {
+            const { data: rpcRes, error: rpcErr } = await supabase.rpc('get_tahsin_sessions_secure', {
+              p_username: activeUser.username,
+              p_password: activeUser.password,
+              p_period_id: periodId
+            });
+
+            if (!rpcErr && rpcRes && rpcRes.success && Array.isArray(rpcRes.data)) {
+              const mapped: TahsinSession[] = rpcRes.data.map((d: any) => ({
+                id: d.id,
+                periodId: d.period_id,
+                studentId: d.student_id,
+                examinerId: d.examiner_id,
+                studentNameSnapshot: d.student_name_snapshot,
+                classSnapshot: d.class_snapshot,
+                halaqahSnapshot: d.halaqah_snapshot,
+                targetJuzStart: d.target_juz_start,
+                targetJuzEnd: d.target_juz_end,
+                status: d.status,
+                finalScore: d.final_score ? Number(d.final_score) : undefined,
+                predikat: d.predikat,
+                passingStatus: d.final_status,
+                syncStatus: 'synced_server',
+                version: d.version || 1,
+                lastUpdatedBy: d.last_updated_by,
+                latestAttemptNumber: d.latest_attempt_number || 1,
+                attempts: (d.attempts || []).map((a: any) => this.mapAttemptFromDb(a)),
+                createdAt: d.created_at,
+                updatedAt: d.updated_at
+              }));
+
+              // Proteksi Local Draft & Pending Sync
+              const localSessions = this.getLocalSessions();
+              const pendingQueue = this.getPendingSyncQueue();
+              const merged: TahsinSession[] = [...mapped];
+
+              localSessions.forEach(ls => {
+                const hasPending = pendingQueue.some(pq => pq.sessionId === ls.id);
+                if (hasPending || ls.syncStatus === 'pending_sync' || ls.syncStatus === 'sync_failed') {
+                  const idx = merged.findIndex(m => m.id === ls.id);
+                  if (idx >= 0) {
+                    merged[idx] = { ...ls, syncStatus: ls.syncStatus || 'pending_sync' };
+                  } else {
+                    merged.unshift(ls);
+                  }
+                }
+              });
+
+              this.saveLocalSessions(merged);
+              return merged;
+            }
+          } catch (rpcEx) {
+            // Lanjut ke fallback direct query
+          }
+        }
+
         let query = supabase.from('tahsin_sessions').select('*, attempts:tahsin_attempts(*)');
         if (periodId) {
           query = query.eq('period_id', periodId);

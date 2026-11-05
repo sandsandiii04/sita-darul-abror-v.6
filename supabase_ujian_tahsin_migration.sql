@@ -506,8 +506,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- Berikan izin eksekusi RPC ke peran authenticated dan anon (gateway API SITA)
-GRANT EXECUTE ON FUNCTION save_tahsin_attempt_secure TO authenticated, anon;
+-- Berikan izin eksekusi RPC ke peran authenticated dan anon (gateway API Supabase/SITA jika role ada)
+DO $$ 
+BEGIN 
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN 
+        EXECUTE 'GRANT EXECUTE ON FUNCTION save_tahsin_attempt_secure TO authenticated, anon'; 
+    END IF; 
+END $$;
 
 -- 7. RPC ATOMIC KHUSUS PENGELOLAAN PERIODE UJIAN (ADMIN ONLY)
 CREATE OR REPLACE FUNCTION save_tahsin_period_secure(
@@ -586,9 +591,145 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
-GRANT EXECUTE ON FUNCTION save_tahsin_period_secure TO authenticated, anon;
+DO $$ 
+BEGIN 
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN 
+        EXECUTE 'GRANT EXECUTE ON FUNCTION save_tahsin_period_secure TO authenticated, anon'; 
+    END IF; 
+END $$;
 
--- 8. KEBIJAKAN ROW LEVEL SECURITY (RLS) KETAT & AMAN
+-- 8. RPC PEMBACAAN DATA SESI & NILAI TAHSIN SECARA AMAN (ROLE-BASED ACCESS CONTROL)
+-- Menolak akses publik/anonim dan membatasi pembacaan data sesuai peran pengguna
+CREATE OR REPLACE FUNCTION get_tahsin_sessions_secure(
+    p_username TEXT,
+    p_password TEXT,
+    p_period_id TEXT
+)
+RETURNS JSON AS $$
+DECLARE
+    v_user RECORD;
+    v_result JSON;
+BEGIN
+    -- 1. Autentikasi Pengguna
+    SELECT * INTO v_user FROM users 
+    WHERE username = p_username 
+      AND (password = p_password OR password = crypt(p_password, password));
+      
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'message', 'Autentikasi gagal: Username atau password salah.', 'data', '[]'::json);
+    END IF;
+
+    -- 2. Ambil Sesi Berdasarkan Peran Otoritatif
+    IF v_user.role = 'admin' THEN
+        -- Admin dapat melihat seluruh sesi pada periode ini
+        SELECT COALESCE(json_agg(
+            json_build_object(
+                'id', s.id,
+                'period_id', s.period_id,
+                'student_id', s.student_id,
+                'examiner_id', s.examiner_id,
+                'student_name_snapshot', s.student_name_snapshot,
+                'class_snapshot', s.class_snapshot,
+                'halaqah_snapshot', s.halaqah_snapshot,
+                'target_juz_start', s.target_juz_start,
+                'target_juz_end', s.target_juz_end,
+                'status', s.status,
+                'final_score', s.final_score,
+                'predikat', s.predikat,
+                'final_status', s.final_status,
+                'latest_attempt_number', s.latest_attempt_number,
+                'version', s.version,
+                'last_updated_by', s.last_updated_by,
+                'sync_status', s.sync_status,
+                'created_at', s.created_at,
+                'updated_at', s.updated_at,
+                'attempts', COALESCE((
+                    SELECT json_agg(a.* ORDER BY a.attempt_number ASC)
+                    FROM tahsin_attempts a WHERE a.session_id = s.id
+                ), '[]'::json)
+            ) ORDER BY s.student_name_snapshot ASC
+        ), '[]'::json) INTO v_result
+        FROM tahsin_sessions s
+        WHERE s.period_id = p_period_id;
+
+    ELSIF v_user.role = 'ustadz' THEN
+        -- Guru hanya dapat melihat santri yang ditugaskan kepada mereka
+        SELECT COALESCE(json_agg(
+            json_build_object(
+                'id', s.id,
+                'period_id', s.period_id,
+                'student_id', s.student_id,
+                'examiner_id', s.examiner_id,
+                'student_name_snapshot', s.student_name_snapshot,
+                'class_snapshot', s.class_snapshot,
+                'halaqah_snapshot', s.halaqah_snapshot,
+                'target_juz_start', s.target_juz_start,
+                'target_juz_end', s.target_juz_end,
+                'status', s.status,
+                'final_score', s.final_score,
+                'predikat', s.predikat,
+                'final_status', s.final_status,
+                'latest_attempt_number', s.latest_attempt_number,
+                'version', s.version,
+                'last_updated_by', s.last_updated_by,
+                'sync_status', s.sync_status,
+                'created_at', s.created_at,
+                'updated_at', s.updated_at,
+                'attempts', COALESCE((
+                    SELECT json_agg(a.* ORDER BY a.attempt_number ASC)
+                    FROM tahsin_attempts a WHERE a.session_id = s.id
+                ), '[]'::json)
+            ) ORDER BY s.student_name_snapshot ASC
+        ), '[]'::json) INTO v_result
+        FROM tahsin_sessions s
+        WHERE s.period_id = p_period_id
+          AND (
+            s.examiner_id = v_user.id 
+            OR s.examiner_id IS NULL 
+            OR EXISTS (
+                SELECT 1 FROM tahsin_examiners te 
+                WHERE te.period_id = p_period_id AND te.teacher_id = v_user.id 
+                  AND (array_length(te.assigned_classes, 1) IS NULL OR s.class_snapshot = ANY(te.assigned_classes))
+            )
+            OR EXISTS (
+                SELECT 1 FROM students st WHERE st.id = s.student_id AND st.teacher_id = v_user.id
+            )
+          );
+    ELSE
+        -- Peran lain (Orang tua / santri) hanya melihat data santri yang bersangkutan
+        SELECT COALESCE(json_agg(
+            json_build_object(
+                'id', s.id,
+                'period_id', s.period_id,
+                'student_id', s.student_id,
+                'student_name_snapshot', s.student_name_snapshot,
+                'class_snapshot', s.class_snapshot,
+                'status', s.status,
+                'final_score', s.final_score,
+                'predikat', s.predikat,
+                'final_status', s.final_status,
+                'attempts', COALESCE((
+                    SELECT json_agg(a.* ORDER BY a.attempt_number ASC)
+                    FROM tahsin_attempts a WHERE a.session_id = s.id
+                ), '[]'::json)
+            )
+        ), '[]'::json) INTO v_result
+        FROM tahsin_sessions s
+        WHERE s.period_id = p_period_id AND s.student_id = v_user.id;
+    END IF;
+
+    RETURN json_build_object('success', true, 'data', v_result);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DO $$ 
+BEGIN 
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN 
+        EXECUTE 'GRANT EXECUTE ON FUNCTION get_tahsin_sessions_secure TO authenticated, anon'; 
+    END IF; 
+END $$;
+
+-- 9. KEBIJAKAN ROW LEVEL SECURITY (RLS) KETAT TANPA DATA LEAK
 -- Mengaktifkan RLS pada seluruh tabel Tahsin:
 ALTER TABLE tahsin_periods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_examiners ENABLE ROW LEVEL SECURITY;
@@ -596,26 +737,35 @@ ALTER TABLE tahsin_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- A. HAK AKSES BACA (SELECT):
--- Diizinkan untuk umum/terautentikasi agar antarmuka dapat menampilkan jadwal dan daftar santri
+-- A. HAK AKSES BACA LANGSUNG (SELECT):
+-- 1. tahsin_periods: Hanya periode berstatus 'active' atau 'closed' yang dapat dibaca umum (kalender akademik).
+--    Draft periode hanya dapat dibaca melalui RPC yang diautentikasi admin.
 DROP POLICY IF EXISTS tahsin_periods_select ON tahsin_periods;
 DROP POLICY IF EXISTS tahsin_periods_policy ON tahsin_periods;
-CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (true);
+CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (status IN ('active', 'closed'));
 
+-- 2. tahsin_sessions, attempts, examiners, audit_logs:
+--    DITOLAK TOTAL untuk akses SELECT langsung dari REST API anonim!
+--    Tidak ada data nilai atau catatan santri yang dapat di-scrape oleh peran publik/anon.
+--    Pembacaan WAJIB melalui RPC get_tahsin_sessions_secure yang memverifikasi kredensial dan hak akses.
 DROP POLICY IF EXISTS tahsin_examiners_select ON tahsin_examiners;
 DROP POLICY IF EXISTS tahsin_examiners_policy ON tahsin_examiners;
-CREATE POLICY tahsin_examiners_select ON tahsin_examiners FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_examiners_deny_direct_read ON tahsin_examiners;
+CREATE POLICY tahsin_examiners_deny_direct_read ON tahsin_examiners FOR SELECT USING (false);
 
 DROP POLICY IF EXISTS tahsin_sessions_select ON tahsin_sessions;
 DROP POLICY IF EXISTS tahsin_sessions_policy ON tahsin_sessions;
-CREATE POLICY tahsin_sessions_select ON tahsin_sessions FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_sessions_deny_direct_read ON tahsin_sessions;
+CREATE POLICY tahsin_sessions_deny_direct_read ON tahsin_sessions FOR SELECT USING (false);
 
 DROP POLICY IF EXISTS tahsin_attempts_select ON tahsin_attempts;
 DROP POLICY IF EXISTS tahsin_attempts_policy ON tahsin_attempts;
-CREATE POLICY tahsin_attempts_select ON tahsin_attempts FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_attempts_deny_direct_read ON tahsin_attempts;
+CREATE POLICY tahsin_attempts_deny_direct_read ON tahsin_attempts FOR SELECT USING (false);
 
 DROP POLICY IF EXISTS tahsin_audit_select ON tahsin_audit_logs;
-CREATE POLICY tahsin_audit_select ON tahsin_audit_logs FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_audit_deny_direct_read ON tahsin_audit_logs;
+CREATE POLICY tahsin_audit_deny_direct_read ON tahsin_audit_logs FOR SELECT USING (false);
 
 -- B. HAK AKSES TULIS LANGSUNG (INSERT / UPDATE / DELETE):
 -- DITOLAK TOTAL untuk seluruh pemanggilan langsung via Client SDK Supabase REST API!
@@ -623,29 +773,29 @@ CREATE POLICY tahsin_audit_select ON tahsin_audit_logs FOR SELECT USING (true);
 -- Seluruh mutasi WAJIB melalui RPC SECURITY DEFINER (save_tahsin_attempt_secure & save_tahsin_period_secure).
 DROP POLICY IF EXISTS tahsin_periods_deny_write ON tahsin_periods;
 CREATE POLICY tahsin_periods_deny_write ON tahsin_periods FOR INSERT WITH CHECK (false);
-DROP POLICY IF EXISTS tahsin_periods_deny_update ON tahsin_periods FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_periods_deny_update ON tahsin_periods;
 CREATE POLICY tahsin_periods_deny_update ON tahsin_periods FOR UPDATE USING (false);
-DROP POLICY IF EXISTS tahsin_periods_deny_delete ON tahsin_periods FOR DELETE USING (false);
+DROP POLICY IF EXISTS tahsin_periods_deny_delete ON tahsin_periods;
 CREATE POLICY tahsin_periods_deny_delete ON tahsin_periods FOR DELETE USING (false);
 
 DROP POLICY IF EXISTS tahsin_sessions_deny_write ON tahsin_sessions;
 CREATE POLICY tahsin_sessions_deny_write ON tahsin_sessions FOR INSERT WITH CHECK (false);
-DROP POLICY IF EXISTS tahsin_sessions_deny_update ON tahsin_sessions FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_sessions_deny_update ON tahsin_sessions;
 CREATE POLICY tahsin_sessions_deny_update ON tahsin_sessions FOR UPDATE USING (false);
-DROP POLICY IF EXISTS tahsin_sessions_deny_delete ON tahsin_sessions FOR DELETE USING (false);
+DROP POLICY IF EXISTS tahsin_sessions_deny_delete ON tahsin_sessions;
 CREATE POLICY tahsin_sessions_deny_delete ON tahsin_sessions FOR DELETE USING (false);
 
 DROP POLICY IF EXISTS tahsin_attempts_deny_write ON tahsin_attempts;
 CREATE POLICY tahsin_attempts_deny_write ON tahsin_attempts FOR INSERT WITH CHECK (false);
-DROP POLICY IF EXISTS tahsin_attempts_deny_update ON tahsin_attempts FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_attempts_deny_update ON tahsin_attempts;
 CREATE POLICY tahsin_attempts_deny_update ON tahsin_attempts FOR UPDATE USING (false);
-DROP POLICY IF EXISTS tahsin_attempts_deny_delete ON tahsin_attempts FOR DELETE USING (false);
+DROP POLICY IF EXISTS tahsin_attempts_deny_delete ON tahsin_attempts;
 CREATE POLICY tahsin_attempts_deny_delete ON tahsin_attempts FOR DELETE USING (false);
 
 DROP POLICY IF EXISTS tahsin_audit_deny_write ON tahsin_audit_logs;
 CREATE POLICY tahsin_audit_deny_write ON tahsin_audit_logs FOR INSERT WITH CHECK (false);
-DROP POLICY IF EXISTS tahsin_audit_deny_update ON tahsin_audit_logs FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_audit_deny_update ON tahsin_audit_logs;
 CREATE POLICY tahsin_audit_deny_update ON tahsin_audit_logs FOR UPDATE USING (false);
-DROP POLICY IF EXISTS tahsin_audit_deny_delete ON tahsin_audit_logs FOR DELETE USING (false);
+DROP POLICY IF EXISTS tahsin_audit_deny_delete ON tahsin_audit_logs;
 CREATE POLICY tahsin_audit_deny_delete ON tahsin_audit_logs FOR DELETE USING (false);
 
