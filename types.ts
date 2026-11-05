@@ -1207,3 +1207,140 @@ export interface StudentEvaluationHistoryResponse {
   recap?: FinalSemesterRecapItem;
   timeline?: EvaluationTimelineEvent[];
 }
+
+// ================= UJIAN TAHSIN AL-QUR'AN TYPES =================
+
+export type TahsinCategoryScore = 'sangat_baik' | 'baik' | 'cukup' | 'kurang' | 'sangat_kurang';
+
+export type TahsinPassingStatus = 'lulus' | 'remedial' | 'belum_selesai';
+
+export interface TahsinPeriod {
+  id: string;
+  name: string;
+  academicYear: string; // e.g. '2026/2027'
+  semester: 'ganjil' | 'genap';
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  status: 'draft' | 'active' | 'closed';
+  passingGrade: number; // default 80
+  minMakharij: number; // default 75
+  minTajwid: number; // default 75
+  targetClasses?: string[];
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TahsinExaminerAssignment {
+  id: string;
+  periodId: string;
+  teacherId: string;
+  assignedClasses: string[];
+  assignedHalaqahs: string[];
+  createdAt: string;
+}
+
+export interface TahsinReadingLocation {
+  startSurah: number;
+  startSurahName: string;
+  startAyah: number;
+  endSurah: number;
+  endSurahName: string;
+  endAyah: number;
+  startPage: number;
+  endPage: number;
+  pagesRead: number; // min 0.5
+  juzNumber?: number;
+  randomizeReason?: string;
+}
+
+export interface TahsinAspectScore {
+  score: number; // 0-100
+  category: TahsinCategoryScore;
+  isCustomScore?: boolean;
+  customReason?: string;
+}
+
+export interface TahsinErrorCounters {
+  makhraj: number;
+  mad: number;
+  ghunnah: number;
+  harakat: number;
+  tajwidLain: number;
+  waqaf: number;
+  kelancaran: number;
+  lainnya: number;
+}
+
+export interface TahsinAttempt {
+  id: string;
+  sessionId: string;
+  attemptNumber: number; // 1 = utama, 2 = remedial 1, dst.
+  attemptType: 'utama' | 'remedial';
+  examinerId: string;
+  examinerName: string;
+  examDate: string; // YYYY-MM-DD
+  
+  // Bacaan
+  reading: TahsinReadingLocation;
+  
+  // 4 Aspek Wajib
+  makharij: TahsinAspectScore; // bobot 35%
+  tajwid: TahsinAspectScore; // bobot 30%
+  kelancaran: TahsinAspectScore; // bobot 20%
+  waqaf: TahsinAspectScore; // bobot 15%
+  
+  // Hasil
+  finalScore: number;
+  predikat: string; // 'Mumtaz', 'Jayyid Jiddan', 'Jayyid', 'Maqbul', 'Perlu Pembinaan'
+  predikatArabic: string;
+  
+  // Kelulusan
+  hasCriticalError: boolean;
+  criticalErrorReason?: string;
+  passingStatus: TahsinPassingStatus;
+  
+  // Opsional
+  errorCounts?: TahsinErrorCounters;
+  coachingNotes?: string;
+  
+  status: 'draft' | 'finalized';
+  finalizedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TahsinSession {
+  id: string;
+  periodId: string;
+  studentId: string;
+  examinerId?: string;
+  studentNameSnapshot: string;
+  classSnapshot: string;
+  halaqahSnapshot: string;
+  targetJuzStart: number;
+  targetJuzEnd: number;
+  status: 'not_started' | 'draft' | 'completed' | 'remedial_needed';
+  finalScore?: number;
+  predikat?: string;
+  passingStatus?: TahsinPassingStatus;
+  latestAttemptNumber: number;
+  attempts?: TahsinAttempt[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TahsinMonitoringStats {
+  totalParticipants: number;
+  testedCount: number;
+  untestedCount: number;
+  passedCount: number;
+  remedialNeededCount: number;
+  remedialCompletedCount: number;
+  passRate: number; // percentage 0-100
+  averageFinalScore: number;
+  averageMakharij: number;
+  averageTajwid: number;
+  averageKelancaran: number;
+  averageWaqaf: number;
+}

@@ -22,6 +22,11 @@ import { FinalSemesterRecapView } from './components/TahfizEvaluation/FinalSemes
 import { RemedialExamExecutionView } from './components/TahfizEvaluation/RemedialExamExecutionView';
 import { UTSRecapView } from './components/TahfizEvaluation/UTSRecapView';
 import { UASRecapView } from './components/TahfizEvaluation/UASRecapView';
+import { TahsinDashboardView } from './components/TahsinEvaluation/TahsinDashboardView';
+import { TahsinPeriodsView } from './components/TahsinEvaluation/TahsinPeriodsView';
+import { TahsinPelaksanaanView } from './components/TahsinEvaluation/TahsinPelaksanaanView';
+import { TahsinRemedialView } from './components/TahsinEvaluation/TahsinRemedialView';
+import { TahsinReportsView } from './components/TahsinEvaluation/TahsinReportsView';
 import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
 import { api, setSessionUser } from './api';
@@ -368,17 +373,19 @@ const App: React.FC = () => {
         window.localStorage.setItem('sita_current_user_v1', JSON.stringify(user));
       } catch (e) {}
 
-      const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital'];
+      const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital', 'tahsin_reports'];
       const teacherTabs = [
         'dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'material_preparation',
         'uts_execution', 'uas_execution', 'remedial_execution',
-        'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital'
+        'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital',
+        'tahsin_execution', 'tahsin_remedial', 'tahsin_reports'
       ];
       const adminTabs = [
         'dashboard', 'master_data', 'attendance_student', 'attendance_teacher',
         'mushaf_digital', 'question_bank', 'evaluation_periods', 'material_preparation',
         'uts_execution', 'uas_execution', 'remedial_execution', 'uts_recap', 'uas_recap',
-        'semester_recap', 'final_recap', 'exam', 'reports', 'halaqah_reports', 'tutorial', 'profile', 'ziyadah', 'murojaah'
+        'semester_recap', 'final_recap', 'exam', 'reports', 'halaqah_reports', 'tutorial', 'profile', 'ziyadah', 'murojaah',
+        'tahsin_dashboard', 'tahsin_periods', 'tahsin_execution', 'tahsin_remedial', 'tahsin_reports'
       ];
       
       if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
@@ -673,7 +680,8 @@ const App: React.FC = () => {
         const isExamMode = [
           'uts_execution', 'uas_execution', 'remedial_execution', 
           'material_preparation', 'evaluation_periods', 
-          'uts_recap', 'uas_recap', 'semester_recap', 'final_recap'
+          'uts_recap', 'uas_recap', 'semester_recap', 'final_recap',
+          'tahsin_execution', 'tahsin_remedial'
         ].includes(currentTab);
 
         if (isSilent && isExamMode) {
@@ -1087,6 +1095,32 @@ const App: React.FC = () => {
         }
         return (
           <UASRecapView user={user!} />
+        );
+      case 'tahsin_dashboard':
+        if (user!.role !== 'admin') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <TahsinDashboardView user={user!} students={students} users={users} onNavigate={setActiveTab} />
+        );
+      case 'tahsin_periods':
+        if (user!.role !== 'admin') {
+          return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
+        }
+        return (
+          <TahsinPeriodsView user={user!} students={students} />
+        );
+      case 'tahsin_execution':
+        return (
+          <TahsinPelaksanaanView user={user!} students={students} users={users} />
+        );
+      case 'tahsin_remedial':
+        return (
+          <TahsinRemedialView user={user!} students={students} users={users} />
+        );
+      case 'tahsin_reports':
+        return (
+          <TahsinReportsView user={user!} students={students} users={users} />
         );
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
