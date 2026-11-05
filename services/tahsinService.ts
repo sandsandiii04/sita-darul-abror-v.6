@@ -295,7 +295,10 @@ export class TahsinService {
     return this.getLocalPeriods();
   }
 
-  public async savePeriod(period: TahsinPeriod): Promise<{ success: boolean; data?: TahsinPeriod; message?: string }> {
+  public async savePeriod(
+    period: TahsinPeriod,
+    currentUser?: User
+  ): Promise<{ success: boolean; data?: TahsinPeriod; message?: string }> {
     const list = this.getLocalPeriods();
     const idx = list.findIndex(p => p.id === period.id);
     if (idx >= 0) {
@@ -307,6 +310,36 @@ export class TahsinService {
 
     try {
       if (supabase) {
+        // Coba simpan via RPC aman save_tahsin_period_secure jika ada kredensial admin
+        if (currentUser?.username && currentUser?.password) {
+          try {
+            const { data: rpcRes, error: rpcErr } = await supabase.rpc('save_tahsin_period_secure', {
+              p_username: currentUser.username,
+              p_password: currentUser.password,
+              p_period_data: {
+                id: period.id,
+                name: period.name,
+                academicYear: period.academicYear,
+                semester: period.semester,
+                startDate: period.startDate,
+                endDate: period.endDate,
+                status: period.status,
+                passingGrade: period.passingGrade,
+                minMakharij: period.minMakharij,
+                minTajwid: period.minTajwid,
+                targetClasses: period.targetClasses
+              }
+            });
+
+            if (!rpcErr && rpcRes && rpcRes.success) {
+              return { success: true, data: period, message: rpcRes.message };
+            }
+          } catch (rpcEx) {
+            // Lanjut ke fallback
+          }
+        }
+
+        // Fallback: direct upsert jika RPC belum di-deploy
         await supabase.from('tahsin_periods').upsert({
           id: period.id,
           name: period.name,

@@ -170,8 +170,8 @@ CREATE INDEX IF NOT EXISTS idx_tahsin_audit_session ON tahsin_audit_logs(session
 CREATE INDEX IF NOT EXISTS idx_tahsin_audit_created ON tahsin_audit_logs(created_at);
 
 -- 6. RPC ATOMIC & AMAN: save_tahsin_attempt_secure
--- Menangani validasi kredensial, otorisasi, pencegahan konflik konkurensi (optimistic locking),
--- serta pencatatan audit log dalam 1 transaksi database yang utuh.
+-- Menangani autentikasi kredensial, verifikasi server-side data santri & periode,
+-- otorisasi penguji, kontrol konkurensi (optimistic locking), serta audit log.
 CREATE OR REPLACE FUNCTION save_tahsin_attempt_secure(
     p_username TEXT,
     p_password TEXT,
@@ -187,6 +187,13 @@ DECLARE
     v_user RECORD;
     v_session RECORD;
     v_existing_attempt RECORD;
+    v_period RECORD;
+    v_student RECORD;
+    v_assignment RECORD;
+    v_period_id TEXT;
+    v_student_id TEXT;
+    v_target_juz_start INTEGER;
+    v_target_juz_end INTEGER;
     v_new_version INTEGER;
     v_final_status TEXT;
     v_session_status TEXT;
@@ -196,7 +203,7 @@ DECLARE
     v_attempt_number INTEGER;
     v_attempt_type TEXT;
 BEGIN
-    -- 1. Autentikasi Pengguna
+    -- 1. Autentikasi Pengguna Otoritatif
     SELECT * INTO v_user FROM users 
     WHERE username = p_username 
       AND (password = p_password OR password = crypt(p_password, password));
@@ -208,39 +215,89 @@ BEGIN
     -- 2. Ambil dan Kunci Baris Sesi Ujian (Row-level lock FOR UPDATE)
     SELECT * INTO v_session FROM tahsin_sessions WHERE id = p_session_id FOR UPDATE;
     IF NOT FOUND THEN
-        -- Jika sesi belum ada di database, buat sesi baru secara atomic dari snapshot data santri
-        IF p_attempt_data->'sessionData' IS NOT NULL THEN
-            INSERT INTO tahsin_sessions (
-                id, period_id, student_id, examiner_id,
-                student_name_snapshot, class_snapshot, halaqah_snapshot,
-                target_juz_start, target_juz_end, status,
-                latest_attempt_number, version, last_updated_by,
-                sync_status, created_at, updated_at
-            ) VALUES (
-                p_session_id,
-                p_attempt_data->'sessionData'->>'periodId',
-                p_attempt_data->'sessionData'->>'studentId',
-                v_user.id,
-                COALESCE(p_attempt_data->'sessionData'->>'studentNameSnapshot', 'Santri'),
-                COALESCE(p_attempt_data->'sessionData'->>'classSnapshot', '-'),
-                COALESCE(p_attempt_data->'sessionData'->>'halaqahSnapshot', '-'),
-                COALESCE((p_attempt_data->'sessionData'->>'targetJuzStart')::INTEGER, 26),
-                COALESCE((p_attempt_data->'sessionData'->>'targetJuzEnd')::INTEGER, 30),
-                'draft',
-                1,
-                1,
-                v_user.id,
-                'synced_server',
-                timezone('utc'::text, now()),
-                timezone('utc'::text, now())
-            )
-            RETURNING * INTO v_session;
-        ELSE
-            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Sesi ujian tidak ditemukan di database.');
+        -- Validasi Ketat Pembuatan Sesi Otomatis di Server:
+        v_period_id := p_attempt_data->'sessionData'->>'periodId';
+        v_student_id := p_attempt_data->'sessionData'->>'studentId';
+
+        IF v_period_id IS NULL OR v_student_id IS NULL THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Data referensi sesi ujian (periodId / studentId) tidak valid.');
         END IF;
+
+        -- A. Verifikasi Keberadaan dan Status Periode Ujian
+        SELECT * INTO v_period FROM tahsin_periods WHERE id = v_period_id;
+        IF NOT FOUND THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Periode ujian tidak ditemukan di database.');
+        END IF;
+
+        IF v_period.status != 'active' AND v_user.role != 'admin' THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Periode ujian belum aktif atau telah ditutup. Pengesahan nilai ditolak.');
+        END IF;
+
+        -- B. Verifikasi Keberadaan Data Santri Riil di Database Sekolah
+        SELECT * INTO v_student FROM students WHERE id = v_student_id;
+        IF NOT FOUND THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Data santri tidak terdaftar di database sekolah.');
+        END IF;
+
+        -- C. Verifikasi Penugasan Penguji (Jika Bukan Admin)
+        IF v_user.role != 'admin' THEN
+            SELECT * INTO v_assignment FROM tahsin_examiners 
+            WHERE period_id = v_period_id AND teacher_id = v_user.id;
+
+            IF FOUND THEN
+                IF array_length(v_assignment.assigned_classes, 1) > 0 
+                   AND NOT (v_student.class = ANY(v_assignment.assigned_classes)) THEN
+                    RETURN json_build_object('success', false, 'conflict', false, 'message', 'Akses ditolak: Anda tidak ditugaskan untuk menguji kelas santri ini.');
+                END IF;
+            END IF;
+        END IF;
+
+        -- D. Hitung Cakupan Juz Otoritatif di Server Berdasarkan Kelas Santri (Kelas 7-12)
+        IF v_student.class ILIKE '7%' OR v_student.class ILIKE '%VII%' THEN
+            v_target_juz_start := 26; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '8%' OR v_student.class ILIKE '%VIII%' THEN
+            v_target_juz_start := 21; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '9%' OR v_student.class ILIKE '%IX%' THEN
+            v_target_juz_start := 16; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '10%' OR v_student.class ILIKE '%X%' THEN
+            v_target_juz_start := 11; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '11%' OR v_student.class ILIKE '%XI%' THEN
+            v_target_juz_start := 6; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '12%' OR v_student.class ILIKE '%XII%' THEN
+            v_target_juz_start := 1; v_target_juz_end := 30;
+        ELSE
+            v_target_juz_start := 26; v_target_juz_end := 30;
+        END IF;
+
+        -- E. Buat Baris Sesi Otoritatif dari Data Server (Bukan Data Klien)
+        INSERT INTO tahsin_sessions (
+            id, period_id, student_id, examiner_id,
+            student_name_snapshot, class_snapshot, halaqah_snapshot,
+            target_juz_start, target_juz_end, status,
+            latest_attempt_number, version, last_updated_by,
+            sync_status, created_at, updated_at
+        ) VALUES (
+            p_session_id,
+            v_period.id,
+            v_student.id,
+            v_user.id,
+            v_student.name,
+            COALESCE(v_student.class, '-'),
+            COALESCE(v_student.halaqah, '-'),
+            v_target_juz_start,
+            v_target_juz_end,
+            'draft',
+            1,
+            1,
+            v_user.id,
+            'synced_server',
+            timezone('utc'::text, now()),
+            timezone('utc'::text, now())
+        )
+        RETURNING * INTO v_session;
     END IF;
 
-    -- 3. Otorisasi Penguji / Admin
+    -- 3. Otorisasi Penguji / Admin (Pencegahan Membajak Sesi Penguji Lain)
     IF v_user.role != 'admin' AND v_session.examiner_id IS NOT NULL AND v_session.examiner_id != v_user.id THEN
         RETURN json_build_object('success', false, 'conflict', false, 'message', 'Akses ditolak: Anda bukan penguji yang ditugaskan untuk sesi santri ini.');
     END IF;
@@ -269,10 +326,10 @@ BEGIN
         v_attempt_type := 'remedial';
     END IF;
 
-    -- 6. Periksa Percobaan yang Sudah Ada
+    -- 6. Periksa Percobaan yang Sudah Ada & Aturan Perubahan Nilai Setelah Disahkan
     SELECT * INTO v_existing_attempt FROM tahsin_attempts WHERE id = p_attempt_id;
-    IF FOUND AND v_existing_attempt.status = 'finalized' AND v_user.role != 'admin' AND NOT p_is_finalize THEN
-        RETURN json_build_object('success', false, 'conflict', false, 'message', 'Ujian yang sudah disahkan tidak dapat diubah kembali menjadi draft tanpa kewenangan admin.');
+    IF FOUND AND v_existing_attempt.status = 'finalized' AND v_user.role != 'admin' THEN
+        RETURN json_build_object('success', false, 'conflict', false, 'message', 'Nilai ujian yang telah disahkan hanya dapat diubah atau direvisi dengan kewenangan Admin.');
     END IF;
 
     -- 7. Upsert Percobaan Ujian (tahsin_attempts)
@@ -452,38 +509,143 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 -- Berikan izin eksekusi RPC ke peran authenticated dan anon (gateway API SITA)
 GRANT EXECUTE ON FUNCTION save_tahsin_attempt_secure TO authenticated, anon;
 
--- 7. KEBIJAKAN ROW LEVEL SECURITY (RLS) AMAN (KOMPATIBEL DENGAN SISTEM AUTENTIKASI SITA)
+-- 7. RPC ATOMIC KHUSUS PENGELOLAAN PERIODE UJIAN (ADMIN ONLY)
+CREATE OR REPLACE FUNCTION save_tahsin_period_secure(
+    p_username TEXT,
+    p_password TEXT,
+    p_period_data JSONB
+)
+RETURNS JSON AS $$
+DECLARE
+    v_user RECORD;
+    v_period_id TEXT;
+BEGIN
+    -- 1. Autentikasi Pengguna
+    SELECT * INTO v_user FROM users 
+    WHERE username = p_username 
+      AND (password = p_password OR password = crypt(p_password, password));
+      
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'message', 'Autentikasi gagal: Username atau password salah.');
+    END IF;
+
+    -- 2. Otorisasi Khusus Admin
+    IF v_user.role != 'admin' THEN
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Hanya Admin yang berwenang mengelola periode ujian.');
+    END IF;
+
+    v_period_id := p_period_data->>'id';
+    IF v_period_id IS NULL THEN
+        RETURN json_build_object('success', false, 'message', 'ID periode tidak boleh kosong.');
+    END IF;
+
+    -- 3. Upsert Periode Ujian
+    INSERT INTO tahsin_periods (
+        id,
+        name,
+        academic_year,
+        semester,
+        start_date,
+        end_date,
+        status,
+        passing_grade,
+        min_makharij,
+        min_tajwid,
+        target_classes,
+        created_by,
+        updated_at
+    ) VALUES (
+        v_period_id,
+        p_period_data->>'name',
+        p_period_data->>'academicYear',
+        p_period_data->>'semester',
+        (p_period_data->>'startDate')::DATE,
+        (p_period_data->>'endDate')::DATE,
+        COALESCE(p_period_data->>'status', 'draft'),
+        COALESCE((p_period_data->>'passingGrade')::NUMERIC, 80),
+        COALESCE((p_period_data->>'minMakharij')::NUMERIC, 75),
+        COALESCE((p_period_data->>'minTajwid')::NUMERIC, 75),
+        ARRAY(SELECT jsonb_array_elements_text(COALESCE(p_period_data->'targetClasses', '[]'::jsonb))),
+        v_user.id,
+        timezone('utc'::text, now())
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        academic_year = EXCLUDED.academic_year,
+        semester = EXCLUDED.semester,
+        start_date = EXCLUDED.start_date,
+        end_date = EXCLUDED.end_date,
+        status = EXCLUDED.status,
+        passing_grade = EXCLUDED.passing_grade,
+        min_makharij = EXCLUDED.min_makharij,
+        min_tajwid = EXCLUDED.min_tajwid,
+        target_classes = EXCLUDED.target_classes,
+        updated_at = timezone('utc'::text, now());
+
+    RETURN json_build_object('success', true, 'message', 'Periode ujian Tahsin berhasil disimpan.');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+GRANT EXECUTE ON FUNCTION save_tahsin_period_secure TO authenticated, anon;
+
+-- 8. KEBIJAKAN ROW LEVEL SECURITY (RLS) KETAT & AMAN
+-- Mengaktifkan RLS pada seluruh tabel Tahsin:
 ALTER TABLE tahsin_periods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_examiners ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Kebijakan Akses RLS:
--- 1. Tabel Master & Operasional (Periods, Examiners, Sessions, Attempts):
--- Diizinkan untuk anon & authenticated agar sinkronisasi dan manajemen periode dari UI berjalan lancar.
--- Seluruh mutasi kritis (INSERT / UPDATE nilai) tetap diverifikasi server-side melalui RPC save_tahsin_attempt_secure.
+-- A. HAK AKSES BACA (SELECT):
+-- Diizinkan untuk umum/terautentikasi agar antarmuka dapat menampilkan jadwal dan daftar santri
 DROP POLICY IF EXISTS tahsin_periods_select ON tahsin_periods;
 DROP POLICY IF EXISTS tahsin_periods_policy ON tahsin_periods;
-CREATE POLICY tahsin_periods_policy ON tahsin_periods FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS tahsin_examiners_select ON tahsin_examiners;
 DROP POLICY IF EXISTS tahsin_examiners_policy ON tahsin_examiners;
-CREATE POLICY tahsin_examiners_policy ON tahsin_examiners FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY tahsin_examiners_select ON tahsin_examiners FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS tahsin_sessions_select ON tahsin_sessions;
 DROP POLICY IF EXISTS tahsin_sessions_policy ON tahsin_sessions;
-CREATE POLICY tahsin_sessions_policy ON tahsin_sessions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY tahsin_sessions_select ON tahsin_sessions FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS tahsin_attempts_select ON tahsin_attempts;
 DROP POLICY IF EXISTS tahsin_attempts_policy ON tahsin_attempts;
-CREATE POLICY tahsin_attempts_policy ON tahsin_attempts FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY tahsin_attempts_select ON tahsin_attempts FOR SELECT USING (true);
 
--- 2. Tabel Audit Log: Read-Only untuk Client SDK, hanya RPC yang dapat menambahkan record baru
 DROP POLICY IF EXISTS tahsin_audit_select ON tahsin_audit_logs;
 CREATE POLICY tahsin_audit_select ON tahsin_audit_logs FOR SELECT USING (true);
 
--- Catatan Keamanan:
--- Seluruh mutasi kritis (INSERT / UPDATE nilai) diproteksi melalui RPC save_tahsin_attempt_secure
--- yang memvalidasi username, password, peran, hak akses penguji, dan versi konkurensi di server.
+-- B. HAK AKSES TULIS LANGSUNG (INSERT / UPDATE / DELETE):
+-- DITOLAK TOTAL untuk seluruh pemanggilan langsung via Client SDK Supabase REST API!
+-- Tidak ada pengguna anon atau akun non-otoritas yang dapat menyisipkan atau memanipulasi nilai secara langsung.
+-- Seluruh mutasi WAJIB melalui RPC SECURITY DEFINER (save_tahsin_attempt_secure & save_tahsin_period_secure).
+DROP POLICY IF EXISTS tahsin_periods_deny_write ON tahsin_periods;
+CREATE POLICY tahsin_periods_deny_write ON tahsin_periods FOR INSERT WITH CHECK (false);
+DROP POLICY IF EXISTS tahsin_periods_deny_update ON tahsin_periods FOR UPDATE USING (false);
+CREATE POLICY tahsin_periods_deny_update ON tahsin_periods FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_periods_deny_delete ON tahsin_periods FOR DELETE USING (false);
+CREATE POLICY tahsin_periods_deny_delete ON tahsin_periods FOR DELETE USING (false);
+
+DROP POLICY IF EXISTS tahsin_sessions_deny_write ON tahsin_sessions;
+CREATE POLICY tahsin_sessions_deny_write ON tahsin_sessions FOR INSERT WITH CHECK (false);
+DROP POLICY IF EXISTS tahsin_sessions_deny_update ON tahsin_sessions FOR UPDATE USING (false);
+CREATE POLICY tahsin_sessions_deny_update ON tahsin_sessions FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_sessions_deny_delete ON tahsin_sessions FOR DELETE USING (false);
+CREATE POLICY tahsin_sessions_deny_delete ON tahsin_sessions FOR DELETE USING (false);
+
+DROP POLICY IF EXISTS tahsin_attempts_deny_write ON tahsin_attempts;
+CREATE POLICY tahsin_attempts_deny_write ON tahsin_attempts FOR INSERT WITH CHECK (false);
+DROP POLICY IF EXISTS tahsin_attempts_deny_update ON tahsin_attempts FOR UPDATE USING (false);
+CREATE POLICY tahsin_attempts_deny_update ON tahsin_attempts FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_attempts_deny_delete ON tahsin_attempts FOR DELETE USING (false);
+CREATE POLICY tahsin_attempts_deny_delete ON tahsin_attempts FOR DELETE USING (false);
+
+DROP POLICY IF EXISTS tahsin_audit_deny_write ON tahsin_audit_logs;
+CREATE POLICY tahsin_audit_deny_write ON tahsin_audit_logs FOR INSERT WITH CHECK (false);
+DROP POLICY IF EXISTS tahsin_audit_deny_update ON tahsin_audit_logs FOR UPDATE USING (false);
+CREATE POLICY tahsin_audit_deny_update ON tahsin_audit_logs FOR UPDATE USING (false);
+DROP POLICY IF EXISTS tahsin_audit_deny_delete ON tahsin_audit_logs FOR DELETE USING (false);
+CREATE POLICY tahsin_audit_deny_delete ON tahsin_audit_logs FOR DELETE USING (false);
 

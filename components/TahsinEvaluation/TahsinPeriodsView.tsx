@@ -52,7 +52,7 @@ export const TahsinPeriodsView: React.FC<TahsinPeriodsViewProps> = ({
   }, []);
 
   const handleSavePeriod = async (period: TahsinPeriod) => {
-    await tahsinService.savePeriod(period);
+    await tahsinService.savePeriod(period, user);
     // Inisialisasi peserta jika status aktif
     if (period.status === 'active') {
       tahsinService.initializeSessionsForPeriod(period, students, teachers);
