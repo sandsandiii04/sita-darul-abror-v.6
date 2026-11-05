@@ -805,11 +805,11 @@ ALTER TABLE tahsin_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- A. HAK AKSES BACA LANGSUNG (SELECT):
--- 1. tahsin_periods: Hanya periode berstatus 'active' atau 'closed' yang dapat dibaca umum (kalender akademik).
---    Draft periode hanya dapat dibaca melalui RPC yang diautentikasi admin.
+-- 1. tahsin_periods: Terbuka untuk dibaca umum (kalender akademik & draft periode untuk konfigurasi admin).
+--    Data sensitif seperti nilai dan catatan santri tetap terisolasi pada tabel sesi dan attempts.
 DROP POLICY IF EXISTS tahsin_periods_select ON tahsin_periods;
 DROP POLICY IF EXISTS tahsin_periods_policy ON tahsin_periods;
-CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (status IN ('active', 'closed'));
+CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (true);
 
 -- 2. tahsin_sessions, attempts, examiners, audit_logs:
 --    DITOLAK TOTAL untuk akses SELECT langsung dari REST API anonim!
