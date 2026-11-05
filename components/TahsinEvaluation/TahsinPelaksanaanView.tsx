@@ -63,14 +63,14 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const checkPendingSync = () => {
-    setPendingSyncCount(tahsinService.getPendingSyncCount());
+    setPendingSyncCount(tahsinService.getPendingSyncCount(user.role === 'admin' ? undefined : user.id));
   };
 
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
       const res = await tahsinService.syncPendingAttempts(user);
-      alert(`Hasil Sinkronisasi Cloud:\n- Berhasil: ${res.succeeded}\n- Konflik: ${res.conflicts}\n- Gagal: ${res.failed}\n- Sisa Antrean: ${tahsinService.getPendingSyncCount()}`);
+      alert(`Hasil Sinkronisasi Cloud:\n- Berhasil: ${res.succeeded}\n- Konflik: ${res.conflicts}\n- Gagal: ${res.failed}\n- Sisa Antrean: ${tahsinService.getPendingSyncCount(user.role === 'admin' ? undefined : user.id)}`);
       await loadData();
     } catch (err: any) {
       alert(`Terjadi kendala saat sinkronisasi: ${err.message || 'Koneksi gagal'}`);

@@ -343,8 +343,12 @@ export class TahsinService {
     localStorage.setItem(this.getStorageKey('pending_sync'), JSON.stringify(queue));
   }
 
-  public getPendingSyncCount(): number {
-    return this.getPendingSyncQueue().length;
+  public getPendingSyncCount(examinerId?: string): number {
+    const queue = this.getPendingSyncQueue();
+    if (examinerId) {
+      return queue.filter(q => q.examinerId === examinerId).length;
+    }
+    return queue.length;
   }
 
   public addToPendingSync(item: TahsinPendingSyncItem): void {
@@ -595,7 +599,87 @@ export class TahsinService {
     // 2. Coba Sinkronisasi ke Supabase Server
     try {
       if (supabase && (typeof navigator === 'undefined' || navigator.onLine)) {
-        // Cek apakah ada konflik konkurensi di server terlebih dahulu
+        // A. Coba panggil RPC atomic save_tahsin_attempt_secure jika kredensial pengguna tersedia
+        if (currentUser?.username && currentUser?.password) {
+          try {
+            const { data: rpcRes, error: rpcErr } = await supabase.rpc('save_tahsin_attempt_secure', {
+              p_username: currentUser.username,
+              p_password: currentUser.password,
+              p_session_id: updatedSession.id,
+              p_attempt_id: updatedAttempt.id,
+              p_expected_version: session.version || 1,
+              p_is_finalize: isFinalize,
+              p_attempt_data: {
+                finalScore: updatedAttempt.finalScore,
+                predikat: updatedAttempt.predikat,
+                passingStatus: updatedAttempt.passingStatus,
+                attemptNumber: updatedAttempt.attemptNumber,
+                attemptType: updatedAttempt.attemptType,
+                examDate: updatedAttempt.examDate,
+                reading: updatedAttempt.reading,
+                makharij: updatedAttempt.makharij,
+                tajwid: updatedAttempt.tajwid,
+                kelancaran: updatedAttempt.kelancaran,
+                waqaf: updatedAttempt.waqaf,
+                hasCriticalError: updatedAttempt.hasCriticalError,
+                criticalErrorReason: updatedAttempt.criticalErrorReason,
+                errorCounts: updatedAttempt.errorCounts || {},
+                coachingNotes: updatedAttempt.coachingNotes
+              }
+            });
+
+            if (!rpcErr && rpcRes) {
+              if (rpcRes.conflict) {
+                conflictDetected = true;
+                syncStatus = 'sync_failed';
+                updatedSession.syncStatus = 'sync_failed';
+                updatedAttempt.syncStatus = 'sync_failed';
+                this.saveLocalSessions(this.getLocalSessions().map(s => s.id === updatedSession.id ? updatedSession : s));
+
+                return {
+                  success: false,
+                  savedToServer: false,
+                  syncStatus: 'sync_failed',
+                  conflictDetected: true,
+                  serverVersion: rpcRes.server_version,
+                  session: updatedSession,
+                  attempt: updatedAttempt,
+                  message: rpcRes.message || 'Konflik konkurensi terdeteksi di server database.'
+                };
+              }
+
+              if (rpcRes.success) {
+                savedToServer = true;
+                syncStatus = 'synced_server';
+                updatedSession.syncStatus = 'synced_server';
+                updatedSession.version = rpcRes.server_version || nextVersion;
+                updatedAttempt.syncStatus = 'synced_server';
+                updatedAttempt.version = rpcRes.server_version || nextVersion;
+
+                this.removeFromPendingSync(updatedAttempt.id);
+                const finalSessions = this.getLocalSessions();
+                const fIdx = finalSessions.findIndex(s => s.id === updatedSession.id);
+                if (fIdx >= 0) {
+                  finalSessions[fIdx] = updatedSession;
+                  this.saveLocalSessions(finalSessions);
+                }
+
+                return {
+                  success: true,
+                  savedToServer: true,
+                  syncStatus: 'synced_server',
+                  session: updatedSession,
+                  attempt: updatedAttempt,
+                  message: rpcRes.message || 'Ujian Tahsin berhasil disahkan dan tersimpan di database server!'
+                };
+              }
+            }
+          } catch (rpcEx) {
+            // Jika RPC belum ada di database, lanjut ke fallback direct table upsert
+          }
+        }
+
+        // B. Fallback: Cek apakah ada konflik konkurensi di server terlebih dahulu
         const { data: serverSession } = await supabase
           .from('tahsin_sessions')
           .select('version, status, last_updated_by')
@@ -773,6 +857,12 @@ export class TahsinService {
 
     // Maksimal percobaan per item dengan batas retry
     for (const item of queue) {
+      // 1. Validasi Kepemilikan Data Antarakun (Item 4.H)
+      // Guru yang sedang login hanya boleh menyinkronkan antrean miliknya sendiri (kecuali admin)
+      if (currentUser && currentUser.role !== 'admin' && item.examinerId !== currentUser.id) {
+        continue;
+      }
+
       if (item.retryCount >= 5) {
         result.failed++;
         result.details.push({ id: item.attemptId, status: 'max_retries_exceeded', error: item.lastError });

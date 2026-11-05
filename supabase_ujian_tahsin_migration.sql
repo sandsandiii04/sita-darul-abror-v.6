@@ -418,33 +418,36 @@ BEGIN
         'message', CASE WHEN p_is_finalize THEN 'Ujian Tahsin berhasil disahkan dan tersimpan di database server.' ELSE 'Draft ujian berhasil disimpan di database server.' END
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- 7. KEBIJAKAN ROW LEVEL SECURITY (RLS) AMAN
+-- Berikan izin eksekusi RPC ke peran authenticated dan anon (gateway API SITA)
+GRANT EXECUTE ON FUNCTION save_tahsin_attempt_secure TO authenticated, anon;
+
+-- 7. KEBIJAKAN ROW LEVEL SECURITY (RLS) AMAN (KOMPATIBEL DENGAN SISTEM AUTENTIKASI SITA)
 ALTER TABLE tahsin_periods ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_examiners ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Kebijakan Selektif:
--- tahsin_periods: Read untuk semua authenticated/anon (publik jadwal), write hanya admin
+-- Kebijakan Pembacaan (SELECT):
+-- Diizinkan untuk publik/terautentikasi agar guru dan admin dapat memuat jadwal dan daftar peserta
 DROP POLICY IF EXISTS tahsin_periods_select ON tahsin_periods;
 CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (true);
 
-DROP POLICY IF EXISTS tahsin_periods_admin ON tahsin_periods;
-CREATE POLICY tahsin_periods_admin ON tahsin_periods FOR ALL 
-USING (EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin'))
-WITH CHECK (EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin'));
+DROP POLICY IF EXISTS tahsin_examiners_select ON tahsin_examiners;
+CREATE POLICY tahsin_examiners_select ON tahsin_examiners FOR SELECT USING (true);
 
--- tahsin_sessions & attempts: Akses baca untuk admin dan guru halaqah
 DROP POLICY IF EXISTS tahsin_sessions_select ON tahsin_sessions;
 CREATE POLICY tahsin_sessions_select ON tahsin_sessions FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS tahsin_attempts_select ON tahsin_attempts;
 CREATE POLICY tahsin_attempts_select ON tahsin_attempts FOR SELECT USING (true);
 
--- tahsin_audit_logs: Hanya admin yang dapat melihat audit log
-DROP POLICY IF EXISTS tahsin_audit_admin ON tahsin_audit_logs;
-CREATE POLICY tahsin_audit_admin ON tahsin_audit_logs FOR SELECT 
-USING (EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin'));
+DROP POLICY IF EXISTS tahsin_audit_select ON tahsin_audit_logs;
+CREATE POLICY tahsin_audit_select ON tahsin_audit_logs FOR SELECT USING (true);
+
+-- Catatan Keamanan:
+-- Seluruh mutasi kritis (INSERT / UPDATE nilai) diproteksi melalui RPC save_tahsin_attempt_secure
+-- yang memvalidasi username, password, peran, hak akses penguji, dan versi konkurensi di server.
+
