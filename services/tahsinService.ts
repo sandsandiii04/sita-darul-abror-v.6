@@ -610,6 +610,15 @@ export class TahsinService {
               p_expected_version: session.version || 1,
               p_is_finalize: isFinalize,
               p_attempt_data: {
+                sessionData: {
+                  periodId: updatedSession.periodId,
+                  studentId: updatedSession.studentId,
+                  studentNameSnapshot: updatedSession.studentNameSnapshot,
+                  classSnapshot: updatedSession.classSnapshot,
+                  halaqahSnapshot: updatedSession.halaqahSnapshot,
+                  targetJuzStart: updatedSession.targetJuzStart,
+                  targetJuzEnd: updatedSession.targetJuzEnd
+                },
                 finalScore: updatedAttempt.finalScore,
                 predikat: updatedAttempt.predikat,
                 passingStatus: updatedAttempt.passingStatus,

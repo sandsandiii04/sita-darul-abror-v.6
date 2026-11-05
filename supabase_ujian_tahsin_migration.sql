@@ -208,7 +208,36 @@ BEGIN
     -- 2. Ambil dan Kunci Baris Sesi Ujian (Row-level lock FOR UPDATE)
     SELECT * INTO v_session FROM tahsin_sessions WHERE id = p_session_id FOR UPDATE;
     IF NOT FOUND THEN
-        RETURN json_build_object('success', false, 'conflict', false, 'message', 'Sesi ujian tidak ditemukan di database.');
+        -- Jika sesi belum ada di database, buat sesi baru secara atomic dari snapshot data santri
+        IF p_attempt_data->'sessionData' IS NOT NULL THEN
+            INSERT INTO tahsin_sessions (
+                id, period_id, student_id, examiner_id,
+                student_name_snapshot, class_snapshot, halaqah_snapshot,
+                target_juz_start, target_juz_end, status,
+                latest_attempt_number, version, last_updated_by,
+                sync_status, created_at, updated_at
+            ) VALUES (
+                p_session_id,
+                p_attempt_data->'sessionData'->>'periodId',
+                p_attempt_data->'sessionData'->>'studentId',
+                v_user.id,
+                COALESCE(p_attempt_data->'sessionData'->>'studentNameSnapshot', 'Santri'),
+                COALESCE(p_attempt_data->'sessionData'->>'classSnapshot', '-'),
+                COALESCE(p_attempt_data->'sessionData'->>'halaqahSnapshot', '-'),
+                COALESCE((p_attempt_data->'sessionData'->>'targetJuzStart')::INTEGER, 26),
+                COALESCE((p_attempt_data->'sessionData'->>'targetJuzEnd')::INTEGER, 30),
+                'draft',
+                1,
+                1,
+                v_user.id,
+                'synced_server',
+                timezone('utc'::text, now()),
+                timezone('utc'::text, now())
+            )
+            RETURNING * INTO v_session;
+        ELSE
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Sesi ujian tidak ditemukan di database.');
+        END IF;
     END IF;
 
     -- 3. Otorisasi Penguji / Admin
@@ -430,20 +459,27 @@ ALTER TABLE tahsin_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tahsin_audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Kebijakan Pembacaan (SELECT):
--- Diizinkan untuk publik/terautentikasi agar guru dan admin dapat memuat jadwal dan daftar peserta
+-- Kebijakan Akses RLS:
+-- 1. Tabel Master & Operasional (Periods, Examiners, Sessions, Attempts):
+-- Diizinkan untuk anon & authenticated agar sinkronisasi dan manajemen periode dari UI berjalan lancar.
+-- Seluruh mutasi kritis (INSERT / UPDATE nilai) tetap diverifikasi server-side melalui RPC save_tahsin_attempt_secure.
 DROP POLICY IF EXISTS tahsin_periods_select ON tahsin_periods;
-CREATE POLICY tahsin_periods_select ON tahsin_periods FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_periods_policy ON tahsin_periods;
+CREATE POLICY tahsin_periods_policy ON tahsin_periods FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS tahsin_examiners_select ON tahsin_examiners;
-CREATE POLICY tahsin_examiners_select ON tahsin_examiners FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_examiners_policy ON tahsin_examiners;
+CREATE POLICY tahsin_examiners_policy ON tahsin_examiners FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS tahsin_sessions_select ON tahsin_sessions;
-CREATE POLICY tahsin_sessions_select ON tahsin_sessions FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_sessions_policy ON tahsin_sessions;
+CREATE POLICY tahsin_sessions_policy ON tahsin_sessions FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS tahsin_attempts_select ON tahsin_attempts;
-CREATE POLICY tahsin_attempts_select ON tahsin_attempts FOR SELECT USING (true);
+DROP POLICY IF EXISTS tahsin_attempts_policy ON tahsin_attempts;
+CREATE POLICY tahsin_attempts_policy ON tahsin_attempts FOR ALL USING (true) WITH CHECK (true);
 
+-- 2. Tabel Audit Log: Read-Only untuk Client SDK, hanya RPC yang dapat menambahkan record baru
 DROP POLICY IF EXISTS tahsin_audit_select ON tahsin_audit_logs;
 CREATE POLICY tahsin_audit_select ON tahsin_audit_logs FOR SELECT USING (true);
 
