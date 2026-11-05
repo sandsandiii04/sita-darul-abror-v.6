@@ -326,6 +326,25 @@ BEGIN
         v_attempt_type := 'remedial';
     END IF;
 
+    -- Validasi Ketat Ketentuan Remedial SITA:
+    -- Remedial normal hanya untuk santri yang berstatus perlu remedial (final_status = 'remedial').
+    -- Santri yang sudah LULUS tidak boleh diremedial kecuali dengan persetujuan Admin disertai alasan tertulis!
+    IF v_attempt_type = 'remedial' AND v_session.final_status = 'lulus' THEN
+        IF v_user.role != 'admin' THEN
+            RETURN json_build_object(
+                'success', false, 
+                'conflict', false, 
+                'message', 'Santri telah dinyatakan LULUS pada ujian sebelumnya. Ujian remedial/ulang hanya dapat dibuka melalui wewenang Admin dengan alasan tercatat.'
+            );
+        ELSIF p_reason IS NULL OR trim(p_reason) = '' THEN
+            RETURN json_build_object(
+                'success', false, 
+                'conflict', false, 
+                'message', 'Wewenang Admin: Ujian ulang untuk santri yang sudah lulus wajib menyertakan alasan tertulis (p_reason).'
+            );
+        END IF;
+    END IF;
+
     -- 6. Periksa Percobaan yang Sudah Ada & Aturan Perubahan Nilai Setelah Disahkan
     SELECT * INTO v_existing_attempt FROM tahsin_attempts WHERE id = p_attempt_id;
     IF FOUND AND v_existing_attempt.status = 'finalized' AND v_user.role != 'admin' THEN
@@ -598,7 +617,55 @@ BEGIN
     END IF; 
 END $$;
 
--- 8. RPC PEMBACAAN DATA SESI & NILAI TAHSIN SECARA AMAN (ROLE-BASED ACCESS CONTROL)
+-- 8. RPC ATOMIC PENUGASAN PENGUJI (ADMIN ONLY)
+CREATE OR REPLACE FUNCTION save_tahsin_examiner_assignment_secure(
+    p_username TEXT,
+    p_password TEXT,
+    p_period_id TEXT,
+    p_teacher_id TEXT,
+    p_classes TEXT[],
+    p_halaqahs TEXT[]
+)
+RETURNS JSON AS $$
+DECLARE
+    v_user RECORD;
+    v_id TEXT;
+BEGIN
+    SELECT * INTO v_user FROM users 
+    WHERE username = p_username 
+      AND (password = p_password OR password = crypt(p_password, password));
+      
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'message', 'Autentikasi gagal: Username atau password salah.');
+    END IF;
+
+    IF v_user.role != 'admin' THEN
+        RETURN json_build_object('success', false, 'message', 'Akses ditolak: Hanya Admin yang dapat menugaskan penguji.');
+    END IF;
+
+    v_id := 'te_' || p_period_id || '_' || p_teacher_id;
+
+    INSERT INTO tahsin_examiners (
+        id, period_id, teacher_id, assigned_classes, assigned_halaqahs, created_at
+    ) VALUES (
+        v_id, p_period_id, p_teacher_id, p_classes, p_halaqahs, timezone('utc'::text, now())
+    )
+    ON CONFLICT (period_id, teacher_id) DO UPDATE SET
+        assigned_classes = EXCLUDED.assigned_classes,
+        assigned_halaqahs = EXCLUDED.assigned_halaqahs;
+
+    RETURN json_build_object('success', true, 'message', 'Penugasan penguji berhasil disimpan.');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DO $$ 
+BEGIN 
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN 
+        EXECUTE 'GRANT EXECUTE ON FUNCTION save_tahsin_examiner_assignment_secure TO authenticated, anon'; 
+    END IF; 
+END $$;
+
+-- 9. RPC PEMBACAAN DATA SESI & NILAI TAHSIN SECARA AMAN (ROLE-BASED ACCESS CONTROL)
 -- Menolak akses publik/anonim dan membatasi pembacaan data sesuai peran pengguna
 CREATE OR REPLACE FUNCTION get_tahsin_sessions_secure(
     p_username TEXT,
