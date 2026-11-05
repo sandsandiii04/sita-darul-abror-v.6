@@ -523,7 +523,7 @@ BEGIN
         'message', CASE WHEN p_is_finalize THEN 'Ujian Tahsin berhasil disahkan dan tersimpan di database server.' ELSE 'Draft ujian berhasil disimpan di database server.' END
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp;
 
 -- Berikan izin eksekusi RPC ke peran authenticated dan anon (gateway API Supabase/SITA jika role ada)
 DO $$ 
@@ -582,9 +582,9 @@ BEGIN
         v_period_id,
         p_period_data->>'name',
         p_period_data->>'academicYear',
-        p_period_data->>'semester',
-        (p_period_data->>'startDate')::DATE,
-        (p_period_data->>'endDate')::DATE,
+        LOWER(TRIM(p_period_data->>'semester')),
+        COALESCE((p_period_data->>'startDate')::DATE, CURRENT_DATE),
+        COALESCE((p_period_data->>'endDate')::DATE, CURRENT_DATE + 30),
         COALESCE(p_period_data->>'status', 'draft'),
         COALESCE((p_period_data->>'passingGrade')::NUMERIC, 80),
         COALESCE((p_period_data->>'minMakharij')::NUMERIC, 75),
@@ -608,7 +608,7 @@ BEGIN
 
     RETURN json_build_object('success', true, 'message', 'Periode ujian Tahsin berhasil disimpan.');
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp;
 
 DO $$ 
 BEGIN 
@@ -656,7 +656,7 @@ BEGIN
 
     RETURN json_build_object('success', true, 'message', 'Penugasan penguji berhasil disimpan.');
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp;
 
 DO $$ 
 BEGIN 
@@ -787,7 +787,7 @@ BEGIN
 
     RETURN json_build_object('success', true, 'data', v_result);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp;
 
 DO $$ 
 BEGIN 
