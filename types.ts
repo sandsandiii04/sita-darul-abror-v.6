@@ -1272,6 +1272,43 @@ export interface TahsinErrorCounters {
   lainnya: number;
 }
 
+export type TahsinSyncStatus = 'synced_server' | 'pending_sync' | 'sync_failed' | 'draft_local';
+
+export interface TahsinSaveResult {
+  success: boolean; // TRUE only if confirmed by server OR explicitly marked as saved local draft
+  savedToServer: boolean; // TRUE only if Supabase confirmed
+  syncStatus: TahsinSyncStatus;
+  session: TahsinSession;
+  attempt: TahsinAttempt;
+  conflictDetected?: boolean;
+  serverVersion?: number;
+  message: string;
+}
+
+export interface TahsinPendingSyncItem {
+  id: string;
+  sessionId: string;
+  attemptId: string;
+  studentId: string;
+  studentName: string;
+  periodId: string;
+  examinerId: string;
+  examinerUsername?: string;
+  attemptNumber: number;
+  attemptType: 'utama' | 'remedial';
+  finalScore: number;
+  predikat: string;
+  passingStatus: TahsinPassingStatus;
+  payload: {
+    session: TahsinSession;
+    attempt: TahsinAttempt;
+  };
+  retryCount: number;
+  lastAttemptAt: string;
+  lastError?: string;
+  createdAt: string;
+}
+
 export interface TahsinAttempt {
   id: string;
   sessionId: string;
@@ -1305,6 +1342,8 @@ export interface TahsinAttempt {
   coachingNotes?: string;
   
   status: 'draft' | 'finalized';
+  syncStatus?: TahsinSyncStatus;
+  version?: number;
   finalizedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -1324,6 +1363,9 @@ export interface TahsinSession {
   finalScore?: number;
   predikat?: string;
   passingStatus?: TahsinPassingStatus;
+  syncStatus?: TahsinSyncStatus;
+  version?: number;
+  lastUpdatedBy?: string;
   latestAttemptNumber: number;
   attempts?: TahsinAttempt[];
   createdAt: string;

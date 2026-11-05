@@ -37,7 +37,11 @@ import {
   Sparkles,
   ArrowLeft,
   Sliders,
-  Check
+  Check,
+  Cloud,
+  CloudOff,
+  UploadCloud,
+  RefreshCw
 } from 'lucide-react';
 
 interface TahsinExamSheetProps {
@@ -268,9 +272,25 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
         updatedAt: new Date().toISOString()
       };
 
-      await tahsinService.saveAttempt(session, newAttempt, isFinal);
-      alert(isFinal ? 'Ujian Tahsin berhasil disahkan!' : 'Draft ujian berhasil disimpan.');
-      onSuccess();
+      const result = await tahsinService.saveAttempt(session, newAttempt, isFinal, user);
+      if (isFinal) {
+        if (result.savedToServer) {
+          alert('Ujian Tahsin BERHASIL DISAHKAN dan telah tersimpan di server database pusat!');
+          onSuccess();
+        } else if (result.conflictDetected) {
+          alert(`PERINGATAN KONFLIK KONKURENSI:\n${result.message}`);
+        } else {
+          alert(
+            `PERINGATAN: ${result.message}\n\n` +
+            `Nilai tersimpan AMAN di memori perangkat lokal sebagai ANTRIAN SINKRONISASI.\n` +
+            `Silakan lakukan "Sinkronisasi Ulang" saat koneksi internet server kembali stabil.`
+          );
+          onSuccess();
+        }
+      } else {
+        alert(result.message);
+        onSuccess();
+      }
     } catch (e: any) {
       console.error('Gagal menyimpan ujian tahsin:', e);
       alert(`Terjadi kesalahan: ${e.message || 'Gagal menyimpan data.'}`);
@@ -334,6 +354,29 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
             <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-extrabold border ${isCompleteForm ? predikatInfo.bg + ' ' + predikatInfo.color + ' ' + predikatInfo.border : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
               {isCompleteForm ? predikatInfo.predikat : 'Belum Lengkap'}
             </span>
+          </div>
+
+          <div className="h-8 w-px bg-slate-200" />
+
+          {/* Badge Status Sinkronisasi */}
+          <div className="hidden sm:flex items-center">
+            {session.syncStatus === 'synced_server' ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200" title="Data telah tersinkronkan ke server cloud">
+                <Cloud size={13} /> Cloud OK
+              </span>
+            ) : session.syncStatus === 'sync_failed' ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200" title="Gagal sinkronisasi cloud. Data aman di perangkat lokal">
+                <CloudOff size={13} /> Belum Sync
+              </span>
+            ) : session.syncStatus === 'pending_sync' ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200" title="Menunggu sinkronisasi ke server">
+                <UploadCloud size={13} /> Antrean Sync
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200" title="Draft lokal di perangkat ini">
+                <Save size={13} /> Draft Lokal
+              </span>
+            )}
           </div>
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
@@ -1012,3 +1055,4 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
 };
 
 export default TahsinExamSheet;
+

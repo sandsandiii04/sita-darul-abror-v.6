@@ -21,7 +21,10 @@ import {
   Users, 
   ChevronRight,
   RotateCcw,
-  RefreshCw
+  RefreshCw,
+  Cloud,
+  CloudOff,
+  UploadCloud
 } from 'lucide-react';
 
 interface TahsinPelaksanaanViewProps {
@@ -34,7 +37,7 @@ interface TahsinPelaksanaanViewProps {
 export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   user,
   students,
-  teachers,
+  teachers = [],
   users
 }) => {
   const allTeachers = teachers || users || [];
@@ -55,10 +58,33 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   const [activeAttemptType, setActiveAttemptType] = useState<'utama' | 'remedial'>('utama');
   const [activeAttemptNumber, setActiveAttemptNumber] = useState<number>(1);
 
+  // Sync Queue State
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  const checkPendingSync = () => {
+    setPendingSyncCount(tahsinService.getPendingSyncCount());
+  };
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await tahsinService.syncPendingAttempts(user);
+      alert(`Hasil Sinkronisasi Cloud:\n- Berhasil: ${res.succeeded}\n- Konflik: ${res.conflicts}\n- Gagal: ${res.failed}\n- Sisa Antrean: ${tahsinService.getPendingSyncCount()}`);
+      await loadData();
+    } catch (err: any) {
+      alert(`Terjadi kendala saat sinkronisasi: ${err.message || 'Koneksi gagal'}`);
+    } finally {
+      setIsSyncing(false);
+      checkPendingSync();
+    }
+  };
+
   // Load Periods
   const loadData = async () => {
     setIsLoading(true);
     try {
+      checkPendingSync();
       const fetchedPeriods = await tahsinService.fetchPeriods();
       setPeriods(fetchedPeriods);
 
@@ -68,7 +94,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
         const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id);
         if (fetchedSessions.length === 0) {
           // Inisialisasi otomatis jika belum ada peserta
-          const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers);
+          const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, teachers);
           setSessions(initialized);
         } else {
           setSessions(fetchedSessions);
@@ -93,7 +119,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
       const targetPeriod = periods.find(p => p.id === newPeriodId);
       const fetched = await tahsinService.fetchSessions(newPeriodId);
       if (fetched.length === 0 && targetPeriod) {
-        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, allTeachers);
+        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, teachers);
         setSessions(initialized);
       } else {
         setSessions(fetched);
@@ -246,6 +272,33 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
         </div>
       </div>
 
+      {/* Pending Sync Alert Banner */}
+      {pendingSyncCount > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+              <UploadCloud size={20} />
+            </span>
+            <div>
+              <h4 className="text-xs font-bold text-amber-900">
+                Peringatan: {pendingSyncCount} Data Ujian Belum Tersinkronkan ke Database Server
+              </h4>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                Nilai tersimpan aman di perangkat ini. Klik tombol di samping untuk mengirimkan antrean ke server cloud saat internet stabil.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition disabled:opacity-50 self-start sm:self-auto flex-shrink-0"
+          >
+            <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+            {isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}
+          </button>
+        </div>
+      )}
+
       {/* Progress & Quick Stats Card */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-sm text-center">
@@ -391,6 +444,22 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
                             <AlertTriangle size={12} /> Perlu Remedial
                           </span>
                         )}
+                        {/* Status Sinkronisasi Server */}
+                        <div className="mt-1 flex items-center justify-center">
+                          {session.syncStatus === 'synced_server' ? (
+                            <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1" title="Tersimpan di Cloud Server">
+                              <Cloud size={10} /> Cloud OK
+                            </span>
+                          ) : session.syncStatus === 'sync_failed' ? (
+                            <span className="text-[9px] text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 flex items-center gap-1 font-bold" title="Belum tersinkronkan ke server">
+                              <CloudOff size={10} /> Belum Sync
+                            </span>
+                          ) : session.syncStatus === 'pending_sync' ? (
+                            <span className="text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1" title="Dalam antrean sinkronisasi">
+                              <UploadCloud size={10} /> Antrean Sync
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="p-3 text-center font-black text-slate-800">
                         {session.finalScore !== undefined ? session.finalScore.toFixed(2) : '-'}
@@ -451,3 +520,4 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
 };
 
 export default TahsinPelaksanaanView;
+

@@ -8,6 +8,9 @@ import {
   TahsinMonitoringStats,
   TahsinAspectScore,
   TahsinErrorCounters,
+  TahsinSyncStatus,
+  TahsinSaveResult,
+  TahsinPendingSyncItem,
   User,
   Student
 } from '../types';
@@ -327,6 +330,39 @@ export class TahsinService {
     return { success: true, data: period };
   }
 
+  // ================= PENDING SYNC QUEUE MANAGEMENT =================
+  public getPendingSyncQueue(): TahsinPendingSyncItem[] {
+    try {
+      const raw = localStorage.getItem(this.getStorageKey('pending_sync'));
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return [];
+  }
+
+  public savePendingSyncQueue(queue: TahsinPendingSyncItem[]): void {
+    localStorage.setItem(this.getStorageKey('pending_sync'), JSON.stringify(queue));
+  }
+
+  public getPendingSyncCount(): number {
+    return this.getPendingSyncQueue().length;
+  }
+
+  public addToPendingSync(item: TahsinPendingSyncItem): void {
+    const queue = this.getPendingSyncQueue();
+    const idx = queue.findIndex(q => q.attemptId === item.attemptId);
+    if (idx >= 0) {
+      queue[idx] = item;
+    } else {
+      queue.push(item);
+    }
+    this.savePendingSyncQueue(queue);
+  }
+
+  public removeFromPendingSync(attemptId: string): void {
+    const queue = this.getPendingSyncQueue().filter(q => q.attemptId !== attemptId);
+    this.savePendingSyncQueue(queue);
+  }
+
   // Sesi Ujian (Sessions & Attempts)
   public getLocalSessions(): TahsinSession[] {
     try {
@@ -363,13 +399,35 @@ export class TahsinService {
             finalScore: d.final_score ? Number(d.final_score) : undefined,
             predikat: d.predikat,
             passingStatus: d.final_status,
+            syncStatus: 'synced_server',
+            version: d.version || 1,
+            lastUpdatedBy: d.last_updated_by,
             latestAttemptNumber: d.latest_attempt_number || 1,
             attempts: (d.attempts || []).map((a: any) => this.mapAttemptFromDb(a)),
             createdAt: d.created_at,
             updatedAt: d.updated_at
           }));
-          this.saveLocalSessions(mapped);
-          return mapped;
+
+          // PENTING: Proteksi Local Draft & Pending Sync
+          // Jangan menimpa sesi lokal yang masih dalam status pending_sync / sync_failed
+          const localSessions = this.getLocalSessions();
+          const pendingQueue = this.getPendingSyncQueue();
+          const merged: TahsinSession[] = [...mapped];
+
+          localSessions.forEach(ls => {
+            const hasPending = pendingQueue.some(pq => pq.sessionId === ls.id);
+            if (hasPending || ls.syncStatus === 'pending_sync' || ls.syncStatus === 'sync_failed') {
+              const idx = merged.findIndex(m => m.id === ls.id);
+              if (idx >= 0) {
+                merged[idx] = { ...ls, syncStatus: ls.syncStatus || 'pending_sync' };
+              } else {
+                merged.unshift(ls);
+              }
+            }
+          });
+
+          this.saveLocalSessions(merged);
+          return periodId ? merged.filter(s => s.periodId === periodId) : merged;
         }
       }
     } catch (e) {
@@ -429,21 +487,33 @@ export class TahsinService {
       errorCounts: a.error_counts || undefined,
       coachingNotes: a.coaching_notes,
       status: a.status,
+      syncStatus: 'synced_server',
+      version: a.version || 1,
       finalizedAt: a.finalized_at,
       createdAt: a.created_at,
       updatedAt: a.updated_at
     };
   }
-
-  // Menyimpan Percobaan Ujian (Draft atau Final)
+  // Menyimpan Percobaan Ujian (Draft atau Final) secara Aman & Idempoten
   public async saveAttempt(
     session: TahsinSession,
     attempt: TahsinAttempt,
-    isFinalize: boolean = false
-  ): Promise<{ success: boolean; session: TahsinSession; attempt: TahsinAttempt }> {
+    isFinalize: boolean = false,
+    currentUser?: User
+  ): Promise<TahsinSaveResult> {
+    const nextVersion = (session.version || 1) + 1;
+    let syncStatus: TahsinSyncStatus = isFinalize ? 'pending_sync' : 'draft_local';
+    let savedToServer = false;
+    let conflictDetected = false;
+    let returnMessage = isFinalize 
+      ? 'Menyimpan ujian tahsin...' 
+      : 'Draft ujian berhasil disimpan di perangkat lokal.';
+
     const updatedAttempt: TahsinAttempt = {
       ...attempt,
       status: isFinalize ? 'finalized' : 'draft',
+      syncStatus,
+      version: nextVersion,
       finalizedAt: isFinalize ? (attempt.finalizedAt || new Date().toISOString()) : undefined,
       updatedAt: new Date().toISOString()
     };
@@ -478,12 +548,15 @@ export class TahsinService {
       passingStatus,
       finalScore,
       predikat,
+      syncStatus,
+      version: nextVersion,
+      lastUpdatedBy: currentUser?.id || updatedAttempt.examinerId,
       latestAttemptNumber: Math.max(session.latestAttemptNumber || 1, updatedAttempt.attemptNumber),
       attempts: existingAttempts,
       updatedAt: new Date().toISOString()
     };
 
-    // Update Local Cache
+    // 1. Simpan ke LocalStorage terlebih dahulu agar data di perangkat penguji 100% AMAN
     const sessions = this.getLocalSessions();
     const sIdx = sessions.findIndex(s => s.id === updatedSession.id);
     if (sIdx >= 0) {
@@ -493,11 +566,64 @@ export class TahsinService {
     }
     this.saveLocalSessions(sessions);
 
-    // Sync to Supabase
+    // Jika finalisasi, masukkan ke antrean pending_sync
+    if (isFinalize) {
+      this.addToPendingSync({
+        id: `ps_${updatedAttempt.id}`,
+        sessionId: updatedSession.id,
+        attemptId: updatedAttempt.id,
+        studentId: updatedSession.studentId,
+        studentName: updatedSession.studentNameSnapshot,
+        periodId: updatedSession.periodId,
+        examinerId: updatedAttempt.examinerId,
+        examinerUsername: currentUser?.username,
+        attemptNumber: updatedAttempt.attemptNumber,
+        attemptType: updatedAttempt.attemptType,
+        finalScore: updatedAttempt.finalScore,
+        predikat: updatedAttempt.predikat,
+        passingStatus: updatedAttempt.passingStatus,
+        payload: {
+          session: updatedSession,
+          attempt: updatedAttempt
+        },
+        retryCount: 0,
+        lastAttemptAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    // 2. Coba Sinkronisasi ke Supabase Server
     try {
-      if (supabase) {
-        // Upsert session
-        await supabase.from('tahsin_sessions').upsert({
+      if (supabase && (typeof navigator === 'undefined' || navigator.onLine)) {
+        // Cek apakah ada konflik konkurensi di server terlebih dahulu
+        const { data: serverSession } = await supabase
+          .from('tahsin_sessions')
+          .select('version, status, last_updated_by')
+          .eq('id', updatedSession.id)
+          .maybeSingle();
+
+        if (serverSession && serverSession.version > (session.version || 1)) {
+          // Deteksi konflik: Server telah diperbarui oleh penguji lain
+          conflictDetected = true;
+          syncStatus = 'sync_failed';
+          updatedSession.syncStatus = 'sync_failed';
+          updatedAttempt.syncStatus = 'sync_failed';
+          this.saveLocalSessions(this.getLocalSessions().map(s => s.id === updatedSession.id ? updatedSession : s));
+
+          return {
+            success: false,
+            savedToServer: false,
+            syncStatus: 'sync_failed',
+            conflictDetected: true,
+            serverVersion: serverSession.version,
+            session: updatedSession,
+            attempt: updatedAttempt,
+            message: 'Konflik konkurensi terdeteksi: Nilai santri ini telah diperbarui oleh penguji lain pada perangkat berbeda (Versi Server: ' + serverSession.version + '). Muat ulang data terbaru sebelum mengubah nilai.'
+          };
+        }
+
+        // Jalankan atomic upsert ke Supabase
+        const { error: errSession } = await supabase.from('tahsin_sessions').upsert({
           id: updatedSession.id,
           period_id: updatedSession.periodId,
           student_id: updatedSession.studentId,
@@ -512,11 +638,15 @@ export class TahsinService {
           predikat: updatedSession.predikat,
           final_status: updatedSession.passingStatus,
           latest_attempt_number: updatedSession.latestAttemptNumber,
+          version: nextVersion,
+          last_updated_by: currentUser?.id || updatedAttempt.examinerId,
+          sync_status: 'synced_server',
           updated_at: new Date().toISOString()
         });
 
-        // Upsert attempt
-        await supabase.from('tahsin_attempts').upsert({
+        if (errSession) throw errSession;
+
+        const { error: errAttempt } = await supabase.from('tahsin_attempts').upsert({
           id: updatedAttempt.id,
           session_id: updatedSession.id,
           attempt_number: updatedAttempt.attemptNumber,
@@ -549,15 +679,139 @@ export class TahsinService {
           error_counts: updatedAttempt.errorCounts || {},
           coaching_notes: updatedAttempt.coachingNotes,
           status: updatedAttempt.status,
+          version: nextVersion,
           finalized_at: updatedAttempt.finalizedAt,
           updated_at: new Date().toISOString()
         });
+
+        if (errAttempt) throw errAttempt;
+
+        // Berhasil disimpan di server!
+        savedToServer = true;
+        syncStatus = 'synced_server';
+        updatedSession.syncStatus = 'synced_server';
+        updatedAttempt.syncStatus = 'synced_server';
+
+        // Hapus dari antrean pending sync karena server telah mengonfirmasi
+        this.removeFromPendingSync(updatedAttempt.id);
+
+        // Update status di local cache
+        const finalSessions = this.getLocalSessions();
+        const fIdx = finalSessions.findIndex(s => s.id === updatedSession.id);
+        if (fIdx >= 0) {
+          finalSessions[fIdx] = updatedSession;
+          this.saveLocalSessions(finalSessions);
+        }
+
+        returnMessage = isFinalize 
+          ? 'Ujian Tahsin berhasil disahkan dan tersimpan di database server!'
+          : 'Draft ujian berhasil disimpan di database server.';
+
+        return {
+          success: true,
+          savedToServer: true,
+          syncStatus: 'synced_server',
+          session: updatedSession,
+          attempt: updatedAttempt,
+          message: returnMessage
+        };
       }
-    } catch (e) {
-      console.warn('Gagal sync attempt ke Supabase:', e);
+    } catch (e: any) {
+      console.warn('Gagal sinkronisasi ke Supabase server:', e);
+      syncStatus = isFinalize ? 'sync_failed' : 'draft_local';
+      updatedSession.syncStatus = syncStatus;
+      updatedAttempt.syncStatus = syncStatus;
+
+      // Update local sessions with failure status
+      const localSessions = this.getLocalSessions();
+      const lIdx = localSessions.findIndex(s => s.id === updatedSession.id);
+      if (lIdx >= 0) {
+        localSessions[lIdx] = updatedSession;
+        this.saveLocalSessions(localSessions);
+      }
+
+      returnMessage = isFinalize 
+        ? `Gagal menyimpan ke server database (${e.message || 'Koneksi terputus'}). Nilai tersimpan aman di perangkat lokal sebagai antrean sinkronisasi.`
+        : 'Draft ujian tersimpan di perangkat lokal (koneksi server tidak tersedia).';
+
+      return {
+        success: !isFinalize, // Draft lokal tetap success: true, tapi finalisasi server bernilai false jika server gagal!
+        savedToServer: false,
+        syncStatus,
+        session: updatedSession,
+        attempt: updatedAttempt,
+        message: returnMessage
+      };
     }
 
-    return { success: true, session: updatedSession, attempt: updatedAttempt };
+    return {
+      success: !isFinalize,
+      savedToServer: false,
+      syncStatus: isFinalize ? 'pending_sync' : 'draft_local',
+      session: updatedSession,
+      attempt: updatedAttempt,
+      message: returnMessage
+    };
+  }
+
+  // Sinkronisasi Ulang Antrean Tertunda (Manual atau saat Online)
+  public async syncPendingAttempts(
+    currentUser?: User
+  ): Promise<{ total: number; succeeded: number; failed: number; conflicts: number; details: any[] }> {
+    const queue = this.getPendingSyncQueue();
+    const result = {
+      total: queue.length,
+      succeeded: 0,
+      failed: 0,
+      conflicts: 0,
+      details: [] as any[]
+    };
+
+    if (queue.length === 0 || !supabase) {
+      return result;
+    }
+
+    // Maksimal percobaan per item dengan batas retry
+    for (const item of queue) {
+      if (item.retryCount >= 5) {
+        result.failed++;
+        result.details.push({ id: item.attemptId, status: 'max_retries_exceeded', error: item.lastError });
+        continue;
+      }
+
+      try {
+        const res = await this.saveAttempt(
+          item.payload.session,
+          item.payload.attempt,
+          true,
+          currentUser
+        );
+
+        if (res.savedToServer) {
+          result.succeeded++;
+          result.details.push({ id: item.attemptId, status: 'synced' });
+        } else if (res.conflictDetected) {
+          result.conflicts++;
+          result.details.push({ id: item.attemptId, status: 'conflict', message: res.message });
+        } else {
+          result.failed++;
+          item.retryCount++;
+          item.lastAttemptAt = new Date().toISOString();
+          item.lastError = res.message;
+          this.addToPendingSync(item);
+          result.details.push({ id: item.attemptId, status: 'failed', error: res.message });
+        }
+      } catch (err: any) {
+        result.failed++;
+        item.retryCount++;
+        item.lastAttemptAt = new Date().toISOString();
+        item.lastError = err.message || 'Network error';
+        this.addToPendingSync(item);
+        result.details.push({ id: item.attemptId, status: 'exception', error: err.message });
+      }
+    }
+
+    return result;
   }
 
   // Generate / Inisialisasi Peserta Ujian untuk Satu Periode
@@ -668,3 +922,4 @@ export class TahsinService {
 }
 
 export const tahsinService = TahsinService.getInstance();
+
