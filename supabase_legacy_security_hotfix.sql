@@ -1,14 +1,14 @@
 -- ============================================================================
 -- SITA (Sistem Informasi Tahfidz Al-Qur'an)
--- EMERGENCY SECURITY HOTFIX: PENUTUPAN CELAH AKSES ANONIM PADA TABEL LEGACY
+-- EMERGENCY SECURITY HOTFIX: PENUTUPAN PERMANEN AKSES ANONIM TABEL UTAMA
 -- File: supabase_legacy_security_hotfix.sql
--- Sifat: Idempoten, Non-Destruktif (Tidak mengubah atau menghapus data riil)
+-- Komitmen: Idempoten, 100% Non-Destruktif (Zero Data Loss)
 -- ============================================================================
 
 BEGIN;
 
 -- ----------------------------------------------------------------------------
--- 1. PEMBERSIHAN KEBIJAKAN RLS PERMISIF LAMA (YANG MEMBUKA AKSES ANONIM)
+-- 1. DROP SELURUH KEBIJAKAN RLS PERMISIF LAMA (CELAH AKSES ANONIM)
 -- ----------------------------------------------------------------------------
 
 -- A. Tabel users
@@ -38,7 +38,7 @@ DROP POLICY IF EXISTS "exams_deny_direct_access" ON public.exams;
 
 
 -- ----------------------------------------------------------------------------
--- 2. PASTIKAN ROW LEVEL SECURITY AKTIF PADA KELIMA TABEL
+-- 2. PASTIKAN ROW LEVEL SECURITY AKTIF PADA SEMUA TABEL UTAMA
 -- ----------------------------------------------------------------------------
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
@@ -48,9 +48,9 @@ ALTER TABLE public.exams ENABLE ROW LEVEL SECURITY;
 
 
 -- ----------------------------------------------------------------------------
--- 3. TERAPKAN KEBIJAKAN PENGUNCIAN AKSES LANGSUNG (LOCKDOWN DIRECT ACCESS)
---    Menolak seluruh pembacaan dan penulisan langsung via REST API anonim.
---    Seluruh operasional diarahkan 100% melalui RPC SECURITY DEFINER resmi.
+-- 3. TERAPKAN KEBIJAKAN ISOLASI TOTAL DARI REST API (LOCKDOWN DIRECT ACCESS)
+--    Menolak seluruh pembacaan langsung (SELECT) dan penulisan langsung
+--    (INSERT, UPDATE, DELETE) dari PostgREST / anonim / authenticated.
 -- ----------------------------------------------------------------------------
 CREATE POLICY users_deny_direct_access 
     ON public.users 
@@ -113,9 +113,9 @@ END $$;
 
 
 -- ----------------------------------------------------------------------------
--- 5. PASTIKAN IZIN EKSEKUSI RPC RESMI SITA TERSEDIA
---    RPC ini berstatus SECURITY DEFINER yang memeriksa kredensial pengguna
---    sebelum mengeksekusi operasi data.
+-- 5. PASTIKAN SELURUH RPC RESMI SITA MEMILIKI IZIN EKSEKUSI
+--    Fungsi RPC ini berjalan sebagai SECURITY DEFINER dengan otentikasi
+--    kredensial dan otorisasi role di level server.
 -- ----------------------------------------------------------------------------
 DO $$
 BEGIN
@@ -129,31 +129,3 @@ BEGIN
 END $$;
 
 COMMIT;
-
--- ============================================================================
--- PROSEDUR PEMULIHAN (ROLLBACK PROCEDURE) - JIKA DIPERLUKAN SECARA DARURAT:
--- ============================================================================
--- Apabila terdapat kebutuhan darurat mengembalikan konfigurasi RLS lama:
---
--- BEGIN;
--- DROP POLICY IF EXISTS users_deny_direct_access ON public.users;
--- DROP POLICY IF EXISTS students_deny_direct_access ON public.students;
--- DROP POLICY IF EXISTS records_deny_direct_access ON public.records;
--- DROP POLICY IF EXISTS attendance_deny_direct_access ON public.attendance;
--- DROP POLICY IF EXISTS exams_deny_direct_access ON public.exams;
---
--- CREATE POLICY "Allow Insert for Anon" ON public.users FOR INSERT TO authenticated, anon WITH CHECK (true);
--- CREATE POLICY "Allow Update for Anon" ON public.users FOR UPDATE TO authenticated, anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow Delete for Anon" ON public.users FOR DELETE TO authenticated, anon USING (true);
---
--- CREATE POLICY "Allow Insert for Anon" ON public.students FOR INSERT TO authenticated, anon WITH CHECK (true);
--- CREATE POLICY "Allow Update for Anon" ON public.students FOR UPDATE TO authenticated, anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow Delete for Anon" ON public.students FOR DELETE TO authenticated, anon USING (true);
---
--- CREATE POLICY "Akses Publik Anon" ON public.records FOR ALL TO authenticated, anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Akses Publik Anon" ON public.attendance FOR ALL TO authenticated, anon USING (true) WITH CHECK (true);
--- CREATE POLICY "Akses Publik Anon" ON public.exams FOR ALL TO authenticated, anon USING (true) WITH CHECK (true);
---
--- GRANT ALL ON public.users, public.students, public.records, public.attendance, public.exams TO anon, authenticated;
--- COMMIT;
--- ============================================================================
