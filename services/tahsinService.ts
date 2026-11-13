@@ -208,15 +208,15 @@ export class TahsinService {
     return { predikat: 'Perlu Pembinaan', arabic: 'بحاجة إلى متابعة', color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' };
   }
 
-  // 6. Penentuan Status Kelulusan
+  // 6. Penentuan Status Kelulusan (KKM Resmi: Nilai Akhir >= 70, Makharij >= 70, Tajwid >= 70)
   public evaluatePassing(
     finalScore: number,
     makharij: number,
     tajwid: number,
     hasCriticalError: boolean,
-    passingGrade: number = 80,
-    minMakharij: number = 75,
-    minTajwid: number = 75
+    passingGrade: number = 70,
+    minMakharij: number = 70,
+    minTajwid: number = 70
   ): TahsinPassingStatus {
     if (
       finalScore >= passingGrade &&
@@ -250,9 +250,9 @@ export class TahsinService {
       startDate: '2026-10-01',
       endDate: '2026-12-31',
       status: 'active',
-      passingGrade: 80,
-      minMakharij: 75,
-      minTajwid: 75,
+      passingGrade: 70,
+      minMakharij: 70,
+      minTajwid: 70,
       targetClasses: ['7A', '7B', '8A', '8B', '9A', '9B', '10', '11', '12'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -310,12 +310,13 @@ export class TahsinService {
 
     try {
       if (supabase) {
-        // Coba simpan via RPC aman save_tahsin_period_secure jika ada kredensial admin
-        if (currentUser?.username && currentUser?.password) {
+        // Coba simpan via RPC aman save_tahsin_period_secure jika ada kredensial admin (sessionToken / password)
+        const credential = currentUser?.sessionToken || currentUser?.password;
+        if (currentUser?.username && credential) {
           try {
             const { data: rpcRes, error: rpcErr } = await supabase.rpc('save_tahsin_period_secure', {
               p_username: currentUser.username,
-              p_password: currentUser.password,
+              p_password: credential,
               p_period_data: {
                 id: period.id,
                 name: period.name,
@@ -425,12 +426,13 @@ export class TahsinService {
           } catch (e) {}
         }
 
-        // Panggil RPC get_tahsin_sessions_secure dengan kredensial pengguna terautentikasi
-        if (activeUser?.username && activeUser?.password) {
+        // Panggil RPC get_tahsin_sessions_secure dengan kredensial pengguna terautentikasi (sessionToken atau password asli)
+        const credential = activeUser?.sessionToken || activeUser?.password;
+        if (activeUser?.username && credential) {
           try {
             const { data: rpcRes, error: rpcErr } = await supabase.rpc('get_tahsin_sessions_secure', {
               p_username: activeUser.username,
-              p_password: activeUser.password,
+              p_password: credential,
               p_period_id: periodId
             });
 
@@ -660,11 +662,12 @@ export class TahsinService {
     try {
       if (supabase && (typeof navigator === 'undefined' || navigator.onLine)) {
         // A. Coba panggil RPC atomic save_tahsin_attempt_secure jika kredensial pengguna tersedia
-        if (currentUser?.username && currentUser?.password) {
+        const credential = currentUser?.sessionToken || currentUser?.password;
+        if (currentUser?.username && credential) {
           try {
             const { data: rpcRes, error: rpcErr } = await supabase.rpc('save_tahsin_attempt_secure', {
               p_username: currentUser.username,
-              p_password: currentUser.password,
+              p_password: credential,
               p_session_id: updatedSession.id,
               p_attempt_id: updatedAttempt.id,
               p_expected_version: session.version || 1,

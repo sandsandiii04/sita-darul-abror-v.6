@@ -457,7 +457,10 @@ export const setSessionUser = (u: User | null) => {
   inMemoryUser = u;
   if (typeof window !== 'undefined') {
     if (u) {
-      safeSetLocalStorage('sita_current_user_v1', JSON.stringify(u));
+      // Keamanan: Hapus password / hash agar TIDAK PERNAH tersimpan di localStorage browser
+      const sanitized: User = { ...u };
+      delete sanitized.password;
+      safeSetLocalStorage('sita_current_user_v1', JSON.stringify(sanitized));
     } else {
       try {
         window.localStorage.removeItem('sita_current_user_v1');
@@ -562,7 +565,7 @@ export const api = {
       const dbData = mapAttendanceToDb(attendanceData);
       const { data, error } = await supabase.rpc('upsert_data', {
         p_username: u.username,
-        p_password: u.password,
+        p_password: u.sessionToken || u.password,
         p_table: 'attendance',
         p_data: dbData
       });
@@ -587,7 +590,7 @@ export const api = {
       const dbData = mapAttendanceOpenRequestToDb(reqData);
       const { data, error } = await supabase.rpc('upsert_data', {
         p_username: u.username,
-        p_password: u.password,
+        p_password: u.sessionToken || u.password,
         p_table: 'attendance_open_requests',
         p_data: dbData
       });
@@ -776,7 +779,7 @@ export const api = {
         // Ambil akun login aktif saat ini untuk otorisasi RPC
         const userCreds = getLoggedUser();
         const uName = userCreds?.username || '';
-        const uPass = userCreds?.password || '';
+        const uPass = userCreds?.sessionToken || userCreds?.password || '';
 
         const isTeacherQuickQR = item.action === 'markAttendance' && 
           item.data?.type === 'teacher' && 
@@ -969,7 +972,9 @@ export const api = {
           name: result.data.name,
           role: result.data.role,
           username: result.data.username,
-          password: result.data.password,
+          sessionToken: result.data.sessionToken || result.data.session_token,
+          // Keamanan: Password dan Bcrypt hash tidak disimpan di state/kredensial browser
+          password: undefined,
           phoneNumber: result.data.phoneNumber || result.data.phone_number,
           childId: result.data.childId || result.data.child_id,
           email: result.data.email,
@@ -1019,10 +1024,10 @@ export const api = {
         };
       }
 
-      // Jika login, load seluruh data secara aman lewat RPC menggunakan kredensial user
+      // Jika login, load seluruh data secara aman lewat RPC menggunakan kredensial session token user
       const { data: secureData, error: secureError } = await supabase.rpc('load_secure_data', {
         p_username: currentUser.username,
-        p_password: currentUser.password
+        p_password: currentUser.sessionToken || currentUser.password
       });
 
       if (secureError) throw secureError;

@@ -27,9 +27,9 @@ export const TahsinPeriodModal: React.FC<TahsinPeriodModalProps> = ({
   const [startDate, setStartDate] = useState<string>(periodToEdit?.startDate || new Date().toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState<string>(periodToEdit?.endDate || new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]);
   const [status, setStatus] = useState<'draft' | 'active' | 'closed'>(periodToEdit?.status || 'active');
-  const [passingGrade, setPassingGrade] = useState<number>(periodToEdit?.passingGrade ?? 80);
-  const [minMakharij, setMinMakharij] = useState<number>(periodToEdit?.minMakharij ?? 75);
-  const [minTajwid, setMinTajwid] = useState<number>(periodToEdit?.minTajwid ?? 75);
+  const [passingGrade, setPassingGrade] = useState<number>(periodToEdit?.passingGrade ?? 70);
+  const [minMakharij, setMinMakharij] = useState<number>(periodToEdit?.minMakharij ?? 70);
+  const [minTajwid, setMinTajwid] = useState<number>(periodToEdit?.minTajwid ?? 70);
   const [selectedClasses, setSelectedClasses] = useState<string[]>(periodToEdit?.targetClasses || availableClasses);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +176,7 @@ export const TahsinPeriodModal: React.FC<TahsinPeriodModalProps> = ({
                   min="0"
                   max="100"
                   value={passingGrade}
-                  onChange={(e) => setPassingGrade(parseFloat(e.target.value) || 80)}
+                  onChange={(e) => setPassingGrade(parseFloat(e.target.value) || 70)}
                   className="w-full p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-xs"
                 />
               </div>
@@ -187,7 +187,7 @@ export const TahsinPeriodModal: React.FC<TahsinPeriodModalProps> = ({
                   min="0"
                   max="100"
                   value={minMakharij}
-                  onChange={(e) => setMinMakharij(parseFloat(e.target.value) || 75)}
+                  onChange={(e) => setMinMakharij(parseFloat(e.target.value) || 70)}
                   className="w-full p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-xs"
                 />
               </div>
@@ -198,7 +198,7 @@ export const TahsinPeriodModal: React.FC<TahsinPeriodModalProps> = ({
                   min="0"
                   max="100"
                   value={minTajwid}
-                  onChange={(e) => setMinTajwid(parseFloat(e.target.value) || 75)}
+                  onChange={(e) => setMinTajwid(parseFloat(e.target.value) || 70)}
                   className="w-full p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-xs"
                 />
               </div>

@@ -711,7 +711,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                   <div className="border border-gray-200 bg-gray-50 p-3 rounded-lg text-center col-span-2 md:col-span-1 print:bg-white print:border-gray-300">
                     <span className="text-[10px] font-bold text-gray-500 uppercase block">Standar Kelulusan (KKM)</span>
                     <span className="text-xs font-bold text-gray-800 mt-1.5 block">
-                      Nilai ≥ {selectedPeriod?.passingGrade || 80} (Makhraj ≥ 75, Tajwid ≥ 75)
+                      Nilai ≥ {selectedPeriod?.passingGrade || 70} (Makhraj ≥ {selectedPeriod?.minMakharij || 70}, Tajwid ≥ {selectedPeriod?.minTajwid || 70})
                     </span>
                   </div>
                 </div>

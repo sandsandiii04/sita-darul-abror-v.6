@@ -370,7 +370,9 @@ const App: React.FC = () => {
   useEffect(() => {
     if (user) {
       try {
-        window.localStorage.setItem('sita_current_user_v1', JSON.stringify(user));
+        const sanitized = { ...user };
+        delete sanitized.password;
+        window.localStorage.setItem('sita_current_user_v1', JSON.stringify(sanitized));
       } catch (e) {}
 
       const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital', 'tahsin_reports'];

@@ -13,6 +13,7 @@ export interface User {
   role: Role;
   username?: string;
   password?: string;
+  sessionToken?: string;
   phoneNumber?: string; // Added for WhatsApp integration
   email?: string; // Added for Profile Settings
   avatar?: string;

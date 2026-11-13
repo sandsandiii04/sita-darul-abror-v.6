@@ -317,7 +317,7 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
             <span className="text-[10px] font-bold bg-emerald-50 px-1 rounded">35%</span>
           </div>
           <div className="text-2xl font-black text-emerald-700 mt-1">{stats.averageMakharij.toFixed(1)}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Target min: 75</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">Target min: {selectedPeriod?.minMakharij ?? 70}</div>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
@@ -326,7 +326,7 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
             <span className="text-[10px] font-bold bg-blue-50 px-1 rounded">30%</span>
           </div>
           <div className="text-2xl font-black text-blue-700 mt-1">{stats.averageTajwid.toFixed(1)}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Target min: 75</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">Target min: {selectedPeriod?.minTajwid ?? 70}</div>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
