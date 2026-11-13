@@ -719,7 +719,7 @@ BEGIN
         FROM tahsin_sessions s
         WHERE s.period_id = p_period_id;
 
-    ELSIF v_user.role = 'ustadz' THEN
+    ELSIF v_user.role IN ('teacher', 'ustadz') THEN
         -- Guru hanya dapat melihat santri yang ditugaskan kepada mereka
         SELECT COALESCE(json_agg(
             json_build_object(

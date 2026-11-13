@@ -40,6 +40,7 @@ export const TahsinRemedialView: React.FC<TahsinRemedialViewProps> = ({
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [sessions, setSessions] = useState<TahsinSession[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -51,17 +52,36 @@ export const TahsinRemedialView: React.FC<TahsinRemedialViewProps> = ({
 
   const loadData = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const fetchedPeriods = await tahsinService.fetchPeriods();
       setPeriods(fetchedPeriods);
-      const active = fetchedPeriods.find(p => p.status === 'active') || fetchedPeriods[0];
+      const active = (selectedPeriodId && fetchedPeriods.find(p => p.id === selectedPeriodId)) ||
+        fetchedPeriods.find(p => p.status === 'active') || 
+        fetchedPeriods[0];
       if (active) {
         setSelectedPeriodId(active.id);
-        const fetchedSessions = await tahsinService.fetchSessions(active.id);
+        const fetchedSessions = await tahsinService.fetchSessions(active.id, user);
         setSessions(fetchedSessions);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setFetchError(e?.message || 'Gagal memuat data remedial dari server.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePeriodChange = async (periodId: string) => {
+    setSelectedPeriodId(periodId);
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+      const fetched = await tahsinService.fetchSessions(periodId, user);
+      setSessions(fetched);
+    } catch (e: any) {
+      console.error(e);
+      setFetchError(e?.message || 'Gagal memuat data remedial dari server.');
     } finally {
       setIsLoading(false);
     }
@@ -154,10 +174,7 @@ export const TahsinRemedialView: React.FC<TahsinRemedialViewProps> = ({
           <span className="font-bold text-slate-500">Periode:</span>
           <select
             value={selectedPeriodId}
-            onChange={(e) => {
-              setSelectedPeriodId(e.target.value);
-              tahsinService.fetchSessions(e.target.value).then(setSessions);
-            }}
+            onChange={(e) => handlePeriodChange(e.target.value)}
             className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none"
           >
             {periods.map(p => (
@@ -166,6 +183,31 @@ export const TahsinRemedialView: React.FC<TahsinRemedialViewProps> = ({
           </select>
         </div>
       </div>
+
+      {/* Server Fetch Error Alert Banner */}
+      {fetchError && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-rose-100 text-rose-800 rounded-xl">
+              <AlertTriangle size={20} />
+            </span>
+            <div>
+              <h4 className="text-xs font-bold text-rose-900">
+                Gagal Memuat Data Remedial dari Server Cloud
+              </h4>
+              <p className="text-[11px] text-rose-700 mt-0.5">
+                {fetchError}. Periksa koneksi internet atau sesi login Anda.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => loadData()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition self-start sm:self-auto flex-shrink-0"
+          >
+            Muat Ulang
+          </button>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row gap-3 text-xs">

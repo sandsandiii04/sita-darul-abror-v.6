@@ -45,6 +45,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [sessions, setSessions] = useState<TahsinSession[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -83,25 +84,26 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   // Load Periods
   const loadData = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       checkPendingSync();
       const fetchedPeriods = await tahsinService.fetchPeriods();
       setPeriods(fetchedPeriods);
 
-      const activePeriod = fetchedPeriods.find(p => p.status === 'active') || fetchedPeriods[0];
+      const activePeriod = (selectedPeriodId && fetchedPeriods.find(p => p.id === selectedPeriodId)) ||
+        fetchedPeriods.find(p => p.status === 'active') || 
+        fetchedPeriods[0];
+
       if (activePeriod) {
         setSelectedPeriodId(activePeriod.id);
-        const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id);
-        if (fetchedSessions.length === 0) {
-          // Inisialisasi otomatis jika belum ada peserta
-          const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, teachers);
-          setSessions(initialized);
-        } else {
-          setSessions(fetchedSessions);
-        }
+        const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id, user);
+        // Padukan data server dengan santri eligible tanpa menghapus sesi yang sudah tersimpan
+        const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers);
+        setSessions(initialized);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Gagal memuat data pelaksanaan tahsin:', e);
+      setFetchError(e?.message || 'Gagal memuat data sesi ujian dari server.');
     } finally {
       setIsLoading(false);
     }
@@ -115,17 +117,19 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   const handlePeriodChange = async (newPeriodId: string) => {
     setSelectedPeriodId(newPeriodId);
     setIsLoading(true);
+    setFetchError(null);
     try {
       const targetPeriod = periods.find(p => p.id === newPeriodId);
-      const fetched = await tahsinService.fetchSessions(newPeriodId);
-      if (fetched.length === 0 && targetPeriod) {
-        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, teachers);
+      const fetched = await tahsinService.fetchSessions(newPeriodId, user);
+      if (targetPeriod) {
+        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, allTeachers);
         setSessions(initialized);
       } else {
         setSessions(fetched);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Gagal ganti periode:', e);
+      setFetchError(e?.message || 'Gagal memuat data sesi ujian dari server.');
     } finally {
       setIsLoading(false);
     }
@@ -271,6 +275,32 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Server Fetch Error Alert Banner */}
+      {fetchError && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-rose-100 text-rose-800 rounded-xl">
+              <AlertTriangle size={20} />
+            </span>
+            <div>
+              <h4 className="text-xs font-bold text-rose-900">
+                Gagal Memuat Data Ujian dari Server Cloud
+              </h4>
+              <p className="text-[11px] text-rose-700 mt-0.5">
+                {fetchError}. Periksa koneksi internet atau sesi login Anda. Sistem menahan tampilan agar tidak menampilkan data lokal yang usang.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => loadData()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition self-start sm:self-auto flex-shrink-0"
+          >
+            <RefreshCw size={14} />
+            Muat Ulang
+          </button>
+        </div>
+      )}
 
       {/* Pending Sync Alert Banner */}
       {pendingSyncCount > 0 && (

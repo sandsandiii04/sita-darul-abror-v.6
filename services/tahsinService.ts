@@ -416,16 +416,16 @@ export class TahsinService {
   public async fetchSessions(periodId?: string, currentUser?: User): Promise<TahsinSession[]> {
     try {
       if (supabase && periodId) {
-        // Ambil user aktif dari parameter atau dari sesi login lokal
+        // Ambil user aktif dari parameter atau dari sesi login lokal yang konsisten
         let activeUser = currentUser;
         if (!activeUser && typeof window !== 'undefined') {
           try {
-            const raw = window.localStorage.getItem('sita_user');
+            const raw = window.localStorage.getItem('sita_current_user_v1') || window.localStorage.getItem('sita_user');
             if (raw) activeUser = JSON.parse(raw);
           } catch (e) {}
         }
 
-        // Coba panggil RPC get_tahsin_sessions_secure jika ada kredensial pengguna
+        // Panggil RPC get_tahsin_sessions_secure dengan kredensial pengguna terautentikasi
         if (activeUser?.username && activeUser?.password) {
           try {
             const { data: rpcRes, error: rpcErr } = await supabase.rpc('get_tahsin_sessions_secure', {
@@ -434,7 +434,12 @@ export class TahsinService {
               p_period_id: periodId
             });
 
-            if (!rpcErr && rpcRes && rpcRes.success && Array.isArray(rpcRes.data)) {
+            if (rpcErr) {
+              console.warn('RPC get_tahsin_sessions_secure error:', rpcErr);
+              throw rpcErr;
+            }
+
+            if (rpcRes && rpcRes.success && Array.isArray(rpcRes.data)) {
               const mapped: TahsinSession[] = rpcRes.data.map((d: any) => ({
                 id: d.id,
                 periodId: d.period_id,
@@ -446,7 +451,7 @@ export class TahsinService {
                 targetJuzStart: d.target_juz_start,
                 targetJuzEnd: d.target_juz_end,
                 status: d.status,
-                finalScore: d.final_score ? Number(d.final_score) : undefined,
+                finalScore: d.final_score !== null && d.final_score !== undefined ? Number(d.final_score) : undefined,
                 predikat: d.predikat,
                 passingStatus: d.final_status,
                 syncStatus: 'synced_server',
@@ -460,10 +465,11 @@ export class TahsinService {
 
               // Proteksi Local Draft & Pending Sync
               const localSessions = this.getLocalSessions();
+              const otherPeriodSessions = localSessions.filter(s => s.periodId !== periodId);
               const pendingQueue = this.getPendingSyncQueue();
               const merged: TahsinSession[] = [...mapped];
 
-              localSessions.forEach(ls => {
+              localSessions.filter(s => s.periodId === periodId).forEach(ls => {
                 const hasPending = pendingQueue.some(pq => pq.sessionId === ls.id);
                 if (hasPending || ls.syncStatus === 'pending_sync' || ls.syncStatus === 'sync_failed') {
                   const idx = merged.findIndex(m => m.id === ls.id);
@@ -475,67 +481,21 @@ export class TahsinService {
                 }
               });
 
-              this.saveLocalSessions(merged);
+              this.saveLocalSessions([...otherPeriodSessions, ...merged]);
               return merged;
+            } else if (rpcRes && !rpcRes.success) {
+              console.warn('RPC get_tahsin_sessions_secure gagal:', rpcRes.message);
+              throw new Error(rpcRes.message || 'Gagal memuat sesi ujian dari server.');
             }
-          } catch (rpcEx) {
-            // Lanjut ke fallback direct query
+          } catch (rpcEx: any) {
+            console.warn('Gagal memuat via RPC get_tahsin_sessions_secure:', rpcEx);
+            throw rpcEx;
           }
         }
-
-        let query = supabase.from('tahsin_sessions').select('*, attempts:tahsin_attempts(*)');
-        if (periodId) {
-          query = query.eq('period_id', periodId);
-        }
-        const { data, error } = await query.order('created_at', { ascending: false });
-        if (!error && data && data.length > 0) {
-          const mapped: TahsinSession[] = data.map((d: any) => ({
-            id: d.id,
-            periodId: d.period_id,
-            studentId: d.student_id,
-            examinerId: d.examiner_id,
-            studentNameSnapshot: d.student_name_snapshot,
-            classSnapshot: d.class_snapshot,
-            halaqahSnapshot: d.halaqah_snapshot,
-            targetJuzStart: d.target_juz_start,
-            targetJuzEnd: d.target_juz_end,
-            status: d.status,
-            finalScore: d.final_score ? Number(d.final_score) : undefined,
-            predikat: d.predikat,
-            passingStatus: d.final_status,
-            syncStatus: 'synced_server',
-            version: d.version || 1,
-            lastUpdatedBy: d.last_updated_by,
-            latestAttemptNumber: d.latest_attempt_number || 1,
-            attempts: (d.attempts || []).map((a: any) => this.mapAttemptFromDb(a)),
-            createdAt: d.created_at,
-            updatedAt: d.updated_at
-          }));
-
-          // PENTING: Proteksi Local Draft & Pending Sync
-          // Jangan menimpa sesi lokal yang masih dalam status pending_sync / sync_failed
-          const localSessions = this.getLocalSessions();
-          const pendingQueue = this.getPendingSyncQueue();
-          const merged: TahsinSession[] = [...mapped];
-
-          localSessions.forEach(ls => {
-            const hasPending = pendingQueue.some(pq => pq.sessionId === ls.id);
-            if (hasPending || ls.syncStatus === 'pending_sync' || ls.syncStatus === 'sync_failed') {
-              const idx = merged.findIndex(m => m.id === ls.id);
-              if (idx >= 0) {
-                merged[idx] = { ...ls, syncStatus: ls.syncStatus || 'pending_sync' };
-              } else {
-                merged.unshift(ls);
-              }
-            }
-          });
-
-          this.saveLocalSessions(merged);
-          return periodId ? merged.filter(s => s.periodId === periodId) : merged;
-        }
       }
-    } catch (e) {
-      console.warn('Gagal memuat tahsin_sessions dari cloud, menggunakan local cache:', e);
+    } catch (e: any) {
+      console.warn('Gagal fetchSessions dari Supabase:', e);
+      throw e;
     }
 
     const local = this.getLocalSessions();
@@ -1055,11 +1015,16 @@ export class TahsinService {
       };
     });
 
+    // Pertahankan juga sesi yang sudah ada di existing tapi santrinya tidak masuk di eligibleStudents (misalnya dummy student atau data tersinkronisasi dari cloud)
+    const mappedIds = new Set(newSessions.map(s => s.id));
+    const extraExisting = existing.filter(s => !mappedIds.has(s.id));
+    const allCombined = [...newSessions, ...extraExisting];
+
     // Simpan hasil gabungan ke local storage
     const otherSessions = this.getLocalSessions().filter(s => s.periodId !== period.id);
-    this.saveLocalSessions([...newSessions, ...otherSessions]);
+    this.saveLocalSessions([...allCombined, ...otherSessions]);
 
-    return newSessions;
+    return allCombined;
   }
 
   // 7. Hitung Statistik Monitoring & Dashboard

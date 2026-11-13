@@ -50,40 +50,55 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [sessions, setSessions] = useState<TahsinSession[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Filters
   const [filterClass, setFilterClass] = useState<string>('');
   const [filterHalaqah, setFilterHalaqah] = useState<string>('');
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      setIsLoading(true);
-      try {
-        const fetchedPeriods = await tahsinService.fetchPeriods();
-        setPeriods(fetchedPeriods);
-        const active = fetchedPeriods.find(p => p.status === 'active') || fetchedPeriods[0];
-        if (active) {
-          setSelectedPeriodId(active.id);
-          const fetchedSessions = await tahsinService.fetchSessions(active.id);
-          setSessions(fetchedSessions);
-        }
-      } catch (e) {
-        console.error('Gagal load dashboard tahsin:', e);
-      } finally {
-        setIsLoading(false);
+  const fetchAll = async () => {
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+      const fetchedPeriods = await tahsinService.fetchPeriods();
+      setPeriods(fetchedPeriods);
+      const active = (selectedPeriodId && fetchedPeriods.find(p => p.id === selectedPeriodId)) ||
+        fetchedPeriods.find(p => p.status === 'active') || 
+        fetchedPeriods[0];
+      if (active) {
+        setSelectedPeriodId(active.id);
+        const fetchedSessions = await tahsinService.fetchSessions(active.id, user);
+        const initialized = tahsinService.initializeSessionsForPeriod(active, students);
+        setSessions(initialized);
       }
-    };
+    } catch (e: any) {
+      console.error('Gagal load dashboard tahsin:', e);
+      setFetchError(e?.message || 'Gagal memuat data dari server.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchAll();
-  }, []);
+  }, [students]);
 
   const handlePeriodChange = async (pId: string) => {
     setSelectedPeriodId(pId);
     setIsLoading(true);
+    setFetchError(null);
     try {
-      const fetched = await tahsinService.fetchSessions(pId);
-      setSessions(fetched);
-    } catch (e) {
+      const targetPeriod = periods.find(p => p.id === pId);
+      const fetched = await tahsinService.fetchSessions(pId, user);
+      if (targetPeriod) {
+        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students);
+        setSessions(initialized);
+      } else {
+        setSessions(fetched);
+      }
+    } catch (e: any) {
       console.error(e);
+      setFetchError(e?.message || 'Gagal memuat data dari server.');
     } finally {
       setIsLoading(false);
     }
@@ -217,6 +232,31 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
           </select>
         </div>
       </div>
+
+      {/* Server Fetch Error Alert Banner */}
+      {fetchError && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-rose-100 text-rose-800 rounded-xl">
+              <AlertTriangle size={20} />
+            </span>
+            <div>
+              <h4 className="text-xs font-bold text-rose-900">
+                Gagal Memuat Data Dashboard dari Server Cloud
+              </h4>
+              <p className="text-[11px] text-rose-700 mt-0.5">
+                {fetchError}. Periksa koneksi internet atau sesi login Anda.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => fetchAll()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition self-start sm:self-auto flex-shrink-0"
+          >
+            Muat Ulang
+          </button>
+        </div>
+      )}
 
       {/* 8 Metric Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

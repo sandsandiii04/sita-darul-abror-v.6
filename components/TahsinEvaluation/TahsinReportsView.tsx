@@ -64,20 +64,26 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const reportPrintRef = useRef<HTMLDivElement>(null);
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   // Load periods & sessions
   const loadData = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const pList = await tahsinService.fetchPeriods();
       setPeriods(pList);
-      const activeP = pList.find(p => p.status === 'active') || pList[0];
+      const activeP = (selectedPeriodId && pList.find(p => p.id === selectedPeriodId)) ||
+        pList.find(p => p.status === 'active') || 
+        pList[0];
       if (activeP) {
         setSelectedPeriodId(activeP.id);
-        const sList = await tahsinService.fetchSessions(activeP.id);
+        const sList = await tahsinService.fetchSessions(activeP.id, user);
         setSessions(sList);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading tahsin report data:', err);
+      setFetchError(err?.message || 'Gagal memuat data laporan dari server.');
     } finally {
       setIsLoading(false);
     }
@@ -85,16 +91,18 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [students]);
 
   const handlePeriodChange = async (periodId: string) => {
     setSelectedPeriodId(periodId);
     setIsLoading(true);
+    setFetchError(null);
     try {
-      const sList = await tahsinService.fetchSessions(periodId);
+      const sList = await tahsinService.fetchSessions(periodId, user);
       setSessions(sList);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching sessions:', err);
+      setFetchError(err?.message || 'Gagal memuat data sesi ujian dari server.');
     } finally {
       setIsLoading(false);
     }
@@ -292,6 +300,31 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Server Fetch Error Alert Banner */}
+      {fetchError && (
+        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-rose-100 text-rose-800 rounded-xl">
+              <AlertCircle size={20} />
+            </span>
+            <div>
+              <h4 className="text-xs font-bold text-rose-900">
+                Gagal Memuat Data Laporan dari Server Cloud
+              </h4>
+              <p className="text-[11px] text-rose-700 mt-0.5">
+                {fetchError}. Periksa koneksi internet atau sesi login Anda.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => loadData()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition self-start sm:self-auto flex-shrink-0"
+          >
+            Muat Ulang
+          </button>
+        </div>
+      )}
 
       {/* Tabs Navigation */}
       <div className="flex border-b border-gray-200 bg-white rounded-t-xl px-4 pt-2 gap-2 shadow-sm">
