@@ -37,3 +37,4 @@ END $$;
 -- Semua pembacaan dan modifikasi data harus tetap melewati RPC resmi.
 
 COMMIT;
+
