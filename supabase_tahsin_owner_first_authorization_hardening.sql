@@ -1,0 +1,420 @@
+-- ==============================================================================
+-- SITA DARUL ABROR — HARDENING OTORISASI UJIAN TAHSIN (PURE OWNER-FIRST SECURITY)
+-- File: supabase_tahsin_owner_first_authorization_hardening.sql
+-- Prinsip:
+-- 1. Setiap guru halaqah HANYA dan MUTLAK berwenang melihat & menguji santri
+--    binaan halaqahnya sendiri berdasarkan students.teacher_id.
+-- 2. Penugasan silang dinonaktifkan sementara untuk guru guna mencegah eskalasi
+--    izin kelas (mencegah guru menguji santri guru lain pada kelas yang sama).
+-- 3. Admin tetap memiliki kewenangan penuh mengelola seluruh santri & sesi ujian.
+-- ==============================================================================
+
+-- 1. PERBARUI RPC: get_tahsin_sessions_secure
+DROP FUNCTION IF EXISTS get_tahsin_sessions_secure(text, text, text);
+CREATE OR REPLACE FUNCTION get_tahsin_sessions_secure(
+    p_username TEXT,
+    p_password TEXT,
+    p_period_id TEXT
+)
+RETURNS JSON AS $$
+DECLARE
+    v_auth RECORD;
+    v_result JSON;
+BEGIN
+    -- Validasi kredensial / session token
+    SELECT * INTO v_auth FROM validate_session_or_credential(p_username, p_password);
+    IF NOT v_auth.out_is_valid THEN
+        RETURN json_build_object('success', false, 'message', 'Autentikasi gagal: Sesi tidak valid atau kredensial salah.');
+    END IF;
+
+    -- Guru / Penguji: Batasi secara murni berdasarkan kepemilikan santri (students.teacher_id)
+    IF v_auth.out_role != 'admin' THEN
+        SELECT COALESCE(json_agg(
+            json_build_object(
+                'id', s.id,
+                'periodId', s.period_id,
+                'studentId', s.student_id,
+                'examinerId', s.examiner_id,
+                'studentNameSnapshot', s.student_name_snapshot,
+                'classSnapshot', s.class_snapshot,
+                'halaqahSnapshot', s.halaqah_snapshot,
+                'targetJuzStart', s.target_juz_start,
+                'targetJuzEnd', s.target_juz_end,
+                'status', s.status,
+                'finalScore', s.final_score,
+                'predikat', s.predikat,
+                'finalStatus', s.final_status,
+                'latestAttemptNumber', s.latest_attempt_number,
+                'version', s.version,
+                'lastUpdatedBy', s.last_updated_by,
+                'syncStatus', s.sync_status,
+                'createdAt', s.created_at,
+                'updatedAt', s.updated_at,
+                'attempts', (
+                    SELECT COALESCE(json_agg(row_to_json(a.*)), '[]'::json)
+                    FROM tahsin_attempts a WHERE a.session_id = s.id
+                )
+            )
+        ), '[]'::json) INTO v_result
+        FROM tahsin_sessions s
+        WHERE s.period_id = p_period_id
+          AND EXISTS (
+              SELECT 1 FROM students st 
+              WHERE st.id = s.student_id AND st.teacher_id = v_auth.out_user_id
+          );
+    ELSE
+        -- Admin: Melihat seluruh sesi peserta ujian pada periode terpilih
+        SELECT COALESCE(json_agg(
+            json_build_object(
+                'id', s.id,
+                'periodId', s.period_id,
+                'studentId', s.student_id,
+                'examinerId', s.examiner_id,
+                'studentNameSnapshot', s.student_name_snapshot,
+                'classSnapshot', s.class_snapshot,
+                'halaqahSnapshot', s.halaqah_snapshot,
+                'targetJuzStart', s.target_juz_start,
+                'targetJuzEnd', s.target_juz_end,
+                'status', s.status,
+                'finalScore', s.final_score,
+                'predikat', s.predikat,
+                'finalStatus', s.final_status,
+                'latestAttemptNumber', s.latest_attempt_number,
+                'version', s.version,
+                'lastUpdatedBy', s.last_updated_by,
+                'syncStatus', s.sync_status,
+                'createdAt', s.created_at,
+                'updatedAt', s.updated_at,
+                'attempts', (
+                    SELECT COALESCE(json_agg(row_to_json(a.*)), '[]'::json)
+                    FROM tahsin_attempts a WHERE a.session_id = s.id
+                )
+            )
+        ), '[]'::json) INTO v_result
+        FROM tahsin_sessions s
+        WHERE s.period_id = p_period_id;
+    END IF;
+
+    RETURN json_build_object(
+        'success', true,
+        'data', COALESCE(v_result, '[]'::json)
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- 2. PERBARUI RPC: save_tahsin_attempt_secure
+DROP FUNCTION IF EXISTS save_tahsin_attempt_secure(text, text, text, text, integer, boolean, jsonb, text);
+CREATE OR REPLACE FUNCTION save_tahsin_attempt_secure(
+    p_username TEXT,
+    p_password TEXT,
+    p_session_id TEXT,
+    p_attempt_id TEXT,
+    p_expected_version INTEGER,
+    p_is_finalize BOOLEAN,
+    p_attempt_data JSONB,
+    p_reason TEXT DEFAULT NULL
+)
+RETURNS JSON AS $$
+DECLARE
+    v_auth RECORD;
+    v_user RECORD;
+    v_session RECORD;
+    v_existing_attempt RECORD;
+    v_period RECORD;
+    v_student RECORD;
+    v_period_id TEXT;
+    v_student_id TEXT;
+    v_target_juz_start INTEGER;
+    v_target_juz_end INTEGER;
+    v_new_version INTEGER;
+    v_final_status TEXT;
+    v_session_status TEXT;
+    v_score NUMERIC;
+    v_predikat TEXT;
+    v_passing_status TEXT;
+    v_attempt_number INTEGER;
+    v_attempt_type TEXT;
+BEGIN
+    -- 1. Autentikasi Pengguna Otoritatif via Session Token / Password
+    SELECT * INTO v_auth FROM validate_session_or_credential(p_username, p_password);
+    IF NOT v_auth.out_is_valid THEN
+        RETURN json_build_object('success', false, 'conflict', false, 'message', 'Autentikasi gagal: Sesi tidak valid atau kredensial salah.');
+    END IF;
+    
+    SELECT * INTO v_user FROM users WHERE id = v_auth.out_user_id;
+
+    -- 2. Ambil dan Kunci Baris Sesi Ujian (Row-level lock FOR UPDATE)
+    SELECT * INTO v_session FROM tahsin_sessions WHERE id = p_session_id FOR UPDATE;
+    IF NOT FOUND THEN
+        -- Validasi Ketat Pembuatan Sesi Otomatis di Server:
+        v_period_id := p_attempt_data->'sessionData'->>'periodId';
+        v_student_id := p_attempt_data->'sessionData'->>'studentId';
+
+        IF v_period_id IS NULL OR v_student_id IS NULL THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Data referensi sesi ujian (periodId / studentId) tidak valid.');
+        END IF;
+
+        -- A. Verifikasi Keberadaan dan Status Periode Ujian
+        SELECT * INTO v_period FROM tahsin_periods WHERE id = v_period_id;
+        IF NOT FOUND THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Periode ujian tidak ditemukan di database.');
+        END IF;
+
+        IF v_period.status != 'active' AND v_user.role != 'admin' THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Periode ujian belum aktif atau telah ditutup. Pengesahan nilai ditolak.');
+        END IF;
+
+        -- B. Verifikasi Keberadaan Data Santri Riil di Database Sekolah
+        SELECT * INTO v_student FROM students WHERE id = v_student_id;
+        IF NOT FOUND THEN
+            RETURN json_build_object('success', false, 'conflict', false, 'message', 'Data santri tidak terdaftar di database sekolah.');
+        END IF;
+
+        -- C. Verifikasi Kewenangan Penguji Owner-First Murni (Jika Bukan Admin)
+        IF v_user.role != 'admin' THEN
+            IF v_student.teacher_id != v_user.id THEN
+                RETURN json_build_object(
+                    'success', false, 'conflict', false,
+                    'message', 'Akses ditolak: Anda hanya berwenang menguji santri binaan halaqah Anda sendiri. Santri ini berada di bawah bimbingan guru lain (' || COALESCE(v_student.halaqah, 'halaqah lain') || ').'
+                );
+            END IF;
+        END IF;
+
+        -- D. Hitung Cakupan Juz Otoritatif di Server Berdasarkan Kelas Santri (Kelas 7-12)
+        IF v_student.class ILIKE '7%' OR v_student.class ILIKE '%VII%' THEN
+            v_target_juz_start := 26; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '8%' OR v_student.class ILIKE '%VIII%' THEN
+            v_target_juz_start := 21; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '9%' OR v_student.class ILIKE '%IX%' THEN
+            v_target_juz_start := 16; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '10%' OR v_student.class ILIKE '%X%' THEN
+            v_target_juz_start := 11; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '11%' OR v_student.class ILIKE '%XI%' THEN
+            v_target_juz_start := 6; v_target_juz_end := 30;
+        ELSIF v_student.class ILIKE '12%' OR v_student.class ILIKE '%XII%' THEN
+            v_target_juz_start := 1; v_target_juz_end := 30;
+        ELSE
+            v_target_juz_start := 26; v_target_juz_end := 30;
+        END IF;
+
+        -- E. Buat Baris Sesi Otoritatif dari Data Server
+        INSERT INTO tahsin_sessions (
+            id, period_id, student_id, examiner_id,
+            student_name_snapshot, class_snapshot, halaqah_snapshot,
+            target_juz_start, target_juz_end, status,
+            latest_attempt_number, version, last_updated_by,
+            sync_status, created_at, updated_at
+        ) VALUES (
+            p_session_id,
+            v_period.id,
+            v_student.id,
+            v_user.id,
+            v_student.name,
+            COALESCE(v_student.class, '-'),
+            COALESCE(v_student.halaqah, '-'),
+            v_target_juz_start,
+            v_target_juz_end,
+            'draft',
+            1,
+            1,
+            v_user.id,
+            'synced_server',
+            timezone('utc'::text, now()),
+            timezone('utc'::text, now())
+        )
+        RETURNING * INTO v_session;
+    ELSE
+        SELECT * INTO v_period FROM tahsin_periods WHERE id = v_session.period_id;
+        SELECT * INTO v_student FROM students WHERE id = v_session.student_id;
+    END IF;
+
+    -- 3. Otorisasi Penguji pada Sesi Yang Sudah Ada
+    IF v_user.role != 'admin' THEN
+        IF v_student.teacher_id != v_user.id THEN
+            RETURN json_build_object(
+                'success', false, 'conflict', false,
+                'message', 'Akses ditolak: Anda bukan guru penguji yang berwenang untuk santri ini.'
+            );
+        END IF;
+    END IF;
+
+    -- 4. Deteksi Konflik Konkurensi (Optimistic Locking)
+    IF p_expected_version IS NOT NULL AND p_expected_version > 0 AND v_session.version > p_expected_version THEN
+        RETURN json_build_object(
+            'success', false,
+            'conflict', true,
+            'server_version', v_session.version,
+            'last_updated_by', v_session.last_updated_by,
+            'message', 'Konflik konkurensi terdeteksi: Data santri ini telah diubah oleh penguji lain pada perangkat berbeda. Silakan muat ulang data terbaru sebelum menyimpan.'
+        );
+    END IF;
+
+    -- 5. Validasi Status Kelulusan & Remedial Sesuai KKM 70
+    v_score := (p_attempt_data->>'finalScore')::NUMERIC;
+    v_predikat := p_attempt_data->>'predikat';
+    v_passing_status := p_attempt_data->>'passingStatus';
+    v_attempt_number := COALESCE((p_attempt_data->>'attemptNumber')::INTEGER, 1);
+    v_attempt_type := COALESCE(p_attempt_data->>'attemptType', 'utama');
+
+    IF v_attempt_type = 'utama' AND v_attempt_number > 1 THEN
+        v_attempt_type := 'remedial';
+    END IF;
+
+    -- Aturan Otoritatif Server: KKM 70, Makharij 70, Tajwid 70
+    IF v_score < COALESCE(v_period.passing_grade, 70) 
+       OR COALESCE((p_attempt_data->'makharij'->>'score')::NUMERIC, 0) < COALESCE(v_period.min_makharij, 70)
+       OR COALESCE((p_attempt_data->'tajwid'->>'score')::NUMERIC, 0) < COALESCE(v_period.min_tajwid, 70)
+       OR COALESCE((p_attempt_data->>'hasCriticalError')::BOOLEAN, FALSE) = TRUE THEN
+        v_passing_status := 'remedial';
+    ELSE
+        v_passing_status := 'lulus';
+    END IF;
+
+    IF v_session.final_status = 'lulus' AND v_user.role != 'admin' THEN
+        IF p_attempt_id != v_session.id AND v_attempt_type = 'utama' THEN
+            RETURN json_build_object(
+                'success', false, 
+                'conflict', false, 
+                'message', 'Santri ini telah dinyatakan LULUS pada periode ini. Pengujian ulang hanya dapat diotorisasi oleh Admin.'
+            );
+        ELSIF p_reason IS NULL OR trim(p_reason) = '' THEN
+            RETURN json_build_object(
+                'success', false, 
+                'conflict', false, 
+                'message', 'Wewenang Admin: Ujian ulang untuk santri yang sudah lulus wajib menyertakan alasan tertulis (p_reason).'
+            );
+        END IF;
+    END IF;
+
+    -- 6. Periksa Percobaan yang Sudah Ada
+    SELECT * INTO v_existing_attempt FROM tahsin_attempts WHERE id = p_attempt_id;
+    IF FOUND AND v_existing_attempt.status = 'finalized' AND v_user.role != 'admin' THEN
+        RETURN json_build_object('success', false, 'conflict', false, 'message', 'Nilai ujian yang telah disahkan hanya dapat diubah atau direvisi dengan kewenangan Admin.');
+    END IF;
+
+    -- 7. Upsert Percobaan Ujian (tahsin_attempts)
+    INSERT INTO tahsin_attempts (
+        id, session_id, attempt_number, attempt_type, examiner_id, examiner_name_snapshot,
+        exam_date, start_surah, start_ayah, end_surah, end_ayah, start_page, end_page,
+        pages_read, surah_name_display, randomize_reason, score_makharij, category_makharij,
+        score_tajwid, category_tajwid, score_kelancaran, category_kelancaran, score_waqaf,
+        category_waqaf, final_score, predikat, has_critical_error, critical_error_reason,
+        passing_status, error_counts, coaching_notes, status, version, finalized_at,
+        created_at, updated_at
+    ) VALUES (
+        p_attempt_id, v_session.id, v_attempt_number, v_attempt_type, v_user.id, v_user.name,
+        COALESCE((p_attempt_data->>'examDate')::DATE, CURRENT_DATE),
+        COALESCE((p_attempt_data->'reading'->>'startSurah')::INTEGER, 1),
+        COALESCE((p_attempt_data->'reading'->>'startAyah')::INTEGER, 1),
+        COALESCE((p_attempt_data->'reading'->>'endSurah')::INTEGER, 1),
+        COALESCE((p_attempt_data->'reading'->>'endAyah')::INTEGER, 7),
+        (p_attempt_data->'reading'->>'startPage')::INTEGER,
+        (p_attempt_data->'reading'->>'endPage')::INTEGER,
+        COALESCE((p_attempt_data->'reading'->>'pagesRead')::NUMERIC, 1),
+        p_attempt_data->'reading'->>'startSurahName',
+        p_attempt_data->'reading'->>'randomizeReason',
+        COALESCE((p_attempt_data->'makharij'->>'score')::NUMERIC, 70),
+        COALESCE(p_attempt_data->'makharij'->>'category', 'cukup'),
+        COALESCE((p_attempt_data->'tajwid'->>'score')::NUMERIC, 70),
+        COALESCE(p_attempt_data->'tajwid'->>'category', 'cukup'),
+        COALESCE((p_attempt_data->'kelancaran'->>'score')::NUMERIC, 70),
+        COALESCE(p_attempt_data->'kelancaran'->>'category', 'cukup'),
+        COALESCE((p_attempt_data->'waqaf'->>'score')::NUMERIC, 70),
+        COALESCE(p_attempt_data->'waqaf'->>'category', 'cukup'),
+        v_score,
+        v_predikat,
+        COALESCE((p_attempt_data->>'hasCriticalError')::BOOLEAN, FALSE),
+        p_attempt_data->>'criticalErrorReason',
+        v_passing_status,
+        COALESCE(p_attempt_data->'errorCounts', '{}'::jsonb),
+        p_attempt_data->>'coachingNotes',
+        CASE WHEN p_is_finalize THEN 'finalized' ELSE 'draft' END,
+        COALESCE(v_existing_attempt.version, 0) + 1,
+        CASE WHEN p_is_finalize THEN timezone('utc'::text, now()) ELSE NULL END,
+        timezone('utc'::text, now()),
+        timezone('utc'::text, now())
+    )
+    ON CONFLICT (session_id, attempt_number) DO UPDATE SET
+        examiner_id = EXCLUDED.examiner_id,
+        examiner_name_snapshot = EXCLUDED.examiner_name_snapshot,
+        exam_date = EXCLUDED.exam_date,
+        start_surah = EXCLUDED.start_surah,
+        start_ayah = EXCLUDED.start_ayah,
+        end_surah = EXCLUDED.end_surah,
+        end_ayah = EXCLUDED.end_ayah,
+        start_page = EXCLUDED.start_page,
+        end_page = EXCLUDED.end_page,
+        pages_read = EXCLUDED.pages_read,
+        surah_name_display = EXCLUDED.surah_name_display,
+        randomize_reason = EXCLUDED.randomize_reason,
+        score_makharij = EXCLUDED.score_makharij,
+        category_makharij = EXCLUDED.category_makharij,
+        score_tajwid = EXCLUDED.score_tajwid,
+        category_tajwid = EXCLUDED.category_tajwid,
+        score_kelancaran = EXCLUDED.score_kelancaran,
+        category_kelancaran = EXCLUDED.category_kelancaran,
+        score_waqaf = EXCLUDED.score_waqaf,
+        category_waqaf = EXCLUDED.category_waqaf,
+        final_score = EXCLUDED.final_score,
+        predikat = EXCLUDED.predikat,
+        has_critical_error = EXCLUDED.has_critical_error,
+        critical_error_reason = EXCLUDED.critical_error_reason,
+        passing_status = EXCLUDED.passing_status,
+        error_counts = EXCLUDED.error_counts,
+        coaching_notes = EXCLUDED.coaching_notes,
+        status = EXCLUDED.status,
+        version = EXCLUDED.version,
+        finalized_at = EXCLUDED.finalized_at,
+        updated_at = timezone('utc'::text, now());
+
+    -- 8. Sinkronisasi Ringkasan Nilai ke Baris Sesi
+    v_new_version := v_session.version + 1;
+    IF p_is_finalize THEN
+        v_session_status := CASE WHEN v_passing_status = 'lulus' THEN 'completed' ELSE 'remedial_needed' END;
+        v_final_status := v_passing_status;
+    ELSE
+        v_session_status := CASE WHEN v_session.status = 'not_started' THEN 'draft' ELSE v_session.status END;
+        v_final_status := COALESCE(v_session.final_status, 'belum_selesai');
+    END IF;
+
+    UPDATE tahsin_sessions SET
+        status = v_session_status,
+        final_score = CASE WHEN p_is_finalize THEN v_score ELSE tahsin_sessions.final_score END,
+        predikat = CASE WHEN p_is_finalize THEN v_predikat ELSE tahsin_sessions.predikat END,
+        final_status = v_final_status,
+        latest_attempt_number = GREATEST(tahsin_sessions.latest_attempt_number, v_attempt_number),
+        examiner_id = COALESCE(tahsin_sessions.examiner_id, v_user.id),
+        version = v_new_version,
+        last_updated_by = v_user.id,
+        sync_status = 'synced_server',
+        updated_at = timezone('utc'::text, now())
+    WHERE id = v_session.id;
+
+    -- 9. Catat Audit Log
+    INSERT INTO tahsin_audit_logs (
+        id, session_id, attempt_id, changed_by, change_type,
+        old_score, new_score, old_status, new_status, reason, created_at
+    ) VALUES (
+        gen_random_uuid(), v_session.id, p_attempt_id, v_user.id,
+        CASE WHEN p_is_finalize THEN 'finalize_attempt' ELSE 'save_draft' END,
+        v_session.final_score, v_score, v_session.final_status, v_final_status,
+        p_reason, timezone('utc'::text, now())
+    );
+
+    RETURN json_build_object(
+        'success', true,
+        'conflict', false,
+        'session_id', v_session.id,
+        'attempt_id', p_attempt_id,
+        'version', v_new_version,
+        'final_score', v_score,
+        'passing_status', v_final_status,
+        'message', 'Nilai ujian Tahsin berhasil disahkan dan tersimpan di server.'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 3. GRANTS
+GRANT EXECUTE ON FUNCTION get_tahsin_sessions_secure(text, text, text) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION save_tahsin_attempt_secure(text, text, text, text, integer, boolean, jsonb, text) TO authenticated, anon;

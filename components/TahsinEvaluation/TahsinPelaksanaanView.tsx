@@ -98,7 +98,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
         setSelectedPeriodId(activePeriod.id);
         const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id, user);
         // Padukan data server dengan santri eligible tanpa menghapus sesi yang sudah tersimpan
-        const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers);
+        const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers, fetchedSessions);
         setSessions(initialized);
       }
     } catch (e: any) {
@@ -122,7 +122,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
       const targetPeriod = periods.find(p => p.id === newPeriodId);
       const fetched = await tahsinService.fetchSessions(newPeriodId, user);
       if (targetPeriod) {
-        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, allTeachers);
+        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, allTeachers, fetched);
         setSessions(initialized);
       } else {
         setSessions(fetched);
@@ -180,8 +180,15 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   const classOptions = useMemo(() => Array.from(new Set(sessions.map(s => s.classSnapshot))).sort(), [sessions]);
   const halaqahOptions = useMemo(() => Array.from(new Set(sessions.map(s => s.halaqahSnapshot))).sort(), [sessions]);
 
-  // Progress Stats
-  const completedCount = sessions.filter(s => s.status === 'completed' || s.status === 'remedial_needed').length;
+  // Progress Stats (Sudah Diuji mencakup Lulus maupun Remedial yang telah disahkan)
+  const isSessionTested = (s: TahsinSession) => {
+    return s.status === 'completed' || 
+           s.status === 'remedial_needed' || 
+           s.passingStatus === 'lulus' || 
+           s.passingStatus === 'remedial' ||
+           (s.finalScore !== undefined && s.finalScore !== null && !isNaN(Number(s.finalScore)));
+  };
+  const completedCount = sessions.filter(isSessionTested).length;
   const progressPercent = sessions.length > 0 ? Math.round((completedCount / sessions.length) * 100) : 0;
 
   // Trigger Uji Santri

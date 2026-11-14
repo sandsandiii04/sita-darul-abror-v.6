@@ -444,25 +444,27 @@ export class TahsinService {
             if (rpcRes && rpcRes.success && Array.isArray(rpcRes.data)) {
               const mapped: TahsinSession[] = rpcRes.data.map((d: any) => ({
                 id: d.id,
-                periodId: d.period_id,
-                studentId: d.student_id,
-                examinerId: d.examiner_id,
-                studentNameSnapshot: d.student_name_snapshot,
-                classSnapshot: d.class_snapshot,
-                halaqahSnapshot: d.halaqah_snapshot,
-                targetJuzStart: d.target_juz_start,
-                targetJuzEnd: d.target_juz_end,
+                periodId: d.periodId || d.period_id,
+                studentId: d.studentId || d.student_id,
+                examinerId: d.examinerId || d.examiner_id,
+                studentNameSnapshot: d.studentNameSnapshot || d.student_name_snapshot,
+                classSnapshot: d.classSnapshot || d.class_snapshot,
+                halaqahSnapshot: d.halaqahSnapshot || d.halaqah_snapshot,
+                targetJuzStart: d.targetJuzStart ?? d.target_juz_start,
+                targetJuzEnd: d.targetJuzEnd ?? d.target_juz_end,
                 status: d.status,
-                finalScore: d.final_score !== null && d.final_score !== undefined ? Number(d.final_score) : undefined,
+                finalScore: (d.finalScore !== null && d.finalScore !== undefined) 
+                  ? Number(d.finalScore) 
+                  : ((d.final_score !== null && d.final_score !== undefined) ? Number(d.final_score) : undefined),
                 predikat: d.predikat,
-                passingStatus: d.final_status,
+                passingStatus: d.finalStatus || d.final_status,
                 syncStatus: 'synced_server',
                 version: d.version || 1,
-                lastUpdatedBy: d.last_updated_by,
-                latestAttemptNumber: d.latest_attempt_number || 1,
+                lastUpdatedBy: d.lastUpdatedBy || d.last_updated_by,
+                latestAttemptNumber: d.latestAttemptNumber || d.latest_attempt_number || 1,
                 attempts: (d.attempts || []).map((a: any) => this.mapAttemptFromDb(a)),
-                createdAt: d.created_at,
-                updatedAt: d.updated_at
+                createdAt: d.createdAt || d.created_at,
+                updatedAt: d.updatedAt || d.updated_at
               }));
 
               // Proteksi Local Draft & Pending Sync
@@ -508,15 +510,19 @@ export class TahsinService {
   }
 
   private mapAttemptFromDb(a: any): TahsinAttempt {
+    const finalScoreNum = (a.finalScore !== null && a.finalScore !== undefined) 
+      ? Number(a.finalScore) 
+      : Number(a.final_score || 0);
+
     return {
       id: a.id,
-      sessionId: a.session_id,
-      attemptNumber: a.attempt_number,
-      attemptType: a.attempt_type,
-      examinerId: a.examiner_id,
-      examinerName: a.examiner_name_snapshot || 'Penguji',
-      examDate: a.exam_date,
-      reading: {
+      sessionId: a.sessionId || a.session_id,
+      attemptNumber: a.attemptNumber || a.attempt_number,
+      attemptType: a.attemptType || a.attempt_type,
+      examinerId: a.examinerId || a.examiner_id,
+      examinerName: a.examinerName || a.examiner_name_snapshot || 'Penguji',
+      examDate: a.examDate || a.exam_date,
+      reading: a.reading ? a.reading : {
         startSurah: a.start_surah,
         startSurahName: a.surah_name_display || `Surah ${a.start_surah}`,
         startAyah: a.start_ayah,
@@ -528,36 +534,36 @@ export class TahsinService {
         pagesRead: Number(a.pages_read || 1),
         randomizeReason: a.randomize_reason
       },
-      makharij: {
+      makharij: a.makharij ? a.makharij : {
         score: Number(a.score_makharij || 0),
         category: a.category_makharij as TahsinCategoryScore
       },
-      tajwid: {
+      tajwid: a.tajwid ? a.tajwid : {
         score: Number(a.score_tajwid || 0),
         category: a.category_tajwid as TahsinCategoryScore
       },
-      kelancaran: {
+      kelancaran: a.kelancaran ? a.kelancaran : {
         score: Number(a.score_kelancaran || 0),
         category: a.category_kelancaran as TahsinCategoryScore
       },
-      waqaf: {
+      waqaf: a.waqaf ? a.waqaf : {
         score: Number(a.score_waqaf || 0),
         category: a.category_waqaf as TahsinCategoryScore
       },
-      finalScore: Number(a.final_score || 0),
+      finalScore: finalScoreNum,
       predikat: a.predikat || 'Perlu Pembinaan',
-      predikatArabic: this.getPredikat(Number(a.final_score || 0)).arabic,
-      hasCriticalError: Boolean(a.has_critical_error),
-      criticalErrorReason: a.critical_error_reason,
-      passingStatus: a.passing_status,
-      errorCounts: a.error_counts || undefined,
-      coachingNotes: a.coaching_notes,
+      predikatArabic: a.predikatArabic || this.getPredikat(finalScoreNum).arabic,
+      hasCriticalError: a.hasCriticalError ?? Boolean(a.has_critical_error),
+      criticalErrorReason: a.criticalErrorReason || a.critical_error_reason,
+      passingStatus: a.passingStatus || a.passing_status,
+      errorCounts: a.errorCounts || a.error_counts || undefined,
+      coachingNotes: a.coachingNotes || a.coaching_notes,
       status: a.status,
       syncStatus: 'synced_server',
       version: a.version || 1,
-      finalizedAt: a.finalized_at,
-      createdAt: a.created_at,
-      updatedAt: a.updated_at
+      finalizedAt: a.finalizedAt || a.finalized_at,
+      createdAt: a.createdAt || a.created_at,
+      updatedAt: a.updatedAt || a.updated_at
     };
   }
   // Menyimpan Percobaan Ujian (Draft atau Final) secara Aman & Idempoten
@@ -980,10 +986,24 @@ export class TahsinService {
   public initializeSessionsForPeriod(
     period: TahsinPeriod,
     students: Student[],
-    teachers?: User[]
+    teachers?: User[],
+    serverSessions?: TahsinSession[]
   ): TahsinSession[] {
-    const existing = this.getLocalSessions().filter(s => s.periodId === period.id);
-    const existingMap = new Map(existing.map(s => [s.studentId, s]));
+    const local = this.getLocalSessions().filter(s => s.periodId === period.id);
+    
+    // Gabungkan serverSessions (jika disediakan) dengan local sessions
+    // Prioritaskan serverSessions untuk data server, namun pertahankan local draft jika pending_sync/sync_failed
+    const sourceSessions: TahsinSession[] = [...(serverSessions || [])];
+    local.forEach(ls => {
+      const idx = sourceSessions.findIndex(s => s.studentId === ls.studentId);
+      if (idx === -1) {
+        sourceSessions.push(ls);
+      } else if (ls.syncStatus === 'pending_sync' || ls.syncStatus === 'sync_failed') {
+        sourceSessions[idx] = ls;
+      }
+    });
+
+    const existingMap = new Map(sourceSessions.map(s => [s.studentId, s]));
 
     const targetClassesSet = new Set((period.targetClasses || []).map(c => c.trim().toUpperCase()));
     
@@ -1020,7 +1040,7 @@ export class TahsinService {
 
     // Pertahankan juga sesi yang sudah ada di existing tapi santrinya tidak masuk di eligibleStudents (misalnya dummy student atau data tersinkronisasi dari cloud)
     const mappedIds = new Set(newSessions.map(s => s.id));
-    const extraExisting = existing.filter(s => !mappedIds.has(s.id));
+    const extraExisting = sourceSessions.filter(s => !mappedIds.has(s.id));
     const allCombined = [...newSessions, ...extraExisting];
 
     // Simpan hasil gabungan ke local storage
@@ -1062,6 +1082,21 @@ export class TahsinService {
           if (finalizedAttempts.length > 1) {
             remedialCompletedCount++;
           }
+        } else {
+          remedialNeededCount++;
+        }
+      } else if (
+        s.status === 'completed' || 
+        s.status === 'remedial_needed' || 
+        s.passingStatus === 'lulus' || 
+        s.passingStatus === 'remedial' ||
+        (s.finalScore !== undefined && s.finalScore !== null && !isNaN(Number(s.finalScore)))
+      ) {
+        testedCount++;
+        const score = Number(s.finalScore || 0);
+        sumFinalScore += score;
+        if (s.passingStatus === 'lulus' || s.status === 'completed') {
+          passedCount++;
         } else {
           remedialNeededCount++;
         }

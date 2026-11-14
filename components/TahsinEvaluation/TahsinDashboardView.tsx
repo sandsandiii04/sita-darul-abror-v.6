@@ -68,7 +68,7 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
       if (active) {
         setSelectedPeriodId(active.id);
         const fetchedSessions = await tahsinService.fetchSessions(active.id, user);
-        const initialized = tahsinService.initializeSessionsForPeriod(active, students);
+        const initialized = tahsinService.initializeSessionsForPeriod(active, students, undefined, fetchedSessions);
         setSessions(initialized);
       }
     } catch (e: any) {
@@ -91,7 +91,7 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
       const targetPeriod = periods.find(p => p.id === pId);
       const fetched = await tahsinService.fetchSessions(pId, user);
       if (targetPeriod) {
-        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students);
+        const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, undefined, fetched);
         setSessions(initialized);
       } else {
         setSessions(fetched);
