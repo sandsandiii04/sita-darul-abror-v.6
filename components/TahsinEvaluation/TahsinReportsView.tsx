@@ -114,22 +114,41 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
     return periods.find(p => p.id === selectedPeriodId) || periods[0];
   }, [periods, selectedPeriodId]);
 
-  // Unique classes and halaqahs from students
+  // Filter santri sesuai kewenangan Owner-First dan kecualikan santri dummy 7-UJI pada periode resmi
+  const scopedStudents = useMemo(() => {
+    const targetClasses = (selectedPeriod?.targetClasses || []).map(c => c.trim().toUpperCase());
+    const isPilotPeriod = selectedPeriod?.id === 'tp_pilot_test' || targetClasses.includes('7-UJI');
+    return students.filter(s => {
+      const cls = (s.class || '').trim().toUpperCase();
+      const isDummy =
+        cls === '7-UJI' ||
+        s.id === 'student_dummy_pilot_01' ||
+        (s.name || '').toUpperCase().includes('(DUMMY)');
+      if (isDummy && !isPilotPeriod) return false;
+      if (user.role === 'teacher') {
+        const sess = sessions.find(x => x.studentId === s.id);
+        return s.teacherId === user.id || sess?.examinerId === user.id;
+      }
+      return true;
+    });
+  }, [students, selectedPeriod, user, sessions]);
+
+  // Unique classes and halaqahs from scoped students
   const availableClasses = useMemo(() => {
     const set = new Set<string>();
-    students.forEach(s => { if (s.class) set.add(s.class); });
+    scopedStudents.forEach(s => { if (s.class) set.add(s.class); });
     return Array.from(set).sort();
-  }, [students]);
+  }, [scopedStudents]);
 
   const availableHalaqahs = useMemo(() => {
     const set = new Set<string>();
-    students.forEach(s => { if (s.halaqah) set.add(s.halaqah); });
+    scopedStudents.forEach(s => { if (s.halaqah) set.add(s.halaqah); });
     return Array.from(set).sort();
-  }, [students]);
+  }, [scopedStudents]);
 
   // Map student sessions with full student entity
   const enrichedStudents = useMemo(() => {
-    return students.map(student => {
+    return scopedStudents.map(student => {
       const session = sessions.find(s => s.studentId === student.id);
       const coverage = tahsinService.getCoverageByClass(student.class);
       return {
@@ -143,7 +162,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
         attempts: session?.attempts || []
       };
     });
-  }, [students, sessions]);
+  }, [scopedStudents, sessions]);
 
   // Set default selected student if none selected
   useEffect(() => {
@@ -431,7 +450,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                 ) : (
                   filteredList.map(item => {
                     const isSelected = item.student.id === selectedStudentId;
-                    const hasTested = item.finalScore !== undefined;
+                    const hasTested = Boolean(item.session && tahsinService.isSessionTested(item.session));
 
                     return (
                       <button
@@ -927,7 +946,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
             const curClass = selectedClass || availableClasses[0] || '';
             const classStudents = enrichedStudents.filter(es => es.student.class === curClass);
             const total = classStudents.length;
-            const completed = classStudents.filter(es => es.status === 'completed' || es.finalScore !== undefined).length;
+            const completed = classStudents.filter(es => es.session && tahsinService.isSessionTested(es.session)).length;
             const lulus = classStudents.filter(es => es.passingStatus === 'lulus').length;
             const remedial = classStudents.filter(es => es.passingStatus === 'remedial').length;
             const avgScore = completed > 0 
@@ -1120,7 +1139,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
             const curHalaqah = selectedHalaqah || availableHalaqahs[0] || '';
             const halStudents = enrichedStudents.filter(es => es.student.halaqah === curHalaqah);
             const total = halStudents.length;
-            const completed = halStudents.filter(es => es.status === 'completed' || es.finalScore !== undefined).length;
+            const completed = halStudents.filter(es => es.session && tahsinService.isSessionTested(es.session)).length;
             const lulus = halStudents.filter(es => es.passingStatus === 'lulus').length;
             const remedial = halStudents.filter(es => es.passingStatus === 'remedial').length;
             const avgScore = completed > 0 
@@ -1265,7 +1284,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
           {/* Global Summary Cards */}
           {(() => {
             const total = enrichedStudents.length;
-            const completed = enrichedStudents.filter(es => es.status === 'completed' || es.finalScore !== undefined).length;
+            const completed = enrichedStudents.filter(es => es.session && tahsinService.isSessionTested(es.session)).length;
             const lulus = enrichedStudents.filter(es => es.passingStatus === 'lulus').length;
             const remedial = enrichedStudents.filter(es => es.passingStatus === 'remedial').length;
             const notStarted = total - completed;
@@ -1334,7 +1353,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                   {availableClasses.map((className, idx) => {
                     const cStudents = enrichedStudents.filter(es => es.student.class === className);
                     const total = cStudents.length;
-                    const completed = cStudents.filter(es => es.status === 'completed' || es.finalScore !== undefined).length;
+                    const completed = cStudents.filter(es => es.session && tahsinService.isSessionTested(es.session)).length;
                     const lulus = cStudents.filter(es => es.passingStatus === 'lulus').length;
                     const remedial = cStudents.filter(es => es.passingStatus === 'remedial').length;
                     const passRate = completed > 0 ? (lulus / completed) * 100 : 0;

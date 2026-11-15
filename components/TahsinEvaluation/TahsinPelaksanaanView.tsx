@@ -61,10 +61,14 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
 
   // Sync Queue State
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+  const [pendingSyncError, setPendingSyncError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const checkPendingSync = () => {
-    setPendingSyncCount(tahsinService.getPendingSyncCount(user.role === 'admin' ? undefined : user.id));
+    const items = tahsinService.getPendingSyncItems(user.role === 'admin' ? undefined : user.id);
+    setPendingSyncCount(items.length);
+    const conflictOrErr = items.find(i => i.lastError);
+    setPendingSyncError(conflictOrErr?.lastError || null);
   };
 
   const handleManualSync = async () => {
@@ -96,15 +100,24 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
 
       if (activePeriod) {
         setSelectedPeriodId(activePeriod.id);
-        const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id, user);
-        // Padukan data server dengan santri eligible tanpa menghapus sesi yang sudah tersimpan
-        const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers, fetchedSessions);
-        setSessions(initialized);
+        try {
+          const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id, user);
+          // Padukan data server dengan santri eligible tanpa menghapus sesi yang sudah tersimpan
+          const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers, fetchedSessions);
+          setSessions(initialized);
+        } catch (innerErr: any) {
+          if (sessions.length > 0) {
+            const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers, sessions);
+            setSessions(initialized);
+          }
+          throw innerErr;
+        }
       }
     } catch (e: any) {
       console.error('Gagal memuat data pelaksanaan tahsin:', e);
       setFetchError(e?.message || 'Gagal memuat data sesi ujian dari server.');
     } finally {
+      checkPendingSync();
       setIsLoading(false);
     }
   };
@@ -137,17 +150,21 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
 
   const selectedPeriod = periods.find(p => p.id === selectedPeriodId);
 
+  // Sesi sesuai kewenangan pengguna (Owner-First untuk guru halaqah, penuh untuk admin)
+  const authorizedSessions = useMemo(() => {
+    if (user.role === 'teacher') {
+      return sessions.filter(session => {
+        const studentObj = students.find(s => s.id === session.studentId);
+        return studentObj?.teacherId === user.id || session.examinerId === user.id;
+      });
+    }
+    return sessions;
+  }, [sessions, user, students]);
+
   // Filter List Peserta
   const filteredSessions = useMemo(() => {
-    return sessions.filter(session => {
-      // 1. Role Authorization: Teacher only sees their assigned students/halaqah
-      if (user.role === 'teacher') {
-        const studentObj = students.find(s => s.id === session.studentId);
-        const isMyStudent = studentObj?.teacherId === user.id || session.examinerId === user.id;
-        if (!isMyStudent) return false;
-      }
-
-      // 2. Search
+    return authorizedSessions.filter(session => {
+      // 1. Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesName = session.studentNameSnapshot.toLowerCase().includes(q);
@@ -156,17 +173,17 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
         if (!matchesName && !matchesNis) return false;
       }
 
-      // 3. Class filter
+      // 2. Class filter
       if (filterClass && session.classSnapshot !== filterClass) {
         return false;
       }
 
-      // 4. Halaqah filter
+      // 3. Halaqah filter
       if (filterHalaqah && session.halaqahSnapshot !== filterHalaqah) {
         return false;
       }
 
-      // 5. Status filter
+      // 4. Status filter
       if (filterStatus === 'not_started' && session.status !== 'not_started') return false;
       if (filterStatus === 'draft' && session.status !== 'draft') return false;
       if (filterStatus === 'lulus' && (session.status !== 'completed' || session.passingStatus !== 'lulus')) return false;
@@ -174,22 +191,16 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
 
       return true;
     });
-  }, [sessions, user, searchQuery, filterClass, filterHalaqah, filterStatus, students]);
+  }, [authorizedSessions, searchQuery, filterClass, filterHalaqah, filterStatus, students]);
 
   // Derived options for filter dropdowns
-  const classOptions = useMemo(() => Array.from(new Set(sessions.map(s => s.classSnapshot))).sort(), [sessions]);
-  const halaqahOptions = useMemo(() => Array.from(new Set(sessions.map(s => s.halaqahSnapshot))).sort(), [sessions]);
+  const classOptions = useMemo(() => Array.from(new Set(authorizedSessions.map(s => s.classSnapshot))).sort(), [authorizedSessions]);
+  const halaqahOptions = useMemo(() => Array.from(new Set(authorizedSessions.map(s => s.halaqahSnapshot))).sort(), [authorizedSessions]);
 
-  // Progress Stats (Sudah Diuji mencakup Lulus maupun Remedial yang telah disahkan)
-  const isSessionTested = (s: TahsinSession) => {
-    return s.status === 'completed' || 
-           s.status === 'remedial_needed' || 
-           s.passingStatus === 'lulus' || 
-           s.passingStatus === 'remedial' ||
-           (s.finalScore !== undefined && s.finalScore !== null && !isNaN(Number(s.finalScore)));
-  };
-  const completedCount = sessions.filter(isSessionTested).length;
-  const progressPercent = sessions.length > 0 ? Math.round((completedCount / sessions.length) * 100) : 0;
+  // Progress Stats (Sudah Diuji mencakup Lulus maupun Remedial yang telah disahkan secara resmi)
+  const isSessionTested = (s: TahsinSession) => tahsinService.isSessionTested(s);
+  const completedCount = authorizedSessions.filter(isSessionTested).length;
+  const progressPercent = authorizedSessions.length > 0 ? Math.round((completedCount / authorizedSessions.length) * 100) : 0;
 
   // Trigger Uji Santri
   const handleStartExam = (session: TahsinSession, type: 'utama' | 'remedial' = 'utama') => {
@@ -322,8 +333,13 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
                 Peringatan: {pendingSyncCount} Data Ujian Belum Tersinkronkan ke Database Server
               </h4>
               <p className="text-[11px] text-amber-700 mt-0.5">
-                Nilai tersimpan aman di perangkat ini. Klik tombol di samping untuk mengirimkan antrean ke server cloud saat internet stabil.
+                Nilai tersimpan aman di perangkat ini dan belum dihitung sebagai nilai resmi hingga tersinkronisasi. Klik tombol di samping untuk mengirimkan antrean ke server cloud saat internet stabil.
               </p>
+              {pendingSyncError && (
+                <p className="text-[11px] font-bold text-rose-700 mt-1">
+                  Info Status: {pendingSyncError}
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -341,7 +357,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-sm text-center">
           <div className="text-[10px] font-bold text-slate-400 uppercase">Total Peserta</div>
-          <div className="text-xl font-black text-slate-800 mt-0.5">{sessions.length}</div>
+          <div className="text-xl font-black text-slate-800 mt-0.5">{authorizedSessions.length}</div>
         </div>
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-sm text-center">
           <div className="text-[10px] font-bold text-slate-400 uppercase">Sudah Diuji</div>
@@ -349,7 +365,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
         </div>
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-sm text-center">
           <div className="text-[10px] font-bold text-slate-400 uppercase">Belum Diuji</div>
-          <div className="text-xl font-black text-amber-700 mt-0.5">{sessions.length - completedCount}</div>
+          <div className="text-xl font-black text-amber-700 mt-0.5">{authorizedSessions.length - completedCount}</div>
         </div>
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-sm text-center">
           <div className="text-[10px] font-bold text-slate-400 uppercase">Progres Ujian</div>

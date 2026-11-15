@@ -111,25 +111,25 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
   // Filtered Sessions
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
+      if (user.role === 'teacher') {
+        const studentObj = students.find(st => st.id === s.studentId);
+        const isMyStudent = studentObj?.teacherId === user.id || s.examinerId === user.id;
+        if (!isMyStudent) return false;
+      }
       if (filterClass && s.classSnapshot !== filterClass) return false;
       if (filterHalaqah && s.halaqahSnapshot !== filterHalaqah) return false;
       return true;
     });
-  }, [sessions, filterClass, filterHalaqah]);
+  }, [sessions, user, students, filterClass, filterHalaqah]);
 
   // Overall Stats
   const stats = useMemo(() => {
     return tahsinService.calculateMonitoringStats(filteredSessions);
   }, [filteredSessions]);
 
-  // Peserta yang telah diuji (completed, remedial_needed, atau memiliki attempts)
+  // Peserta yang telah diuji (completed, remedial_needed, atau memiliki attempts resmi)
   const testedSessions = useMemo(() => {
-    return filteredSessions.filter(s => 
-      s.status === 'completed' || 
-      s.status === 'remedial_needed' || 
-      (s.attempts && s.attempts.length > 0) ||
-      s.finalScore !== undefined
-    );
+    return filteredSessions.filter(s => tahsinService.isSessionTested(s));
   }, [filteredSessions]);
 
   // Chart 1: Rata-rata Nilai per Kelas
@@ -138,7 +138,7 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
     filteredSessions.forEach(s => {
       const c = s.classSnapshot || 'Lainnya';
       if (!classMap[c]) classMap[c] = { total: 0, sum: 0, passed: 0 };
-      if (s.finalScore !== undefined) {
+      if (tahsinService.isSessionTested(s) && s.finalScore !== undefined) {
         classMap[c].total += 1;
         classMap[c].sum += s.finalScore;
         if (s.passingStatus === 'lulus') classMap[c].passed += 1;
