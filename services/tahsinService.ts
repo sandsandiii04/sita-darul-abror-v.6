@@ -606,7 +606,7 @@ export class TahsinService {
     const startSurahName = a.reading?.startSurahName || a.surah_name_display || a.startSurahName || startSurahInfo?.name || (startSurah ? `Surah ${startSurah}` : 'Surah');
     const endSurahName = a.reading?.endSurahName || a.endSurahName || endSurahInfo?.name || (endSurah && endSurah !== startSurah ? `Surah ${endSurah}` : startSurahName);
 
-    const juzNumber = a.reading?.juzNumber ?? a.juz_number ?? a.juzNumber ?? (startPage ? quranService.getPageJuz(startPage) : (startSurah && startAyah ? quranService.getSurahJuz(startSurah, startAyah) : undefined));
+    const juzNumber = a.reading?.juzNumber ?? a.juz_number ?? a.juzNumber ?? (startPage ? quranService.getPageJuz(startPage) : (startSurah ? quranService.getPageJuz(quranService.getAyahPage(startSurah, startAyah || 1)) : undefined));
 
     return {
       id: a.id,
