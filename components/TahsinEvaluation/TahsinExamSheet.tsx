@@ -92,23 +92,50 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
 
   // 4 Aspek Penilaian
   const [categoryMakharij, setCategoryMakharij] = useState<TahsinCategoryScore | null>(() => attemptToEdit?.makharij.category || null);
-  const [scoreMakharij, setScoreMakharij] = useState<number>(() => attemptToEdit?.makharij.score ?? 0);
+  const [scoreMakharij, setScoreMakharij] = useState<number | ''>(() => {
+    if (attemptToEdit?.makharij && typeof attemptToEdit.makharij.score === 'number') {
+      return attemptToEdit.makharij.score;
+    }
+    return '';
+  });
   const [customMakharij, setCustomMakharij] = useState<boolean>(Boolean(attemptToEdit?.makharij.isCustomScore));
 
   const [categoryTajwid, setCategoryTajwid] = useState<TahsinCategoryScore | null>(() => attemptToEdit?.tajwid.category || null);
-  const [scoreTajwid, setScoreTajwid] = useState<number>(() => attemptToEdit?.tajwid.score ?? 0);
+  const [scoreTajwid, setScoreTajwid] = useState<number | ''>(() => {
+    if (attemptToEdit?.tajwid && typeof attemptToEdit.tajwid.score === 'number') {
+      return attemptToEdit.tajwid.score;
+    }
+    return '';
+  });
   const [customTajwid, setCustomTajwid] = useState<boolean>(Boolean(attemptToEdit?.tajwid.isCustomScore));
 
   const [categoryKelancaran, setCategoryKelancaran] = useState<TahsinCategoryScore | null>(() => attemptToEdit?.kelancaran.category || null);
-  const [scoreKelancaran, setScoreKelancaran] = useState<number>(() => attemptToEdit?.kelancaran.score ?? 0);
+  const [scoreKelancaran, setScoreKelancaran] = useState<number | ''>(() => {
+    if (attemptToEdit?.kelancaran && typeof attemptToEdit.kelancaran.score === 'number') {
+      return attemptToEdit.kelancaran.score;
+    }
+    return '';
+  });
   const [customKelancaran, setCustomKelancaran] = useState<boolean>(Boolean(attemptToEdit?.kelancaran.isCustomScore));
 
   const [categoryWaqaf, setCategoryWaqaf] = useState<TahsinCategoryScore | null>(() => attemptToEdit?.waqaf.category || null);
-  const [scoreWaqaf, setScoreWaqaf] = useState<number>(() => attemptToEdit?.waqaf.score ?? 0);
+  const [scoreWaqaf, setScoreWaqaf] = useState<number | ''>(() => {
+    if (attemptToEdit?.waqaf && typeof attemptToEdit.waqaf.score === 'number') {
+      return attemptToEdit.waqaf.score;
+    }
+    return '';
+  });
   const [customWaqaf, setCustomWaqaf] = useState<boolean>(Boolean(attemptToEdit?.waqaf.isCustomScore));
 
   // Mode Detail (Custom numeric override)
-  const [showDetailMode, setShowDetailMode] = useState<boolean>(false);
+  const [showDetailMode, setShowDetailMode] = useState<boolean>(() => {
+    return Boolean(
+      attemptToEdit?.makharij.isCustomScore ||
+      attemptToEdit?.tajwid.isCustomScore ||
+      attemptToEdit?.kelancaran.isCustomScore ||
+      attemptToEdit?.waqaf.isCustomScore
+    );
+  });
 
   // Kesalahan Berat
   const [hasCriticalError, setHasCriticalError] = useState<boolean>(() => Boolean(attemptToEdit?.hasCriticalError));
@@ -162,18 +189,82 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
     }
   };
 
+  // Handler Input Skor Manual (Mode Detail)
+  const handleManualScoreChange = (
+    aspect: 'makharij' | 'tajwid' | 'kelancaran' | 'waqaf', 
+    rawVal: string
+  ) => {
+    if (rawVal === '') {
+      if (aspect === 'makharij') {
+        setScoreMakharij('');
+        setCustomMakharij(true);
+        setCategoryMakharij(null);
+      } else if (aspect === 'tajwid') {
+        setScoreTajwid('');
+        setCustomTajwid(true);
+        setCategoryTajwid(null);
+      } else if (aspect === 'kelancaran') {
+        setScoreKelancaran('');
+        setCustomKelancaran(true);
+        setCategoryKelancaran(null);
+      } else if (aspect === 'waqaf') {
+        setScoreWaqaf('');
+        setCustomWaqaf(true);
+        setCategoryWaqaf(null);
+      }
+      return;
+    }
+
+    const num = parseFloat(rawVal);
+    if (!isNaN(num)) {
+      const clamped = Math.min(100, Math.max(0, num));
+      const autoCat = tahsinService.getCategoryFromScore(clamped);
+      if (aspect === 'makharij') {
+        setScoreMakharij(clamped);
+        setCustomMakharij(true);
+        setCategoryMakharij(autoCat);
+      } else if (aspect === 'tajwid') {
+        setScoreTajwid(clamped);
+        setCustomTajwid(true);
+        setCategoryTajwid(autoCat);
+      } else if (aspect === 'kelancaran') {
+        setScoreKelancaran(clamped);
+        setCustomKelancaran(true);
+        setCategoryKelancaran(autoCat);
+      } else if (aspect === 'waqaf') {
+        setScoreWaqaf(clamped);
+        setCustomWaqaf(true);
+        setCategoryWaqaf(autoCat);
+      }
+    }
+  };
+
+  // Validasi Kelengkapan Form (Mendukung Mode Cepat dan Skor Manual)
+  const isMakharijValid = typeof scoreMakharij === 'number' && !isNaN(scoreMakharij) && scoreMakharij >= 0 && scoreMakharij <= 100;
+  const isTajwidValid = typeof scoreTajwid === 'number' && !isNaN(scoreTajwid) && scoreTajwid >= 0 && scoreTajwid <= 100;
+  const isKelancaranValid = typeof scoreKelancaran === 'number' && !isNaN(scoreKelancaran) && scoreKelancaran >= 0 && scoreKelancaran <= 100;
+  const isWaqafValid = typeof scoreWaqaf === 'number' && !isNaN(scoreWaqaf) && scoreWaqaf >= 0 && scoreWaqaf <= 100;
+
+  const isCompleteForm = isMakharijValid && isTajwidValid && isKelancaranValid && isWaqafValid;
+
   // Live Calculations
-  const finalScore = tahsinService.calculateScore(scoreMakharij, scoreTajwid, scoreKelancaran, scoreWaqaf);
+  const numMakharij = typeof scoreMakharij === 'number' ? scoreMakharij : 0;
+  const numTajwid = typeof scoreTajwid === 'number' ? scoreTajwid : 0;
+  const numKelancaran = typeof scoreKelancaran === 'number' ? scoreKelancaran : 0;
+  const numWaqaf = typeof scoreWaqaf === 'number' ? scoreWaqaf : 0;
+
+  const finalScore = isCompleteForm 
+    ? tahsinService.calculateScore(numMakharij, numTajwid, numKelancaran, numWaqaf)
+    : 0;
   const predikatInfo = tahsinService.getPredikat(finalScore);
-  const isCompleteForm = categoryMakharij !== null && categoryTajwid !== null && categoryKelancaran !== null && categoryWaqaf !== null;
   const passingStatus = tahsinService.evaluatePassing(
     finalScore, 
-    scoreMakharij, 
-    scoreTajwid, 
+    numMakharij, 
+    numTajwid, 
     hasCriticalError, 
-    period.passingGrade, 
-    period.minMakharij, 
-    period.minTajwid
+    period.passingGrade || 70, 
+    period.minMakharij || 70, 
+    period.minTajwid || 70
   );
 
   // Acak Ulang Generator
@@ -239,23 +330,23 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
           pagesRead
         },
         makharij: {
-          score: scoreMakharij,
-          category: categoryMakharij || 'cukup',
+          score: numMakharij,
+          category: categoryMakharij || tahsinService.getCategoryFromScore(numMakharij),
           isCustomScore: customMakharij
         },
         tajwid: {
-          score: scoreTajwid,
-          category: categoryTajwid || 'cukup',
+          score: numTajwid,
+          category: categoryTajwid || tahsinService.getCategoryFromScore(numTajwid),
           isCustomScore: customTajwid
         },
         kelancaran: {
-          score: scoreKelancaran,
-          category: categoryKelancaran || 'cukup',
+          score: numKelancaran,
+          category: categoryKelancaran || tahsinService.getCategoryFromScore(numKelancaran),
           isCustomScore: customKelancaran
         },
         waqaf: {
-          score: scoreWaqaf,
-          category: categoryWaqaf || 'cukup',
+          score: numWaqaf,
+          category: categoryWaqaf || tahsinService.getCategoryFromScore(numWaqaf),
           isCustomScore: customWaqaf
         },
         finalScore,
@@ -542,7 +633,7 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                   1. Makharijul & Sifat Huruf <span className="text-emerald-700 font-black">(35%)</span>
                 </span>
                 <span className="font-bold text-slate-600">
-                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreMakharij}</strong>
+                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreMakharij !== '' ? scoreMakharij : '--'}</strong>
                 </span>
               </div>
 
@@ -572,12 +663,11 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                     type="number"
                     min="0"
                     max="100"
+                    step="any"
+                    placeholder="0-100"
                     value={scoreMakharij}
-                    onChange={(e) => {
-                      setScoreMakharij(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)));
-                      setCustomMakharij(true);
-                    }}
-                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800"
+                    onChange={(e) => handleManualScoreChange('makharij', e.target.value)}
+                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               )}
@@ -590,7 +680,7 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                   2. Tajwid <span className="text-emerald-700 font-black">(30%)</span>
                 </span>
                 <span className="font-bold text-slate-600">
-                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreTajwid}</strong>
+                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreTajwid !== '' ? scoreTajwid : '--'}</strong>
                 </span>
               </div>
 
@@ -619,12 +709,11 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                     type="number"
                     min="0"
                     max="100"
+                    step="any"
+                    placeholder="0-100"
                     value={scoreTajwid}
-                    onChange={(e) => {
-                      setScoreTajwid(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)));
-                      setCustomTajwid(true);
-                    }}
-                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800"
+                    onChange={(e) => handleManualScoreChange('tajwid', e.target.value)}
+                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               )}
@@ -637,7 +726,7 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                   3. Kelancaran Bacaan <span className="text-emerald-700 font-black">(20%)</span>
                 </span>
                 <span className="font-bold text-slate-600">
-                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreKelancaran}</strong>
+                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreKelancaran !== '' ? scoreKelancaran : '--'}</strong>
                 </span>
               </div>
 
@@ -666,12 +755,11 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                     type="number"
                     min="0"
                     max="100"
+                    step="any"
+                    placeholder="0-100"
                     value={scoreKelancaran}
-                    onChange={(e) => {
-                      setScoreKelancaran(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)));
-                      setCustomKelancaran(true);
-                    }}
-                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800"
+                    onChange={(e) => handleManualScoreChange('kelancaran', e.target.value)}
+                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               )}
@@ -684,7 +772,7 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                   4. Waqaf & Ibtida' <span className="text-emerald-700 font-black">(15%)</span>
                 </span>
                 <span className="font-bold text-slate-600">
-                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreWaqaf}</strong>
+                  Skor: <strong className="text-emerald-700 text-sm font-black">{scoreWaqaf !== '' ? scoreWaqaf : '--'}</strong>
                 </span>
               </div>
 
@@ -713,12 +801,11 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                     type="number"
                     min="0"
                     max="100"
+                    step="any"
+                    placeholder="0-100"
                     value={scoreWaqaf}
-                    onChange={(e) => {
-                      setScoreWaqaf(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)));
-                      setCustomWaqaf(true);
-                    }}
-                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800"
+                    onChange={(e) => handleManualScoreChange('waqaf', e.target.value)}
+                    className="w-16 px-2 py-0.5 bg-white border border-slate-300 rounded text-center font-bold text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
               )}

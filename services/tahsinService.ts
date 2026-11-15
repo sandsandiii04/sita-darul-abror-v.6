@@ -208,6 +208,15 @@ export class TahsinService {
     return { predikat: 'Perlu Pembinaan', arabic: 'بحاجة إلى متابعة', color: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' };
   }
 
+  // 5b. Penentuan Kategori Skor Aspek (Sangat Baik, Baik, Cukup, Kurang, Sangat Kurang)
+  public getCategoryFromScore(score: number): TahsinCategoryScore {
+    if (score >= 90) return 'sangat_baik';
+    if (score >= 80) return 'baik';
+    if (score >= 70) return 'cukup';
+    if (score >= 60) return 'kurang';
+    return 'sangat_kurang';
+  }
+
   // 6. Penentuan Status Kelulusan (KKM Resmi: Nilai Akhir >= 70, Makharij >= 70, Tajwid >= 70)
   public evaluatePassing(
     finalScore: number,
