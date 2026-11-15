@@ -6,7 +6,7 @@ import {
   TahsinSession, 
   TahsinAttempt 
 } from '../../types';
-import { tahsinService } from '../../services/tahsinService';
+import { tahsinService, formatTahsinPassageDisplay } from '../../services/tahsinService';
 import { TahsinExamSheet } from './TahsinExamSheet';
 import { 
   Search, 
@@ -207,8 +207,9 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
       nextAttemptNum = (session.latestAttemptNumber || 1) + 1;
     } else {
       if (attempts.length > 0) {
-        attemptToEdit = attempts[0];
-        nextAttemptNum = 1;
+        // Ambil attempt terbaru saat melihat riwayat/nilai ujian
+        attemptToEdit = attempts[attempts.length - 1];
+        nextAttemptNum = attemptToEdit.attemptNumber || 1;
       }
     }
 
@@ -441,13 +442,21 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
                   const coverageRule = tahsinService.getCoverageByClass(session.classSnapshot);
                   const isCompleted = session.status === 'completed' || session.status === 'remedial_needed';
                   const isRemedial = session.passingStatus === 'remedial' || session.status === 'remedial_needed';
+                  const latestAttempt = session.attempts && session.attempts.length > 0 ? session.attempts[session.attempts.length - 1] : null;
+                  const passage = latestAttempt?.reading ? formatTahsinPassageDisplay(latestAttempt.reading) : null;
 
                   return (
                     <tr key={session.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="p-3 text-center text-slate-400 font-bold">{idx + 1}</td>
                       <td className="p-3">
                         <div className="font-extrabold text-slate-800">{session.studentNameSnapshot}</div>
-                        <div className="text-[10px] text-slate-400">Percobaan #{session.latestAttemptNumber || 1}</div>
+                        {passage && passage.hasData ? (
+                          <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                            {passage.surahAyahText} • {passage.pageText} ({passage.juzText})
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400">Percobaan #{session.latestAttemptNumber || 1}</div>
+                        )}
                       </td>
                       <td className="p-3 text-center font-bold text-slate-600">
                         {session.classSnapshot}
@@ -459,6 +468,11 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
                         <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-100 text-[10px] font-bold">
                           Juz {session.targetJuzStart}–{session.targetJuzEnd}
                         </span>
+                        {latestAttempt?.examinerName && (
+                          <div className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[120px] mx-auto" title={`Penguji: ${latestAttempt.examinerName}`}>
+                            {latestAttempt.examinerName}
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 text-center">
                         {session.status === 'not_started' && (

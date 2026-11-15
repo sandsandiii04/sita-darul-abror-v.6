@@ -1,9 +1,9 @@
-import { 
-  TahsinPeriod, 
-  TahsinSession, 
-  TahsinAttempt, 
-  TahsinReadingLocation, 
-  TahsinCategoryScore, 
+import {
+  TahsinPeriod,
+  TahsinSession,
+  TahsinAttempt,
+  TahsinReadingLocation,
+  TahsinCategoryScore,
   TahsinPassingStatus,
   TahsinMonitoringStats,
   TahsinAspectScore,
@@ -33,6 +33,75 @@ export const TAHSIN_CATEGORY_SCORES: Record<TahsinCategoryScore, number> = {
   kurang: 65,
   sangat_kurang: 50
 };
+
+export function formatTahsinPassageDisplay(reading?: TahsinReadingLocation | null): {
+  surahAyahText: string;
+  surahDetailText: string;
+  pageText: string;
+  juzText: string;
+  pagesReadText: string;
+  hasData: boolean;
+} {
+  if (!reading || (!reading.startSurah && !reading.startPage)) {
+    return {
+      surahAyahText: 'Data bacaan belum tercatat',
+      surahDetailText: '-',
+      pageText: '-',
+      juzText: '-',
+      pagesReadText: '-',
+      hasData: false
+    };
+  }
+
+  const startSurahName = reading.startSurahName || (reading.startSurah ? quranService.getSurah(reading.startSurah)?.name : '') || (reading.startSurah ? `Surah ${reading.startSurah}` : 'Surah');
+  const endSurahName = reading.endSurahName || (reading.endSurah ? quranService.getSurah(reading.endSurah)?.name : '') || startSurahName;
+
+  let surahAyahText = '';
+  if (reading.startSurah && reading.endSurah && reading.startSurah !== reading.endSurah) {
+    surahAyahText = `${startSurahName} (Ayat ${reading.startAyah || 1}) s.d. ${endSurahName} (Ayat ${reading.endAyah || 1})`;
+  } else if (reading.startSurah) {
+    if (reading.endAyah && reading.startAyah && reading.endAyah !== reading.startAyah) {
+      surahAyahText = `${startSurahName} (Ayat ${reading.startAyah}–${reading.endAyah})`;
+    } else if (reading.startAyah) {
+      surahAyahText = `${startSurahName} (Ayat ${reading.startAyah})`;
+    } else {
+      surahAyahText = startSurahName;
+    }
+  } else {
+    surahAyahText = 'Materi Belum Ditentukan';
+  }
+
+  let pageText = '-';
+  if (reading.startPage) {
+    if (reading.endPage && reading.endPage !== reading.startPage) {
+      pageText = `Hal. ${reading.startPage}–${reading.endPage}`;
+    } else {
+      pageText = `Hal. ${reading.startPage}`;
+    }
+  }
+
+  const startJuz = reading.juzNumber || (reading.startPage ? quranService.getPageJuz(reading.startPage) : (reading.startSurah ? quranService.getPageJuz(quranService.getAyahPage(reading.startSurah, reading.startAyah || 1)) : undefined));
+  const endJuz = reading.endPage ? quranService.getPageJuz(reading.endPage) : (reading.endSurah ? quranService.getPageJuz(quranService.getAyahPage(reading.endSurah, reading.endAyah || 1)) : startJuz);
+
+  let juzText = '-';
+  if (startJuz && endJuz && startJuz !== endJuz) {
+    juzText = `Juz ${startJuz}–${endJuz}`;
+  } else if (startJuz) {
+    juzText = `Juz ${startJuz}`;
+  } else if (endJuz) {
+    juzText = `Juz ${endJuz}`;
+  }
+  const pagesReadText = reading.pagesRead ? `${reading.pagesRead} Halaman` : '-';
+
+  return {
+    surahAyahText,
+    surahDetailText: `${surahAyahText} • ${pageText} • ${juzText} (${pagesReadText})`,
+    pageText,
+    juzText,
+    pagesReadText,
+    hasData: true
+  };
+}
 
 export interface TahsinCoverageRule {
   startJuz: number;
@@ -81,13 +150,13 @@ export class TahsinService {
 
   // 2. Generator Acak Bacaan Sesuai Cakupan Materi
   public generateRandomReading(
-    className: string, 
+    className: string,
     requestedPages: number = 1,
     randomizeReason?: string
   ): TahsinReadingLocation {
     const coverage = this.getCoverageByClass(className);
     const pagesSpan = Math.max(1, Math.ceil(requestedPages));
-    
+
     // Pastikan tidak melompat melebihi halaman 604
     const maxStartPage = Math.max(coverage.startPage, coverage.endPage - pagesSpan + 1);
     const randomPage = Math.floor(Math.random() * (maxStartPage - coverage.startPage + 1)) + coverage.startPage;
@@ -138,9 +207,9 @@ export class TahsinService {
     if (className) {
       const coverage = this.getCoverageByClass(className);
       if (juz < coverage.startJuz || juz > coverage.endJuz) {
-        return { 
-          valid: false, 
-          message: `Bacaan berada di Juz ${juz}, di luar cakupan materi ${coverage.label}.` 
+        return {
+          valid: false,
+          message: `Bacaan berada di Juz ${juz}, di luar cakupan materi ${coverage.label}.`
         };
       }
     }
@@ -179,9 +248,9 @@ export class TahsinService {
     waqaf: number
   ): number {
     const raw = (makharij * TAHSIN_WEIGHTS.makharij) +
-                (tajwid * TAHSIN_WEIGHTS.tajwid) +
-                (kelancaran * TAHSIN_WEIGHTS.kelancaran) +
-                (waqaf * TAHSIN_WEIGHTS.waqaf);
+      (tajwid * TAHSIN_WEIGHTS.tajwid) +
+      (kelancaran * TAHSIN_WEIGHTS.kelancaran) +
+      (waqaf * TAHSIN_WEIGHTS.waqaf);
     return Math.round(raw * 100) / 100;
   }
 
@@ -248,7 +317,7 @@ export class TahsinService {
     try {
       const raw = localStorage.getItem(this.getStorageKey('periods'));
       if (raw) return JSON.parse(raw);
-    } catch (e) {}
+    } catch (e) { }
 
     // Default seed period jika belum ada data
     const defaultPeriod: TahsinPeriod = {
@@ -378,7 +447,7 @@ export class TahsinService {
     try {
       const raw = localStorage.getItem(this.getStorageKey('pending_sync'));
       if (raw) return JSON.parse(raw);
-    } catch (e) {}
+    } catch (e) { }
     return [];
   }
 
@@ -415,7 +484,7 @@ export class TahsinService {
     try {
       const raw = localStorage.getItem(this.getStorageKey('sessions'));
       if (raw) return JSON.parse(raw);
-    } catch (e) {}
+    } catch (e) { }
     return [];
   }
 
@@ -432,7 +501,7 @@ export class TahsinService {
           try {
             const raw = window.localStorage.getItem('sita_current_user_v1') || window.localStorage.getItem('sita_user');
             if (raw) activeUser = JSON.parse(raw);
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // Panggil RPC get_tahsin_sessions_secure dengan kredensial pengguna terautentikasi (sessionToken atau password asli)
@@ -462,8 +531,8 @@ export class TahsinService {
                 targetJuzStart: d.targetJuzStart ?? d.target_juz_start,
                 targetJuzEnd: d.targetJuzEnd ?? d.target_juz_end,
                 status: d.status,
-                finalScore: (d.finalScore !== null && d.finalScore !== undefined) 
-                  ? Number(d.finalScore) 
+                finalScore: (d.finalScore !== null && d.finalScore !== undefined)
+                  ? Number(d.finalScore)
                   : ((d.final_score !== null && d.final_score !== undefined) ? Number(d.final_score) : undefined),
                 predikat: d.predikat,
                 passingStatus: d.finalStatus || d.final_status,
@@ -519,48 +588,69 @@ export class TahsinService {
   }
 
   private mapAttemptFromDb(a: any): TahsinAttempt {
-    const finalScoreNum = (a.finalScore !== null && a.finalScore !== undefined) 
-      ? Number(a.finalScore) 
+    const finalScoreNum = (a.finalScore !== null && a.finalScore !== undefined)
+      ? Number(a.finalScore)
       : Number(a.final_score || 0);
+
+    const startSurah = a.reading?.startSurah ?? a.startSurah ?? a.start_surah;
+    const endSurah = a.reading?.endSurah ?? a.endSurah ?? a.end_surah ?? startSurah;
+    const startAyah = a.reading?.startAyah ?? a.startAyah ?? a.start_ayah;
+    const endAyah = a.reading?.endAyah ?? a.endAyah ?? a.end_ayah;
+    const startPage = a.reading?.startPage ?? a.startPage ?? a.start_page;
+    const endPage = a.reading?.endPage ?? a.endPage ?? a.end_page ?? startPage;
+    const pagesRead = Number(a.reading?.pagesRead ?? a.pagesRead ?? a.pages_read ?? 1);
+
+    const startSurahInfo = startSurah ? quranService.getSurah(startSurah) : null;
+    const endSurahInfo = endSurah ? quranService.getSurah(endSurah) : null;
+
+    const startSurahName = a.reading?.startSurahName || a.surah_name_display || a.startSurahName || startSurahInfo?.name || (startSurah ? `Surah ${startSurah}` : 'Surah');
+    const endSurahName = a.reading?.endSurahName || a.endSurahName || endSurahInfo?.name || (endSurah && endSurah !== startSurah ? `Surah ${endSurah}` : startSurahName);
+
+    const juzNumber = a.reading?.juzNumber ?? a.juz_number ?? a.juzNumber ?? (startPage ? quranService.getPageJuz(startPage) : (startSurah && startAyah ? quranService.getSurahJuz(startSurah, startAyah) : undefined));
 
     return {
       id: a.id,
       sessionId: a.sessionId || a.session_id,
-      attemptNumber: a.attemptNumber || a.attempt_number,
-      attemptType: a.attemptType || a.attempt_type,
+      attemptNumber: a.attemptNumber || a.attempt_number || 1,
+      attemptType: a.attemptType || a.attempt_type || 'utama',
       examinerId: a.examinerId || a.examiner_id,
       examinerName: a.examinerName || a.examiner_name_snapshot || 'Penguji',
       examDate: a.examDate || a.exam_date,
-      reading: a.reading ? a.reading : {
-        startSurah: a.start_surah,
-        startSurahName: a.surah_name_display || `Surah ${a.start_surah}`,
-        startAyah: a.start_ayah,
-        endSurah: a.end_surah,
-        endSurahName: a.surah_name_display || `Surah ${a.end_surah}`,
-        endAyah: a.end_ayah,
-        startPage: a.start_page,
-        endPage: a.end_page,
-        pagesRead: Number(a.pages_read || 1),
-        randomizeReason: a.randomize_reason
+      reading: {
+        startSurah,
+        startSurahName,
+        startAyah,
+        endSurah,
+        endSurahName,
+        endAyah,
+        startPage,
+        endPage,
+        pagesRead,
+        juzNumber,
+        randomizeReason: a.reading?.randomizeReason || a.randomize_reason || a.randomizeReason
       },
       makharij: a.makharij ? a.makharij : {
         score: Number(a.score_makharij || 0),
-        category: a.category_makharij as TahsinCategoryScore
+        category: (a.category_makharij || 'cukup') as TahsinCategoryScore,
+        isCustomScore: Boolean(a.is_custom_makharij)
       },
       tajwid: a.tajwid ? a.tajwid : {
         score: Number(a.score_tajwid || 0),
-        category: a.category_tajwid as TahsinCategoryScore
+        category: (a.category_tajwid || 'cukup') as TahsinCategoryScore,
+        isCustomScore: Boolean(a.is_custom_tajwid)
       },
       kelancaran: a.kelancaran ? a.kelancaran : {
         score: Number(a.score_kelancaran || 0),
-        category: a.category_kelancaran as TahsinCategoryScore
+        category: (a.category_kelancaran || 'cukup') as TahsinCategoryScore,
+        isCustomScore: Boolean(a.is_custom_kelancaran)
       },
       waqaf: a.waqaf ? a.waqaf : {
         score: Number(a.score_waqaf || 0),
-        category: a.category_waqaf as TahsinCategoryScore
+        category: (a.category_waqaf || 'cukup') as TahsinCategoryScore,
+        isCustomScore: Boolean(a.is_custom_waqaf)
       },
       finalScore: finalScoreNum,
-      predikat: a.predikat || 'Perlu Pembinaan',
+      predikat: a.predikat || this.getPredikat(finalScoreNum).predikat,
       predikatArabic: a.predikatArabic || this.getPredikat(finalScoreNum).arabic,
       hasCriticalError: a.hasCriticalError ?? Boolean(a.has_critical_error),
       criticalErrorReason: a.criticalErrorReason || a.critical_error_reason,
@@ -586,8 +676,8 @@ export class TahsinService {
     let syncStatus: TahsinSyncStatus = isFinalize ? 'pending_sync' : 'draft_local';
     let savedToServer = false;
     let conflictDetected = false;
-    let returnMessage = isFinalize 
-      ? 'Menyimpan ujian tahsin...' 
+    let returnMessage = isFinalize
+      ? 'Menyimpan ujian tahsin...'
       : 'Draft ujian berhasil disimpan di perangkat lokal.';
 
     const updatedAttempt: TahsinAttempt = {
@@ -874,7 +964,7 @@ export class TahsinService {
           this.saveLocalSessions(finalSessions);
         }
 
-        returnMessage = isFinalize 
+        returnMessage = isFinalize
           ? 'Ujian Tahsin berhasil disahkan dan tersimpan di database server!'
           : 'Draft ujian berhasil disimpan di database server.';
 
@@ -901,7 +991,7 @@ export class TahsinService {
         this.saveLocalSessions(localSessions);
       }
 
-      returnMessage = isFinalize 
+      returnMessage = isFinalize
         ? `Gagal menyimpan ke server database (${e.message || 'Koneksi terputus'}). Nilai tersimpan aman di perangkat lokal sebagai antrean sinkronisasi.`
         : 'Draft ujian tersimpan di perangkat lokal (koneksi server tidak tersedia).';
 
@@ -999,7 +1089,7 @@ export class TahsinService {
     serverSessions?: TahsinSession[]
   ): TahsinSession[] {
     const local = this.getLocalSessions().filter(s => s.periodId === period.id);
-    
+
     // Gabungkan serverSessions (jika disediakan) dengan local sessions
     // Prioritaskan serverSessions untuk data server, namun pertahankan local draft jika pending_sync/sync_failed
     const sourceSessions: TahsinSession[] = [...(serverSessions || [])];
@@ -1015,7 +1105,7 @@ export class TahsinService {
     const existingMap = new Map(sourceSessions.map(s => [s.studentId, s]));
 
     const targetClassesSet = new Set((period.targetClasses || []).map(c => c.trim().toUpperCase()));
-    
+
     // Filter santri yang masuk dalam kelas target
     const eligibleStudents = students.filter(s => {
       if (targetClassesSet.size === 0) return true;
@@ -1095,9 +1185,9 @@ export class TahsinService {
           remedialNeededCount++;
         }
       } else if (
-        s.status === 'completed' || 
-        s.status === 'remedial_needed' || 
-        s.passingStatus === 'lulus' || 
+        s.status === 'completed' ||
+        s.status === 'remedial_needed' ||
+        s.passingStatus === 'lulus' ||
         s.passingStatus === 'remedial' ||
         (s.finalScore !== undefined && s.finalScore !== null && !isNaN(Number(s.finalScore)))
       ) {

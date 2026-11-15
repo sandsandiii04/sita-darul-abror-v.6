@@ -12,7 +12,8 @@ import {
 import { 
   tahsinService, 
   TAHSIN_CATEGORY_SCORES, 
-  TAHSIN_WEIGHTS 
+  TAHSIN_WEIGHTS,
+  formatTahsinPassageDisplay 
 } from '../../services/tahsinService';
 import { quranService } from '../../services/quranService';
 import { MushafPage } from '../QuranMushaf/MushafPage';
@@ -68,6 +69,10 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
   onSuccess
 }) => {
   const coverage = tahsinService.getCoverageByClass(student.class);
+
+  // Active Attempt (supports switching between multiple attempts when viewing)
+  const [activeAttempt, setActiveAttempt] = useState<TahsinAttempt | null>(() => attemptToEdit || null);
+  const isExamFinalized = Boolean(activeAttempt?.status === 'finalized');
 
   // Active Tab on Mobile ('mushaf' vs 'scoring')
   const [activeMobileTab, setActiveMobileTab] = useState<'mushaf' | 'scoring'>('scoring');
@@ -136,6 +141,36 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
       attemptToEdit?.waqaf.isCustomScore
     );
   });
+
+  // Handler Ganti Attempt saat melihat riwayat
+  const handleSwitchAttempt = (att: TahsinAttempt) => {
+    setActiveAttempt(att);
+    if (att.reading) {
+      setReading(att.reading);
+      if (att.reading.startPage) setCurrentPage(att.reading.startPage);
+      if (att.reading.pagesRead) setPagesRead(att.reading.pagesRead);
+    }
+    setScoreMakharij(att.makharij.score);
+    setCategoryMakharij(att.makharij.category);
+    setCustomMakharij(Boolean(att.makharij.isCustomScore));
+
+    setScoreTajwid(att.tajwid.score);
+    setCategoryTajwid(att.tajwid.category);
+    setCustomTajwid(Boolean(att.tajwid.isCustomScore));
+
+    setScoreKelancaran(att.kelancaran.score);
+    setCategoryKelancaran(att.kelancaran.category);
+    setCustomKelancaran(Boolean(att.kelancaran.isCustomScore));
+
+    setScoreWaqaf(att.waqaf.score);
+    setCategoryWaqaf(att.waqaf.category);
+    setCustomWaqaf(Boolean(att.waqaf.isCustomScore));
+
+    setHasCriticalError(Boolean(att.hasCriticalError));
+    setCriticalErrorReason(att.criticalErrorReason || '');
+    if (att.errorCounts) setErrorCounters(att.errorCounts);
+    if (att.coachingNotes) setCoachingNotes(att.coachingNotes);
+  };
 
   // Kesalahan Berat
   const [hasCriticalError, setHasCriticalError] = useState<boolean>(() => Boolean(attemptToEdit?.hasCriticalError));
@@ -399,6 +434,8 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
     { key: 'sangat_kurang', label: 'Sangat Kurang', score: 50 },
   ];
 
+  const passage = formatTahsinPassageDisplay(reading);
+
   return (
     <div className={`space-y-4 ${isFullscreen ? 'fixed inset-0 z-50 bg-slate-100 p-4 overflow-y-auto' : ''}`}>
       {/* Top Header Card */}
@@ -427,8 +464,30 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
               )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Cakupan: <strong className="text-emerald-700">{coverage.label}</strong> • Penguji: <strong>{user.name}</strong> • Periode: {period.name}
+              Cakupan: <strong className="text-emerald-700">{coverage.label}</strong> • Penguji: <strong>{activeAttempt?.examinerName || user.name}</strong>{activeAttempt?.examDate ? ` • Tanggal: ${activeAttempt.examDate}` : ''} • Periode: {period.name}
             </p>
+            {session.attempts && session.attempts.length > 1 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <span className="text-[11px] font-bold text-slate-400">Riwayat Ujian:</span>
+                {session.attempts.map((att, idx) => {
+                  const isSelected = activeAttempt?.id === att.id;
+                  return (
+                    <button
+                      key={att.id || idx}
+                      type="button"
+                      onClick={() => handleSwitchAttempt(att)}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg font-bold transition-all border ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                          : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
+                      }`}
+                    >
+                      {att.attemptType === 'remedial' ? `Remedial #${att.attemptNumber - 1}` : 'Ujian Utama'} ({att.finalScore.toFixed(2)})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -508,32 +567,38 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-                  Lokasi Bacaan Ujian
+                  {isExamFinalized ? 'Materi Teruji (Resmi)' : 'Lokasi Bacaan Ujian'}
                 </span>
                 <h3 className="text-sm font-extrabold text-slate-800 mt-1">
-                  {reading.startSurahName} (Ayat {reading.startAyah} s.d. Ayat {reading.endAyah})
+                  {passage.surahAyahText}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Halaman {reading.startPage} {reading.startPage !== reading.endPage ? `– ${reading.endPage}` : ''} • Juz {reading.juzNumber}
+                  {passage.pageText} • {passage.juzText} • {passage.pagesReadText}
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowReRandomizeModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 transition-colors"
-                >
-                  <Shuffle size={14} /> Acak Bacaan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowManualModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors"
-                >
-                  <Sliders size={14} /> Pilih Manual
-                </button>
-              </div>
+              {isExamFinalized ? (
+                <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                  <CheckCircle2 size={14} className="text-emerald-600" /> Terkunci Resmi
+                </span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReRandomizeModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 transition-colors"
+                  >
+                    <Shuffle size={14} /> Acak Bacaan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors"
+                  >
+                    <Sliders size={14} /> Pilih Manual
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Input & Konfirmasi Panjang Bacaan */}
@@ -962,26 +1027,44 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
               )}
             </div>
 
-            {/* Tombol Aksi Simpan / Sahkan */}
-            <div className="pt-2 flex flex-col sm:flex-row gap-2 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => handleSave(false)}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-2"
-              >
-                <Save size={15} /> Simpan Draft
-              </button>
+            {/* Tombol Aksi Simpan / Sahkan ATAU Banner Mode Lihat Nilai */}
+            {isExamFinalized ? (
+              <div className="pt-2 flex flex-col gap-2 border-t border-slate-100">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                    <CheckCircle2 size={16} className="text-emerald-600 flex-shrink-0" />
+                    <span>Ujian ini telah DISAHKAN secara resmi{activeAttempt?.examDate ? ` (${activeAttempt.examDate})` : ''}.</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft size={15} /> Kembali ke Daftar Peserta
+                </button>
+              </div>
+            ) : (
+              <div className="pt-2 flex flex-col sm:flex-row gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSave(false)}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save size={15} /> Simpan Draft
+                </button>
 
-              <button
-                type="button"
-                disabled={isSubmitting || !isCompleteForm}
-                onClick={() => setShowConfirmFinalModal(true)}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <Check size={16} /> Sahkan Hasil Ujian
-              </button>
-            </div>
+                <button
+                  type="button"
+                  disabled={isSubmitting || !isCompleteForm}
+                  onClick={() => setShowConfirmFinalModal(true)}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Check size={16} /> Sahkan Hasil Ujian
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

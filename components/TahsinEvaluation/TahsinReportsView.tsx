@@ -9,7 +9,8 @@ import {
 import { 
   tahsinService, 
   TAHSIN_WEIGHTS, 
-  TAHSIN_CATEGORY_SCORES 
+  TAHSIN_CATEGORY_SCORES,
+  formatTahsinPassageDisplay 
 } from '../../services/tahsinService';
 import { LOGO_URL } from '../../constants';
 import { 
@@ -55,6 +56,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
 
   // Filters
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [selectedAttemptId, setSelectedAttemptId] = useState<string>('');
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [selectedHalaqah, setSelectedHalaqah] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -164,6 +166,15 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
     if (!currentStudentData?.attempts || currentStudentData.attempts.length === 0) return null;
     return [...currentStudentData.attempts].sort((a, b) => b.attemptNumber - a.attemptNumber)[0];
   }, [currentStudentData]);
+
+  const activeTranscriptAttempt = useMemo(() => {
+    if (!currentStudentData?.attempts || currentStudentData.attempts.length === 0) return null;
+    if (selectedAttemptId) {
+      const found = currentStudentData.attempts.find(a => a.id === selectedAttemptId);
+      if (found) return found;
+    }
+    return latestAttempt;
+  }, [currentStudentData, selectedAttemptId, latestAttempt]);
 
   // Filtered list for student selection or class recap
   const filteredList = useMemo(() => {
@@ -469,6 +480,32 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                 ref={reportPrintRef}
                 className="bg-white p-8 md:p-10 rounded-xl border border-gray-200 shadow-md max-w-4xl mx-auto print:shadow-none print:border-none print:p-0"
               >
+                {/* Attempt Selector Tabs (Interactive screen only, hidden during print) */}
+                {currentStudentData.attempts && currentStudentData.attempts.length > 1 && (
+                  <div className="flex items-center gap-2 mb-4 p-2.5 bg-slate-50 border border-slate-200 rounded-lg print:hidden">
+                    <span className="text-xs font-bold text-slate-600">Pilih Percobaan Ujian:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {currentStudentData.attempts.map((att, idx) => {
+                        const isSelected = activeTranscriptAttempt?.id === att.id;
+                        return (
+                          <button
+                            key={att.id || idx}
+                            type="button"
+                            onClick={() => setSelectedAttemptId(att.id)}
+                            className={`px-3 py-1 text-xs font-bold rounded-md transition ${
+                              isSelected
+                                ? 'bg-emerald-700 text-white shadow-sm'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                            }`}
+                          >
+                            {att.attemptType === 'remedial' ? `Remedial #${att.attemptNumber - 1}` : 'Ujian Utama'} (Skor: {att.finalScore.toFixed(1)})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Formal Kop Pondok Pesantren */}
                 <div className="border-b-2 border-emerald-900 pb-3 mb-5 flex items-center gap-4">
                   <img src={LOGO_URL} alt="Logo Pesantren" className="w-16 h-16 object-contain" />
@@ -523,58 +560,69 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                   <div className="flex">
                     <span className="w-32 font-bold text-gray-600">Tanggal Ujian</span>
                     <span className="font-semibold text-gray-900">
-                      : {latestAttempt?.examDate ? new Date(latestAttempt.examDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}
+                      : {activeTranscriptAttempt?.examDate ? new Date(activeTranscriptAttempt.examDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}
                     </span>
                   </div>
                   <div className="flex">
                     <span className="w-32 font-bold text-gray-600">Penguji Tahsin</span>
-                    <span className="font-semibold text-gray-900">: {latestAttempt?.examinerName || '-'}</span>
+                    <span className="font-semibold text-gray-900">: {activeTranscriptAttempt?.examinerName || '-'}</span>
                   </div>
                   <div className="flex">
                     <span className="w-32 font-bold text-gray-600">Status Ujian</span>
                     <span className="font-semibold text-gray-900">
-                      : {latestAttempt?.attemptType === 'remedial' ? `Ujian Remedial (Percobaan ke-${latestAttempt.attemptNumber})` : 'Ujian Utama'}
+                      : {activeTranscriptAttempt?.attemptType === 'remedial' ? `Ujian Remedial (Percobaan ke-${activeTranscriptAttempt.attemptNumber})` : 'Ujian Utama'}
                     </span>
                   </div>
                 </div>
 
                 {/* Reading Passage Details */}
-                {latestAttempt?.reading ? (
-                  <div className="border border-emerald-200 bg-emerald-50/50 p-3.5 rounded-lg mb-6 text-xs print:bg-white print:border-gray-300">
-                    <h4 className="text-[11px] font-bold text-emerald-950 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                      <BookOpen size={14} className="text-emerald-700" />
-                      Bagian Ayat yang Diuji
-                    </h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-gray-700">
-                      <div>
-                        <span className="text-[10px] text-gray-500 block">Surah & Ayat:</span>
-                        <span className="font-bold text-gray-900">
-                          {latestAttempt.reading.startSurahName} : {latestAttempt.reading.startAyah}
-                          {latestAttempt.reading.endAyah !== latestAttempt.reading.startAyah ? ` - ${latestAttempt.reading.endAyah}` : ''}
-                        </span>
+                {(() => {
+                  const passage = formatTahsinPassageDisplay(activeTranscriptAttempt?.reading);
+                  if (passage.hasData) {
+                    return (
+                      <div className="border border-emerald-200 bg-emerald-50/50 p-3.5 rounded-lg mb-6 text-xs print:bg-white print:border-gray-300">
+                        <h4 className="text-[11px] font-bold text-emerald-950 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                          <BookOpen size={14} className="text-emerald-700" />
+                          Bagian Ayat yang Diuji
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-gray-700">
+                          <div>
+                            <span className="text-[10px] text-gray-500 block">Surah & Ayat:</span>
+                            <span className="font-bold text-gray-900">
+                              {passage.surahAyahText}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-gray-500 block">Halaman Mushaf:</span>
+                            <span className="font-bold text-gray-900">
+                              {passage.pageText}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-gray-500 block">Juz:</span>
+                            <span className="font-bold text-gray-900">{passage.juzText}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-gray-500 block">Panjang Bacaan:</span>
+                            <span className="font-bold text-emerald-800">{passage.pagesReadText}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-gray-500 block">Halaman Mushaf:</span>
-                        <span className="font-bold text-gray-900">
-                          Halaman {latestAttempt.reading.startPage}
-                          {latestAttempt.reading.endPage !== latestAttempt.reading.startPage ? ` - ${latestAttempt.reading.endPage}` : ''}
-                        </span>
+                    );
+                  }
+                  if (activeTranscriptAttempt) {
+                    return (
+                      <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 mb-6">
+                        Data bacaan belum tercatat pada berkas ujian ini.
                       </div>
-                      <div>
-                        <span className="text-[10px] text-gray-500 block">Juz:</span>
-                        <span className="font-bold text-gray-900">Juz {latestAttempt.reading.juzNumber || '-'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-gray-500 block">Panjang Bacaan:</span>
-                        <span className="font-bold text-emerald-800">{latestAttempt.reading.pagesRead} Halaman</span>
-                      </div>
+                    );
+                  }
+                  return (
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-xs text-yellow-800 mb-6">
+                      Santri ini belum memiliki riwayat ujian tahsin pada periode ini.
                     </div>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-center text-xs text-yellow-800 mb-6">
-                    Santri ini belum memiliki riwayat ujian tahsin pada periode ini.
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Score Breakdown Table */}
                 <div className="mb-6">
@@ -604,13 +652,13 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">35%</td>
                         <td className="py-2 px-3 border border-gray-300 text-center capitalize">
-                          {latestAttempt?.makharij.category.replace('_', ' ') || '-'}
+                          {activeTranscriptAttempt?.makharij?.category?.replace('_', ' ') || '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">
-                          {latestAttempt?.makharij.score ?? '-'}
+                          {activeTranscriptAttempt?.makharij?.score ?? '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold text-emerald-800">
-                          {latestAttempt?.makharij.score ? (latestAttempt.makharij.score * 0.35).toFixed(2) : '-'}
+                          {activeTranscriptAttempt?.makharij?.score ? (activeTranscriptAttempt.makharij.score * 0.35).toFixed(2) : '-'}
                         </td>
                       </tr>
 
@@ -625,13 +673,13 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">30%</td>
                         <td className="py-2 px-3 border border-gray-300 text-center capitalize">
-                          {latestAttempt?.tajwid.category.replace('_', ' ') || '-'}
+                          {activeTranscriptAttempt?.tajwid?.category?.replace('_', ' ') || '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">
-                          {latestAttempt?.tajwid.score ?? '-'}
+                          {activeTranscriptAttempt?.tajwid?.score ?? '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold text-emerald-800">
-                          {latestAttempt?.tajwid.score ? (latestAttempt.tajwid.score * 0.30).toFixed(2) : '-'}
+                          {activeTranscriptAttempt?.tajwid?.score ? (activeTranscriptAttempt.tajwid.score * 0.30).toFixed(2) : '-'}
                         </td>
                       </tr>
 
@@ -646,13 +694,13 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">20%</td>
                         <td className="py-2 px-3 border border-gray-300 text-center capitalize">
-                          {latestAttempt?.kelancaran.category.replace('_', ' ') || '-'}
+                          {activeTranscriptAttempt?.kelancaran?.category?.replace('_', ' ') || '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">
-                          {latestAttempt?.kelancaran.score ?? '-'}
+                          {activeTranscriptAttempt?.kelancaran?.score ?? '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold text-emerald-800">
-                          {latestAttempt?.kelancaran.score ? (latestAttempt.kelancaran.score * 0.20).toFixed(2) : '-'}
+                          {activeTranscriptAttempt?.kelancaran?.score ? (activeTranscriptAttempt.kelancaran.score * 0.20).toFixed(2) : '-'}
                         </td>
                       </tr>
 
@@ -667,13 +715,13 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">15%</td>
                         <td className="py-2 px-3 border border-gray-300 text-center capitalize">
-                          {latestAttempt?.waqaf.category.replace('_', ' ') || '-'}
+                          {activeTranscriptAttempt?.waqaf?.category?.replace('_', ' ') || '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold">
-                          {latestAttempt?.waqaf.score ?? '-'}
+                          {activeTranscriptAttempt?.waqaf?.score ?? '-'}
                         </td>
                         <td className="py-2 px-3 border border-gray-300 text-center font-bold text-emerald-800">
-                          {latestAttempt?.waqaf.score ? (latestAttempt.waqaf.score * 0.15).toFixed(2) : '-'}
+                          {activeTranscriptAttempt?.waqaf?.score ? (activeTranscriptAttempt.waqaf.score * 0.15).toFixed(2) : '-'}
                         </td>
                       </tr>
 
@@ -683,7 +731,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                           Nilai Akhir Ujian Tahsin:
                         </td>
                         <td colSpan={2} className="py-2.5 px-3 border border-gray-300 text-center text-sm text-emerald-950 font-black">
-                          {latestAttempt?.finalScore !== undefined ? latestAttempt.finalScore.toFixed(2) : '-'}
+                          {activeTranscriptAttempt?.finalScore !== undefined ? activeTranscriptAttempt.finalScore.toFixed(2) : '-'}
                         </td>
                       </tr>
                     </tbody>
@@ -695,16 +743,16 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                   <div className="border border-gray-200 bg-gray-50 p-3 rounded-lg text-center print:bg-white print:border-gray-300">
                     <span className="text-[10px] font-bold text-gray-500 uppercase block">Predikat Kualitatif</span>
                     <span className="text-base font-extrabold text-emerald-900 mt-1 block">
-                      {latestAttempt?.predikat || '-'}
+                      {activeTranscriptAttempt?.predikat || '-'}
                     </span>
                   </div>
 
                   <div className="border border-gray-200 bg-gray-50 p-3 rounded-lg text-center print:bg-white print:border-gray-300">
                     <span className="text-[10px] font-bold text-gray-500 uppercase block">Status Kelulusan</span>
                     <span className={`text-base font-extrabold mt-1 block ${
-                      latestAttempt?.passingStatus === 'lulus' ? 'text-emerald-700' : 'text-amber-700'
+                      activeTranscriptAttempt?.passingStatus === 'lulus' ? 'text-emerald-700' : 'text-amber-700'
                     }`}>
-                      {latestAttempt?.passingStatus === 'lulus' ? 'LULUS' : latestAttempt?.passingStatus === 'remedial' ? 'PERLU REMEDIAL' : '-'}
+                      {activeTranscriptAttempt?.passingStatus === 'lulus' ? 'LULUS' : activeTranscriptAttempt?.passingStatus === 'remedial' ? 'PERLU REMEDIAL' : '-'}
                     </span>
                   </div>
 
@@ -717,35 +765,35 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                 </div>
 
                 {/* Catatan Kesalahan jika ada */}
-                {latestAttempt?.errorCounts && (
+                {activeTranscriptAttempt?.errorCounts && (
                   <div className="mb-5 p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs print:bg-white print:border-gray-300">
                     <span className="font-bold text-gray-700 block mb-1.5 text-[11px] uppercase">
                       Pencatatan Kesalahan Bacaan:
                     </span>
                     <div className="grid grid-cols-4 gap-2 text-center text-[10px]">
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Makhraj: <span className="font-bold">{latestAttempt.errorCounts.makhraj || 0}</span>
+                        Makhraj: <span className="font-bold">{activeTranscriptAttempt.errorCounts.makhraj || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Mad: <span className="font-bold">{latestAttempt.errorCounts.mad || 0}</span>
+                        Mad: <span className="font-bold">{activeTranscriptAttempt.errorCounts.mad || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Ghunnah: <span className="font-bold">{latestAttempt.errorCounts.ghunnah || 0}</span>
+                        Ghunnah: <span className="font-bold">{activeTranscriptAttempt.errorCounts.ghunnah || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Harakat: <span className="font-bold">{latestAttempt.errorCounts.harakat || 0}</span>
+                        Harakat: <span className="font-bold">{activeTranscriptAttempt.errorCounts.harakat || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Tajwid Lain: <span className="font-bold">{latestAttempt.errorCounts.tajwidLain || 0}</span>
+                        Tajwid Lain: <span className="font-bold">{activeTranscriptAttempt.errorCounts.tajwidLain || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Waqaf: <span className="font-bold">{latestAttempt.errorCounts.waqaf || 0}</span>
+                        Waqaf: <span className="font-bold">{activeTranscriptAttempt.errorCounts.waqaf || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Kelancaran: <span className="font-bold">{latestAttempt.errorCounts.kelancaran || 0}</span>
+                        Kelancaran: <span className="font-bold">{activeTranscriptAttempt.errorCounts.kelancaran || 0}</span>
                       </div>
                       <div className="p-1 bg-white border border-gray-200 rounded">
-                        Lain-lain: <span className="font-bold">{latestAttempt.errorCounts.lainnya || 0}</span>
+                        Lain-lain: <span className="font-bold">{activeTranscriptAttempt.errorCounts.lainnya || 0}</span>
                       </div>
                     </div>
                   </div>
@@ -757,7 +805,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                     Catatan Pembinaan & Evaluasi Penguji:
                   </span>
                   <p className="italic text-gray-700 whitespace-pre-line leading-relaxed">
-                    {latestAttempt?.coachingNotes || 'Tidak ada catatan khusus. Pertahankan kualitas bacaan dan rutinkan tilawah harian.'}
+                    {activeTranscriptAttempt?.coachingNotes || 'Tidak ada catatan khusus. Pertahankan kualitas bacaan dan rutinkan tilawah harian.'}
                   </p>
                 </div>
 
@@ -772,32 +820,44 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                       <thead>
                         <tr className="bg-blue-100 text-blue-950 font-bold">
                           <th className="p-1.5 border border-blue-200 text-left">Percobaan</th>
-                          <th className="p-1.5 border border-blue-200 text-left">Tanggal</th>
-                          <th className="p-1.5 border border-blue-200 text-left">Penguji</th>
+                          <th className="p-1.5 border border-blue-200 text-left">Materi Bacaan</th>
+                          <th className="p-1.5 border border-blue-200 text-left">Halaman & Juz</th>
+                          <th className="p-1.5 border border-blue-200 text-left">Tanggal & Penguji</th>
                           <th className="p-1.5 border border-blue-200 text-center">Nilai</th>
                           <th className="p-1.5 border border-blue-200 text-center">Predikat</th>
                           <th className="p-1.5 border border-blue-200 text-center">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {currentStudentData.attempts.map((att, idx) => (
-                          <tr key={att.id} className={idx % 2 === 1 ? 'bg-blue-50/30' : ''}>
-                            <td className="p-1.5 border border-blue-200 font-semibold">
-                              {att.attemptType === 'utama' ? 'Ujian Utama' : `Remedial ke-${att.attemptNumber - 1}`}
-                            </td>
-                            <td className="p-1.5 border border-blue-200">
-                              {new Date(att.examDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </td>
-                            <td className="p-1.5 border border-blue-200">{att.examinerName}</td>
-                            <td className="p-1.5 border border-blue-200 text-center font-bold text-emerald-800">{att.finalScore.toFixed(1)}</td>
-                            <td className="p-1.5 border border-blue-200 text-center">{att.predikat}</td>
-                            <td className="p-1.5 border border-blue-200 text-center font-bold">
-                              <span className={att.passingStatus === 'lulus' ? 'text-emerald-700' : 'text-amber-700'}>
-                                {att.passingStatus === 'lulus' ? 'Lulus' : 'Remedial'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {currentStudentData.attempts.map((att, idx) => {
+                          const attPassage = formatTahsinPassageDisplay(att.reading);
+                          return (
+                            <tr key={att.id || idx} className={idx % 2 === 1 ? 'bg-blue-50/30' : ''}>
+                              <td className="p-1.5 border border-blue-200 font-semibold">
+                                {att.attemptType === 'utama' ? 'Ujian Utama' : `Remedial ke-${att.attemptNumber - 1}`}
+                              </td>
+                              <td className="p-1.5 border border-blue-200 font-medium">
+                                {attPassage.hasData ? attPassage.surahAyahText : '-'}
+                              </td>
+                              <td className="p-1.5 border border-blue-200">
+                                {attPassage.hasData ? `${attPassage.pageText} (${attPassage.juzText})` : '-'}
+                              </td>
+                              <td className="p-1.5 border border-blue-200">
+                                <div>{att.examDate ? new Date(att.examDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}</div>
+                                <div className="text-[10px] text-gray-500">{att.examinerName}</div>
+                              </td>
+                              <td className="p-1.5 border border-blue-200 text-center font-bold text-emerald-800">
+                                {att.finalScore.toFixed(1)}
+                              </td>
+                              <td className="p-1.5 border border-blue-200 text-center">{att.predikat}</td>
+                              <td className="p-1.5 border border-blue-200 text-center font-bold">
+                                <span className={att.passingStatus === 'lulus' ? 'text-emerald-700' : 'text-amber-700'}>
+                                  {att.passingStatus === 'lulus' ? 'Lulus' : 'Remedial'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -920,6 +980,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                     <th className="py-3 px-3">NIS</th>
                     <th className="py-3 px-3">Nama Santri</th>
                     <th className="py-3 px-3">Halaqah</th>
+                    <th className="py-3 px-3">Materi Teruji</th>
                     <th className="py-3 px-3 text-center">Jml Hal</th>
                     <th className="py-3 px-3 text-center">Makharij (35%)</th>
                     <th className="py-3 px-3 text-center">Tajwid (30%)</th>
@@ -939,7 +1000,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                     if (classStudents.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={13} className="py-8 text-center text-gray-400 italic">
+                          <td colSpan={14} className="py-8 text-center text-gray-400 italic">
                             Tidak ada data santri untuk kelas ini.
                           </td>
                         </tr>
@@ -950,6 +1011,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                       const latest = item.attempts && item.attempts.length > 0
                         ? [...item.attempts].sort((a, b) => b.attemptNumber - a.attemptNumber)[0]
                         : null;
+                      const attPassage = latest?.reading ? formatTahsinPassageDisplay(latest.reading) : null;
 
                       return (
                         <tr key={item.student.id} className="hover:bg-gray-50/60 transition">
@@ -957,6 +1019,16 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                           <td className="py-2.5 px-3 font-mono text-[11px] text-gray-600">{item.student.nis || '-'}</td>
                           <td className="py-2.5 px-3 font-bold text-gray-900">{item.student.name}</td>
                           <td className="py-2.5 px-3 text-gray-600">{item.student.halaqah}</td>
+                          <td className="py-2.5 px-3">
+                            {attPassage && attPassage.hasData ? (
+                              <div>
+                                <span className="font-semibold text-gray-900 block text-[11px]">{attPassage.surahAyahText}</span>
+                                <span className="text-[10px] text-gray-500">{attPassage.pageText} • {attPassage.juzText}</span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic text-[11px]">-</span>
+                            )}
+                          </td>
                           <td className="py-2.5 px-3 text-center font-semibold">
                             {latest?.reading?.pagesRead ? `${latest.reading.pagesRead} hal` : '-'}
                           </td>
@@ -1092,7 +1164,7 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                     <th className="py-3 px-3 text-center w-10">No</th>
                     <th className="py-3 px-3">Nama Santri</th>
                     <th className="py-3 px-3">Kelas</th>
-                    <th className="py-3 px-3">Target Materi</th>
+                    <th className="py-3 px-3">Materi Teruji</th>
                     <th className="py-3 px-3 text-center">Makharij</th>
                     <th className="py-3 px-3 text-center">Tajwid</th>
                     <th className="py-3 px-3 text-center">Kelancaran</th>
@@ -1122,13 +1194,23 @@ export const TahsinReportsView: React.FC<TahsinReportsViewProps> = ({
                       const latest = item.attempts && item.attempts.length > 0
                         ? [...item.attempts].sort((a, b) => b.attemptNumber - a.attemptNumber)[0]
                         : null;
+                      const attPassage = latest?.reading ? formatTahsinPassageDisplay(latest.reading) : null;
 
                       return (
                         <tr key={item.student.id} className="hover:bg-gray-50/60 transition">
                           <td className="py-2.5 px-3 text-center text-gray-500">{idx + 1}</td>
                           <td className="py-2.5 px-3 font-bold text-gray-900">{item.student.name}</td>
                           <td className="py-2.5 px-3 text-gray-600">{item.student.class}</td>
-                          <td className="py-2.5 px-3 text-emerald-800 font-medium">{item.coverage.label}</td>
+                          <td className="py-2.5 px-3">
+                            {attPassage && attPassage.hasData ? (
+                              <div>
+                                <span className="font-semibold text-gray-900 block text-[11px]">{attPassage.surahAyahText}</span>
+                                <span className="text-[10px] text-gray-500">{attPassage.pageText} • {attPassage.juzText}</span>
+                              </div>
+                            ) : (
+                              <span className="text-emerald-800 font-medium text-[11px]">{item.coverage.label}</span>
+                            )}
+                          </td>
                           <td className="py-2.5 px-3 text-center">{latest?.makharij?.score ?? '-'}</td>
                           <td className="py-2.5 px-3 text-center">{latest?.tajwid?.score ?? '-'}</td>
                           <td className="py-2.5 px-3 text-center">{latest?.kelancaran?.score ?? '-'}</td>

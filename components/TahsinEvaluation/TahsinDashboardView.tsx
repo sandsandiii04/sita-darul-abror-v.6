@@ -5,7 +5,7 @@ import {
   TahsinPeriod, 
   TahsinSession 
 } from '../../types';
-import { tahsinService } from '../../services/tahsinService';
+import { tahsinService, formatTahsinPassageDisplay } from '../../services/tahsinService';
 import { 
   BarChart, 
   Bar, 
@@ -30,7 +30,9 @@ import {
   Calendar,
   BookOpen,
   PieChart as PieIcon,
-  BarChart3
+  BarChart3,
+  Eye,
+  FileText
 } from 'lucide-react';
 
 interface TahsinDashboardViewProps {
@@ -118,6 +120,16 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
   // Overall Stats
   const stats = useMemo(() => {
     return tahsinService.calculateMonitoringStats(filteredSessions);
+  }, [filteredSessions]);
+
+  // Peserta yang telah diuji (completed, remedial_needed, atau memiliki attempts)
+  const testedSessions = useMemo(() => {
+    return filteredSessions.filter(s => 
+      s.status === 'completed' || 
+      s.status === 'remedial_needed' || 
+      (s.attempts && s.attempts.length > 0) ||
+      s.finalScore !== undefined
+    );
   }, [filteredSessions]);
 
   // Chart 1: Rata-rata Nilai per Kelas
@@ -451,6 +463,128 @@ export const TahsinDashboardView: React.FC<TahsinDashboardViewProps> = ({
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      </div>
+
+      {/* Row 3: Detail Hasil Ujian Santri & Materi Bacaan Terkini */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-2">
+              <BookOpen className="text-emerald-600" size={18} />
+              Detail Hasil Ujian Santri & Materi Bacaan Terkini
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Rincian surah, ayat, mushaf, serta skor 4 aspek penilaian wajib yang tersimpan di server pusat.
+            </p>
+          </div>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('tahsin_reports')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition border border-emerald-200 self-start sm:self-auto"
+            >
+              <FileText size={14} /> Lihat Laporan & Cetak Transkrip
+            </button>
+          )}
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead className="bg-slate-50/80 text-slate-600 font-bold uppercase text-[10px] border-b border-slate-200">
+              <tr>
+                <th className="py-2.5 px-3 text-center w-10">No</th>
+                <th className="py-2.5 px-3">Nama Santri</th>
+                <th className="py-2.5 px-3 text-center">Kelas</th>
+                <th className="py-2.5 px-3">Halaqah</th>
+                <th className="py-2.5 px-3">Materi Bacaan Teruji</th>
+                <th className="py-2.5 px-3 text-center">Halaman & Juz</th>
+                <th className="py-2.5 px-3 text-center">M (35%)</th>
+                <th className="py-2.5 px-3 text-center">T (30%)</th>
+                <th className="py-2.5 px-3 text-center">K (20%)</th>
+                <th className="py-2.5 px-3 text-center">W (15%)</th>
+                <th className="py-2.5 px-3 text-center font-extrabold">Nilai</th>
+                <th className="py-2.5 px-3 text-center">Predikat</th>
+                <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3 text-center">Penguji & Tanggal</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {testedSessions.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className="py-8 text-center text-slate-400 italic">
+                    Belum ada santri yang disahkan atau diuji pada filter ini.
+                  </td>
+                </tr>
+              ) : (
+                testedSessions.map((s, idx) => {
+                  const studentObj = students.find(st => st.id === s.studentId);
+                  const latestAttempt = s.attempts && s.attempts.length > 0 
+                    ? s.attempts[s.attempts.length - 1] 
+                    : null;
+                  const passage = latestAttempt?.reading ? formatTahsinPassageDisplay(latestAttempt.reading) : null;
+
+                  return (
+                    <tr key={s.id} className="hover:bg-slate-50/60 transition">
+                      <td className="py-2.5 px-3 text-center text-slate-400 font-bold">{idx + 1}</td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-extrabold text-slate-800">{s.studentNameSnapshot}</div>
+                        <div className="text-[10px] font-mono text-slate-400">{studentObj?.nis ? `NIS: ${studentObj.nis}` : ''}</div>
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{s.classSnapshot}</td>
+                      <td className="py-2.5 px-3 text-slate-600">{s.halaqahSnapshot}</td>
+                      <td className="py-2.5 px-3">
+                        {passage && passage.hasData ? (
+                          <div>
+                            <span className="font-bold text-slate-800 block text-[11px]">{passage.surahAyahText}</span>
+                            <span className="text-[10px] text-emerald-700 font-semibold">{passage.pagesReadText}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">Belum tercatat</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-center text-slate-600 font-medium">
+                        {passage && passage.hasData ? (
+                          <div>
+                            <div>{passage.pageText}</div>
+                            <div className="text-[10px] text-slate-400 font-bold">{passage.juzText}</div>
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-medium">{latestAttempt?.makharij?.score ?? '-'}</td>
+                      <td className="py-2.5 px-3 text-center font-medium">{latestAttempt?.tajwid?.score ?? '-'}</td>
+                      <td className="py-2.5 px-3 text-center font-medium">{latestAttempt?.kelancaran?.score ?? '-'}</td>
+                      <td className="py-2.5 px-3 text-center font-medium">{latestAttempt?.waqaf?.score ?? '-'}</td>
+                      <td className="py-2.5 px-3 text-center font-black text-emerald-900 text-xs">
+                        {s.finalScore !== undefined ? s.finalScore.toFixed(2) : '-'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{s.predikat || '-'}</td>
+                      <td className="py-2.5 px-3 text-center">
+                        {s.passingStatus === 'lulus' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            Lulus
+                          </span>
+                        ) : s.passingStatus === 'remedial' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                            Remedial
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+                            Draft
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">
+                        <div className="font-semibold text-slate-800 truncate max-w-[120px] mx-auto">{latestAttempt?.examinerName || '-'}</div>
+                        <div className="text-[10px] text-slate-400">
+                          {latestAttempt?.examDate ? new Date(latestAttempt.examDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : '-'}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
