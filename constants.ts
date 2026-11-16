@@ -131,16 +131,67 @@ export const JUZ_QUESTIONS: Record<number, Question[]> = {
     ]
 };
 
+export const getJakartaDateParts = (date = new Date()): {
+  year: string;
+  month: string;
+  day: string;
+  hour: number;
+  minute: number;
+  currentMinutes: number;
+} => {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(date);
+    const map: Record<string, string> = {};
+    parts.forEach(p => {
+      map[p.type] = p.value;
+    });
+    const year = map.year || String(date.getFullYear());
+    const month = map.month || String(date.getMonth() + 1).padStart(2, '0');
+    const day = map.day || String(date.getDate()).padStart(2, '0');
+    let hour = parseInt(map.hour || '0', 10);
+    if (hour === 24) hour = 0;
+    const minute = parseInt(map.minute || '0', 10);
+    return {
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      currentMinutes: hour * 60 + minute
+    };
+  } catch (e) {
+    const year = String(date.getFullYear());
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hour = date.getHours();
+    const minute = date.getMinutes();
+    return {
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      currentMinutes: hour * 60 + minute
+    };
+  }
+};
+
 export const getLocalDateString = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const { year, month, day } = getJakartaDateParts(date);
   return `${year}-${month}-${day}`;
 };
 
 export const getLocalMonthString = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const { year, month } = getJakartaDateParts(date);
   return `${year}-${month}`;
 };
 

@@ -58,7 +58,8 @@ export interface Attendance {
   type: 'student' | 'teacher';
   class?: string;
   lateReason?: string; // New field for late attendance explanation
-  qrToken?: string; // Add this line
+  qrToken?: string;
+  createdAt?: string;
 }
 
 export interface AttendanceOpenRequest {
@@ -1273,7 +1274,22 @@ export interface TahsinErrorCounters {
   lainnya: number;
 }
 
-export type TahsinSyncStatus = 'synced_server' | 'pending_sync' | 'sync_failed' | 'draft_local';
+export type TahsinSyncStatus = 'synced_server' | 'pending_sync' | 'sync_failed' | 'draft_local' | 'conflict' | 'local_only';
+
+export interface TahsinAuditLogItem {
+  id: string;
+  sessionId: string;
+  attemptId?: string;
+  changedBy?: string;
+  changedByName?: string;
+  changeType: 'create_session' | 'save_draft' | 'finalize_attempt' | 'remedial_attempt' | 'revision_score';
+  oldScore?: number | null;
+  newScore?: number | null;
+  oldStatus?: string | null;
+  newStatus?: string | null;
+  reason?: string | null;
+  createdAt: string;
+}
 
 export interface TahsinSaveResult {
   success: boolean; // TRUE only if confirmed by server OR explicitly marked as saved local draft
@@ -1282,6 +1298,8 @@ export interface TahsinSaveResult {
   session: TahsinSession;
   attempt: TahsinAttempt;
   conflictDetected?: boolean;
+  authRequired?: boolean;
+  localSaveFailed?: boolean;
   serverVersion?: number;
   message: string;
 }
@@ -1295,6 +1313,7 @@ export interface TahsinPendingSyncItem {
   periodId: string;
   examinerId: string;
   examinerUsername?: string;
+  examinerName?: string;
   attemptNumber: number;
   attemptType: 'utama' | 'remedial';
   finalScore: number;
@@ -1307,6 +1326,9 @@ export interface TahsinPendingSyncItem {
   retryCount: number;
   lastAttemptAt: string;
   lastError?: string;
+  conflictDetected?: boolean;
+  authError?: boolean;
+  permanentError?: boolean;
   createdAt: string;
 }
 
@@ -1367,8 +1389,10 @@ export interface TahsinSession {
   syncStatus?: TahsinSyncStatus;
   version?: number;
   lastUpdatedBy?: string;
+  lastUpdatedByName?: string;
   latestAttemptNumber: number;
   attempts?: TahsinAttempt[];
+  auditLogs?: TahsinAuditLogItem[];
   createdAt: string;
   updatedAt: string;
 }

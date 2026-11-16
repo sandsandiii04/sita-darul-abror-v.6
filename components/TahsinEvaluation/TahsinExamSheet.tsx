@@ -42,7 +42,10 @@ import {
   Cloud,
   CloudOff,
   UploadCloud,
-  RefreshCw
+  RefreshCw,
+  Edit3,
+  History,
+  Lock
 } from 'lucide-react';
 
 interface TahsinExamSheetProps {
@@ -70,9 +73,33 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
 }) => {
   const coverage = tahsinService.getCoverageByClass(student.class);
 
-  // Active Attempt (supports switching between multiple attempts when viewing)
+  // Active Session & Attempt (supports live update after sync or revision)
+  const [currentSession, setCurrentSession] = useState<TahsinSession>(() => session);
   const [activeAttempt, setActiveAttempt] = useState<TahsinAttempt | null>(() => attemptToEdit || null);
+  const [isEditingFinalized, setIsEditingFinalized] = useState<boolean>(false);
+  const [editReason, setEditReason] = useState<string>('');
+  const [showConfirmRevisionModal, setShowConfirmRevisionModal] = useState<boolean>(false);
+  const [isSyncingThisSession, setIsSyncingThisSession] = useState<boolean>(false);
+
+  useEffect(() => {
+    setCurrentSession(session);
+  }, [session]);
+
   const isExamFinalized = Boolean(activeAttempt?.status === 'finalized');
+  const isReadOnlyLocked = isExamFinalized && !isEditingFinalized;
+
+  // Otorisasi Edit Nilai (Pure Owner-First berdasarkan student.teacherId atau Admin)
+  const cleanUserId = (user.id || '').toString().split(' | ')[0].trim();
+  const cleanStudentTeacherId = (student?.teacherId || '').toString().split(' | ')[0].trim();
+  const isOwnerTeacher = user.role === 'teacher' && Boolean(cleanStudentTeacherId && cleanStudentTeacherId === cleanUserId);
+  const canUserEditScore = user.role === 'admin' || isOwnerTeacher;
+  const isPeriodClosedForTeacher = period.status !== 'active' && user.role !== 'admin';
+  const isUnsyncedFinalized =
+    isExamFinalized &&
+    (currentSession.syncStatus === 'pending_sync' ||
+      currentSession.syncStatus === 'sync_failed' ||
+      activeAttempt?.syncStatus === 'pending_sync' ||
+      activeAttempt?.syncStatus === 'sync_failed');
 
   // Active Tab on Mobile ('mushaf' vs 'scoring')
   const [activeMobileTab, setActiveMobileTab] = useState<'mushaf' | 'scoring'>('scoring');
@@ -90,9 +117,14 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
   const [showReRandomizeModal, setShowReRandomizeModal] = useState<boolean>(false);
   const [randomizeReason, setRandomizeReason] = useState<string>('');
 
-  // Manual Pick States
+  // Manual Pick States (Mendukung Surah/Ayat Awal & Akhir serta Halaman Awal & Akhir)
   const [manualSurah, setManualSurah] = useState<number>(reading.startSurah || 1);
   const [manualAyah, setManualAyah] = useState<number>(reading.startAyah || 1);
+  const [manualEndSurah, setManualEndSurah] = useState<number>(reading.endSurah || reading.startSurah || 1);
+  const [manualEndAyah, setManualEndAyah] = useState<number>(reading.endAyah || reading.startAyah || 1);
+  const [manualStartPage, setManualStartPage] = useState<number>(reading.startPage || coverage.startPage);
+  const [manualEndPage, setManualEndPage] = useState<number>(reading.endPage || reading.startPage || coverage.startPage);
+  const [useCustomEndRange, setUseCustomEndRange] = useState<boolean>(false);
   const [manualError, setManualError] = useState<string | null>(null);
 
   // 4 Aspek Penilaian
@@ -144,11 +176,19 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
 
   // Handler Ganti Attempt saat melihat riwayat
   const handleSwitchAttempt = (att: TahsinAttempt) => {
+    setIsEditingFinalized(false);
+    setEditReason('');
     setActiveAttempt(att);
     if (att.reading) {
       setReading(att.reading);
       if (att.reading.startPage) setCurrentPage(att.reading.startPage);
       if (att.reading.pagesRead) setPagesRead(att.reading.pagesRead);
+      setManualSurah(att.reading.startSurah || 1);
+      setManualAyah(att.reading.startAyah || 1);
+      setManualEndSurah(att.reading.endSurah || att.reading.startSurah || 1);
+      setManualEndAyah(att.reading.endAyah || att.reading.startAyah || 1);
+      setManualStartPage(att.reading.startPage || coverage.startPage);
+      setManualEndPage(att.reading.endPage || att.reading.startPage || coverage.startPage);
     }
     setScoreMakharij(att.makharij.score);
     setCategoryMakharij(att.makharij.category);
@@ -169,7 +209,42 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
     setHasCriticalError(Boolean(att.hasCriticalError));
     setCriticalErrorReason(att.criticalErrorReason || '');
     if (att.errorCounts) setErrorCounters(att.errorCounts);
-    if (att.coachingNotes) setCoachingNotes(att.coachingNotes);
+    setCoachingNotes(att.coachingNotes || '');
+  };
+
+  const handleCancelEditFinalized = () => {
+    if (activeAttempt) {
+      handleSwitchAttempt(activeAttempt);
+    }
+    setIsEditingFinalized(false);
+    setEditReason('');
+  };
+
+  const handleSyncSingleSession = async () => {
+    setIsSyncingThisSession(true);
+    try {
+      const res = await tahsinService.syncPendingAttempts(user, { forceManual: true });
+      const refreshedList = tahsinService.getLocalSessions();
+      const updated = refreshedList.find(s => s.id === currentSession.id);
+      if (updated) {
+        setCurrentSession(updated);
+        const latestAtt = (updated.attempts || []).find(a => a.id === activeAttempt?.id) || (updated.attempts || [])[updated.attempts!.length - 1];
+        if (latestAtt) setActiveAttempt(latestAtt);
+      }
+      if (res.succeeded > 0) {
+        alert('Alhamdulillah! Nilai ujian berhasil disinkronkan ke database server (Cloud OK).');
+      } else if (res.conflicts > 0) {
+        alert('Perhatian: Terdeteksi konflik versi data dengan server. Silakan periksa detail status sinkronisasi.');
+      } else if (res.authRequired) {
+        alert('Sesi keamanan login Anda perlu diperbarui. Silakan masukkan kembali password Anda pada kotak pembaruan sesi di halaman Pelaksanaan Ujian.');
+      } else {
+        alert('Sinkronisasi belum berhasil. Pastikan koneksi internet stabil lalu coba kembali.');
+      }
+    } catch (e: any) {
+      alert(`Gagal sinkronisasi: ${e?.message || 'Koneksi terputus'}`);
+    } finally {
+      setIsSyncingThisSession(false);
+    }
   };
 
   // Kesalahan Berat
@@ -310,16 +385,122 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
     setRandomizeReason('');
   };
 
-  // Terapkan Pilihan Manual
+  // Terapkan Pilihan Manual (Mendukung Koreksi Surah/Ayat Awal, Akhir, dan Halaman)
   const handleApplyManual = () => {
     const result = tahsinService.createManualReading(manualSurah, manualAyah, pagesRead, student.class);
     if (!result.valid || !result.reading) {
       setManualError(result.message || 'Pilihan bacaan tidak valid.');
       return;
     }
-    setReading(result.reading);
+
+    let finalReading: TahsinReadingLocation = { ...result.reading, pagesRead };
+    if (useCustomEndRange) {
+      const endSurahInfo = quranService.getSurah(manualEndSurah);
+      finalReading = {
+        ...finalReading,
+        endSurah: manualEndSurah,
+        endSurahName: endSurahInfo?.name || `Surah ${manualEndSurah}`,
+        endAyah: manualEndAyah,
+        startPage: manualStartPage || finalReading.startPage,
+        endPage: manualEndPage || finalReading.endPage,
+        pagesRead
+      };
+    }
+
+    setReading(finalReading);
     setShowManualModal(false);
     setManualError(null);
+  };
+
+  // Simpan Revisi / Koreksi Nilai (Fitur Edit Nilai setelah Disahkan)
+  const handleSaveRevision = async () => {
+    if (!activeAttempt) return;
+    if (pagesRead < 0.5) {
+      alert('Panjang bacaan minimal 0.5 (setengah) halaman.');
+      return;
+    }
+    if (!isCompleteForm) {
+      alert('Seluruh 4 aspek penilaian wajib diisi dengan benar.');
+      return;
+    }
+    if (hasCriticalError && !criticalErrorReason.trim()) {
+      alert('Harap masukkan alasan kesalahan berat berulang.');
+      return;
+    }
+    if (!editReason.trim()) {
+      alert('Alasan perubahan / koreksi nilai wajib diisi.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const revisedAttemptObj: TahsinAttempt = {
+        ...activeAttempt,
+        reading: {
+          ...reading,
+          pagesRead
+        },
+        makharij: {
+          score: numMakharij,
+          category: categoryMakharij || tahsinService.getCategoryFromScore(numMakharij),
+          isCustomScore: customMakharij
+        },
+        tajwid: {
+          score: numTajwid,
+          category: categoryTajwid || tahsinService.getCategoryFromScore(numTajwid),
+          isCustomScore: customTajwid
+        },
+        kelancaran: {
+          score: numKelancaran,
+          category: categoryKelancaran || tahsinService.getCategoryFromScore(numKelancaran),
+          isCustomScore: customKelancaran
+        },
+        waqaf: {
+          score: numWaqaf,
+          category: categoryWaqaf || tahsinService.getCategoryFromScore(numWaqaf),
+          isCustomScore: customWaqaf
+        },
+        finalScore,
+        predikat: predikatInfo.predikat,
+        predikatArabic: predikatInfo.arabic,
+        hasCriticalError,
+        criticalErrorReason: hasCriticalError ? criticalErrorReason : undefined,
+        passingStatus,
+        errorCounts: errorCounters,
+        coachingNotes: coachingNotes.trim() || undefined,
+        status: 'finalized',
+        updatedAt: new Date().toISOString()
+      };
+
+      const res = await tahsinService.reviseAttempt(
+        currentSession,
+        revisedAttemptObj,
+        editReason.trim(),
+        user,
+        period,
+        student
+      );
+
+      if (res.savedToServer && res.success) {
+        setCurrentSession(res.session);
+        setActiveAttempt(res.attempt);
+        setIsEditingFinalized(false);
+        setEditReason('');
+        setShowConfirmRevisionModal(false);
+        alert(res.message || 'Perubahan nilai Ujian Tahsin berhasil disimpan dan tercatat pada audit log server!');
+        onSuccess();
+      } else if (res.conflictDetected) {
+        setShowConfirmRevisionModal(false);
+        alert(`PERINGATAN KONFLIK DUA PERANGKAT:\n${res.message}`);
+      } else {
+        setShowConfirmRevisionModal(false);
+        alert(`GAGAL MENYIMPAN REVISI NILAI:\n${res.message}`);
+      }
+    } catch (e: any) {
+      alert(`Terjadi kesalahan saat menyimpan revisi: ${e?.message || 'Gagal menghubungi server.'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Update Error Counter
@@ -508,23 +689,33 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
 
           <div className="h-8 w-px bg-slate-200" />
 
-          {/* Badge Status Sinkronisasi */}
-          <div className="hidden sm:flex items-center">
-            {session.syncStatus === 'synced_server' ? (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200" title="Data telah tersinkronkan ke server cloud">
-                <Cloud size={13} /> Cloud OK
+          {/* Badge Status Sinkronisasi (6 Status Jelas) */}
+          <div className="flex items-center">
+            {isSyncingThisSession ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
+                <RefreshCw size={12} className="animate-spin" /> Sedang Sinkronisasi
               </span>
-            ) : session.syncStatus === 'sync_failed' ? (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200" title="Gagal sinkronisasi cloud. Data aman di perangkat lokal">
-                <CloudOff size={13} /> Belum Sync
+            ) : currentSession.syncStatus === 'synced_server' ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200" title="Data telah tersimpan resmi di server cloud">
+                <Cloud size={13} /> Cloud OK / Tersimpan di Server
               </span>
-            ) : session.syncStatus === 'pending_sync' ? (
+            ) : currentSession.syncStatus === 'sync_failed' ? (
+              tahsinService.getPendingSyncItems().some(i => i.sessionId === currentSession.id && i.conflictDetected) ? (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 px-2 py-1 rounded-lg border border-purple-200" title="Konflik versi data dengan server">
+                  <AlertTriangle size={13} /> Konflik Data
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200" title="Gagal sinkronisasi cloud. Data aman di perangkat lokal">
+                  <CloudOff size={13} /> Gagal Sync
+                </span>
+              )
+            ) : currentSession.syncStatus === 'pending_sync' ? (
               <span className="flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200" title="Menunggu sinkronisasi ke server">
-                <UploadCloud size={13} /> Antrean Sync
+                <UploadCloud size={13} /> Menunggu Sinkronisasi
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200" title="Draft lokal di perangkat ini">
-                <Save size={13} /> Draft Lokal
+              <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200" title="Tersimpan lokal di perangkat ini">
+                <Save size={13} /> Tersimpan Lokal
               </span>
             )}
           </div>
@@ -537,6 +728,60 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Banner Peringatan jika Nilai Ujian Masih Belum Sync */}
+      {isUnsyncedFinalized && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+              <UploadCloud size={20} />
+            </span>
+            <div>
+              <h4 className="text-xs font-extrabold text-amber-900">
+                Hasil Ujian Ini Masih Berstatus Belum Sync (Tersimpan Lokal di Perangkat Ini)
+              </h4>
+              <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                Nilai <strong>{activeAttempt?.finalScore.toFixed(2)}</strong> untuk <strong>{student.name}</strong> tersimpan 100% aman di memori perangkat ini, namun belum masuk ke database server pusat. Selesaikan sinkronisasi terlebih dahulu sebelum melakukan koreksi/edit nilai resmi.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={isSyncingThisSession}
+            onClick={handleSyncSingleSession}
+            className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition disabled:opacity-50 shrink-0 self-start sm:self-auto"
+          >
+            <RefreshCw size={14} className={isSyncingThisSession ? 'animate-spin' : ''} />
+            {isSyncingThisSession ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}
+          </button>
+        </div>
+      )}
+
+      {/* Banner Mode Edit Nilai Aktif */}
+      {isEditingFinalized && activeAttempt && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
+          <div className="flex items-start gap-3">
+            <span className="p-2 bg-indigo-100 text-indigo-700 rounded-xl shrink-0">
+              <Edit3 size={18} />
+            </span>
+            <div>
+              <h4 className="text-xs font-extrabold text-indigo-950">
+                Mode Edit / Koreksi Nilai Ujian Tahsin Aktif
+              </h4>
+              <p className="text-[11px] text-indigo-800 mt-0.5">
+                Nilai Asli Saat Ini: <strong>{activeAttempt.finalScore.toFixed(2)} ({activeAttempt.predikat} - {activeAttempt.passingStatus === 'lulus' ? 'LULUS' : 'REMEDIAL'})</strong>. Silakan perbaiki skor aspek, materi bacaan, atau catatan, lalu isi alasan perubahan di bagian bawah.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelEditFinalized}
+            className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold shrink-0 self-start sm:self-auto"
+          >
+            Batal Edit
+          </button>
+        </div>
+      )}
 
       {/* Mobile Tab Toggle */}
       <div className="md:hidden flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
@@ -577,7 +822,7 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                 </p>
               </div>
 
-              {isExamFinalized ? (
+              {isReadOnlyLocked ? (
                 <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
                   <CheckCircle2 size={14} className="text-emerald-600" /> Terkunci Resmi
                 </span>
@@ -592,7 +837,15 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowManualModal(true)}
+                    onClick={() => {
+                      setManualSurah(reading.startSurah || 1);
+                      setManualAyah(reading.startAyah || 1);
+                      setManualEndSurah(reading.endSurah || reading.startSurah || 1);
+                      setManualEndAyah(reading.endAyah || reading.startAyah || 1);
+                      setManualStartPage(reading.startPage || coverage.startPage);
+                      setManualEndPage(reading.endPage || reading.startPage || coverage.startPage);
+                      setShowManualModal(true);
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors"
                   >
                     <Sliders size={14} /> Pilih Manual
@@ -1027,23 +1280,166 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
               )}
             </div>
 
-            {/* Tombol Aksi Simpan / Sahkan ATAU Banner Mode Lihat Nilai */}
+            {/* Tombol Aksi Simpan / Sahkan ATAU Banner Mode Lihat Nilai & Edit Nilai */}
             {isExamFinalized ? (
-              <div className="pt-2 flex flex-col gap-2 border-t border-slate-100">
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
-                    <CheckCircle2 size={16} className="text-emerald-600 flex-shrink-0" />
-                    <span>Ujian ini telah DISAHKAN secara resmi{activeAttempt?.examDate ? ` (${activeAttempt.examDate})` : ''}.</span>
+              isEditingFinalized && activeAttempt ? (
+                <div className="pt-3 flex flex-col gap-3 border-t border-indigo-100 animate-fade-in">
+                  {/* Perbandingan Nilai Lama vs Nilai Baru */}
+                  <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 text-xs">
+                    <div className="font-extrabold text-indigo-950 flex items-center gap-1.5">
+                      <Edit3 size={14} className="text-indigo-600" />
+                      Perbandingan Nilai Lama vs Nilai Baru
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">Nilai Lama (Asli)</div>
+                        <div className="font-black text-slate-700 text-sm mt-0.5">
+                          {activeAttempt.finalScore.toFixed(2)} ({activeAttempt.predikat})
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          M:{activeAttempt.makharij.score} • T:{activeAttempt.tajwid.score} • K:{activeAttempt.kelancaran.score} • W:{activeAttempt.waqaf.score}
+                        </div>
+                        <div className={`text-[10px] font-bold mt-0.5 ${activeAttempt.passingStatus === 'lulus' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          Status: {activeAttempt.passingStatus === 'lulus' ? 'LULUS' : 'REMEDIAL'}
+                        </div>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg border border-indigo-300">
+                        <div className="text-[10px] font-bold text-indigo-600 uppercase">Nilai Baru (Koreksi)</div>
+                        <div className="font-black text-indigo-900 text-sm mt-0.5">
+                          {isCompleteForm ? `${finalScore.toFixed(2)} (${predikatInfo.predikat})` : '--'}
+                        </div>
+                        <div className="text-[10px] text-slate-600">
+                          M:{numMakharij} • T:{numTajwid} • K:{numKelancaran} • W:{numWaqaf}
+                        </div>
+                        <div className={`text-[10px] font-bold mt-0.5 ${passingStatus === 'lulus' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          Status: {passingStatus === 'lulus' ? 'LULUS' : 'REMEDIAL'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Input Wajib Alasan Perubahan */}
+                  <div className="space-y-1 text-xs">
+                    <label className="font-extrabold text-slate-800 block">
+                      Alasan Perubahan / Koreksi Nilai <span className="text-rose-600">* (Wajib Diisi)</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editReason}
+                      onChange={(e) => setEditReason(e.target.value)}
+                      placeholder="Contoh: Salah input skor Tajwid (seharusnya 80, tertulis 70) / Koreksi halaman bacaan..."
+                      className="w-full p-2.5 bg-white border border-indigo-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleCancelEditFinalized}
+                      className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors"
+                    >
+                      Batal Edit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSubmitting || !isCompleteForm || !editReason.trim()}
+                      onClick={() => setShowConfirmRevisionModal(true)}
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <Check size={16} /> Simpan Perubahan Nilai
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
-                >
-                  <ArrowLeft size={15} /> Kembali ke Daftar Peserta
-                </button>
-              </div>
+              ) : (
+                <div className="pt-2 flex flex-col gap-2.5 border-t border-slate-100">
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                      <CheckCircle2 size={16} className="text-emerald-600 flex-shrink-0" />
+                      <span>
+                        Ujian ini telah DISAHKAN secara resmi{activeAttempt?.examDate ? ` (${activeAttempt.examDate})` : ''}.
+                      </span>
+                    </div>
+
+                    {/* Tombol Edit Nilai (Hanya muncul untuk Guru Pemilik Santri atau Admin) */}
+                    {canUserEditScore && !isUnsyncedFinalized && (
+                      isPeriodClosedForTeacher ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold"
+                          title="Periode telah ditutup. Perubahan nilai memerlukan persetujuan Admin."
+                        >
+                          <Lock size={12} /> Periode Ditutup (Perlu Persetujuan Admin)
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowDetailMode(true);
+                            setIsEditingFinalized(true);
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition-all shrink-0"
+                        >
+                          <Edit3 size={13} /> Edit Nilai
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  {/* Riwayat Perubahan & Pengesahan Nilai (Audit Trail) */}
+                  {currentSession.auditLogs && currentSession.auditLogs.length > 0 && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
+                      <div className="font-extrabold text-slate-700 flex items-center gap-1.5 text-[11px]">
+                        <History size={13} className="text-slate-500" />
+                        Riwayat Pengesahan & Koreksi Nilai ({currentSession.auditLogs.length})
+                      </div>
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {currentSession.auditLogs.map((log, lIdx) => (
+                          <div key={log.id || lIdx} className="p-2 bg-white rounded-lg border border-slate-200/80 text-[11px] space-y-0.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`font-extrabold ${log.changeType === 'revision_score' ? 'text-indigo-700' : 'text-emerald-700'}`}>
+                                {log.changeType === 'revision_score'
+                                  ? 'Koreksi / Edit Nilai'
+                                  : log.changeType === 'remedial_attempt'
+                                    ? 'Pengesahan Remedial'
+                                    : 'Pengesahan Ujian'}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {log.createdAt ? new Date(log.createdAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) : '-'}
+                              </span>
+                            </div>
+                            <div className="text-slate-700 font-semibold">
+                              Oleh: <strong>{log.changedByName || log.changedBy || 'Penguji'}</strong>
+                              {log.oldScore !== null && log.oldScore !== undefined && log.newScore !== null && log.newScore !== undefined ? (
+                                <span className="ml-1.5 text-indigo-800">
+                                  ({Number(log.oldScore).toFixed(2)} → {Number(log.newScore).toFixed(2)})
+                                </span>
+                              ) : log.newScore !== null && log.newScore !== undefined ? (
+                                <span className="ml-1.5 text-emerald-800">
+                                  (Nilai: {Number(log.newScore).toFixed(2)})
+                                </span>
+                              ) : null}
+                            </div>
+                            {log.reason && (
+                              <div className="text-[10px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded border border-slate-100 mt-0.5">
+                                Alasan: "{log.reason}"
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                  >
+                    <ArrowLeft size={15} /> Kembali ke Daftar Peserta
+                  </button>
+                </div>
+              )
             ) : (
               <div className="pt-2 flex flex-col sm:flex-row gap-2 border-t border-slate-100">
                 <button
@@ -1068,6 +1464,91 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
           </div>
         </div>
       </div>
+
+      {/* MODAL KONFIRMASI REVISI / EDIT NILAI */}
+      {showConfirmRevisionModal && activeAttempt && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-fade-in border border-slate-100">
+            <div className="flex items-center gap-3 text-indigo-900">
+              <div className="p-3 bg-indigo-50 rounded-xl">
+                <Edit3 size={24} className="text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-800">Konfirmasi Perubahan / Koreksi Nilai</h3>
+                <p className="text-xs text-slate-500">
+                  Periksa perbandingan nilai lama dan nilai baru sebelum menyimpan ke server.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5 text-xs">
+              <div className="flex justify-between border-b border-slate-200 pb-1.5">
+                <span className="text-slate-500">Santri:</span>
+                <span className="font-extrabold text-slate-800">{student.name} ({student.class})</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-1">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Data Lama (Sebelum Edit)</div>
+                  <div className="text-sm font-black text-slate-700">{activeAttempt.finalScore.toFixed(2)}</div>
+                  <div className="text-[11px] font-bold text-slate-600">{activeAttempt.predikat}</div>
+                  <div className={`text-[10px] font-extrabold ${activeAttempt.passingStatus === 'lulus' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {activeAttempt.passingStatus === 'lulus' ? 'LULUS' : 'PERLU REMEDIAL'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                    M:{activeAttempt.makharij.score} | T:{activeAttempt.tajwid.score} | K:{activeAttempt.kelancaran.score} | W:{activeAttempt.waqaf.score}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {formatTahsinPassageDisplay(activeAttempt.reading).surahAyahText} ({activeAttempt.reading?.pagesRead || 1} Hal)
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-indigo-50/50 rounded-lg border border-indigo-300 space-y-1">
+                  <div className="text-[10px] font-bold text-indigo-700 uppercase">Data Baru (Sesudah Edit)</div>
+                  <div className="text-sm font-black text-indigo-900">{finalScore.toFixed(2)}</div>
+                  <div className="text-[11px] font-bold text-indigo-800">{predikatInfo.predikat}</div>
+                  <div className={`text-[10px] font-extrabold ${passingStatus === 'lulus' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {passingStatus === 'lulus' ? 'LULUS' : 'PERLU REMEDIAL'}
+                  </div>
+                  <div className="text-[10px] text-indigo-900 pt-1 border-t border-indigo-200">
+                    M:{numMakharij} | T:{numTajwid} | K:{numKelancaran} | W:{numWaqaf}
+                  </div>
+                  <div className="text-[10px] text-indigo-800">
+                    {passage.surahAyahText} ({pagesRead} Hal)
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-1.5 border-t border-slate-200">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block">Alasan Perubahan:</span>
+                <p className="font-semibold text-slate-800 italic mt-0.5">"{editReason.trim()}"</p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Diubah oleh: {user.name} ({user.username}) • Riwayat nilai lama tetap tersimpan di audit log server.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setShowConfirmRevisionModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+              >
+                Kembali Periksa
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleSaveRevision}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20"
+              >
+                {isSubmitting ? 'Menyimpan Revisi...' : 'Ya, Konfirmasi & Simpan Perubahan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: Konfirmasi Pengesahan Ujian */}
       {showConfirmFinalModal && (
@@ -1175,10 +1656,14 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
 
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="space-y-1">
-                <label className="font-bold text-slate-600">Pilih Surah:</label>
+                <label className="font-bold text-slate-600">Pilih Surah Awal:</label>
                 <select
                   value={manualSurah}
-                  onChange={(e) => setManualSurah(parseInt(e.target.value))}
+                  onChange={(e) => {
+                    const s = parseInt(e.target.value);
+                    setManualSurah(s);
+                    if (!useCustomEndRange) setManualEndSurah(s);
+                  }}
                   className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none font-medium"
                 >
                   {QURAN_CHAPTERS.map(([num, name]) => (
@@ -1199,6 +1684,69 @@ export const TahsinExamSheet: React.FC<TahsinExamSheetProps> = ({
                   className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none font-bold"
                 />
               </div>
+            </div>
+
+            <div className="pt-1 border-t border-slate-100 text-xs space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={useCustomEndRange}
+                  onChange={(e) => setUseCustomEndRange(e.target.checked)}
+                  className="rounded border-slate-300 text-emerald-600"
+                />
+                <span>Atur Surah/Ayat Akhir & Halaman Secara Spesifik (Opsional)</span>
+              </label>
+
+              {useCustomEndRange && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600">Surah Akhir:</label>
+                    <select
+                      value={manualEndSurah}
+                      onChange={(e) => setManualEndSurah(parseInt(e.target.value))}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none font-medium"
+                    >
+                      {QURAN_CHAPTERS.map(([num, name]) => (
+                        <option key={num} value={num}>
+                          {num}. {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600">Ayat Akhir:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={manualEndAyah}
+                      onChange={(e) => setManualEndAyah(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600">Halaman Awal:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="604"
+                      value={manualStartPage}
+                      onChange={(e) => setManualStartPage(Math.min(604, Math.max(1, parseInt(e.target.value) || 1)))}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600">Halaman Akhir:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="604"
+                      value={manualEndPage}
+                      onChange={(e) => setManualEndPage(Math.min(604, Math.max(1, parseInt(e.target.value) || 1)))}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none font-bold"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

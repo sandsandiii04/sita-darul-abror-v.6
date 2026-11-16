@@ -101,12 +101,13 @@ const mapUserToDb = (model: User): any => ({
   name: model.name,
   role: model.role,
   username: model.username,
-  password: model.password,
+  password: model.password || null,
   phone_number: model.phoneNumber ? encryptPhone(model.phoneNumber) : null,
   child_id: model.childId || null,
   email: model.email || null,
   avatar: model.avatar || null,
-  gender: model.gender || null
+  gender: model.gender || null,
+  created_at: (model as any).createdAt || (model as any).created_at || new Date().toISOString()
 });
 
 const mapStudentFromDb = (row: any): Student => ({
@@ -130,7 +131,8 @@ const mapStudentToDb = (model: Student): any => ({
   teacher_id: cleanId(model.teacherId) || null,
   total_juz: model.totalJuz || 0,
   username: model.username || model.nis,
-  password: model.password || model.nis || '123'
+  password: model.password || model.nis || '123',
+  created_at: (model as any).createdAt || (model as any).created_at || new Date().toISOString()
 });
 
 const mapRecordFromDb = (row: any): TahfidzRecord => ({
@@ -157,7 +159,8 @@ const mapRecordToDb = (model: TahfidzRecord): any => ({
   ayah_end: model.ayahEnd || 0,
   grade: model.grade,
   notes: model.notes || null,
-  class: model.class || null
+  class: model.class || null,
+  created_at: model.createdAt || (model as any).created_at || new Date().toISOString()
 });
 
 const mapAttendanceFromDb = (row: any): Attendance => ({
@@ -180,9 +183,10 @@ const mapAttendanceToDb = (model: Attendance): any => ({
   status: model.status,
   approval_status: model.approvalStatus || null,
   type: model.type,
-  class: model.class || null,
+  class: model.class || (model.type === 'teacher' ? 'GURU' : null),
   late_reason: model.lateReason || null,
-  qr_token: model.qrToken || null
+  qr_token: model.qrToken || null,
+  created_at: (model as any).createdAt || (model as any).created_at || new Date().toISOString()
 });
 
 const mapAttendanceOpenRequestFromDb = (row: any): AttendanceOpenRequest => ({
@@ -203,7 +207,8 @@ const mapAttendanceOpenRequestToDb = (model: AttendanceOpenRequest): any => ({
   session: model.session,
   type: model.type,
   status: model.status,
-  late_reason: model.lateReason
+  late_reason: model.lateReason,
+  created_at: model.createdAt || (model as any).created_at || new Date().toISOString()
 });
 
 const mapExamFromDb = (row: any): Exam => ({
@@ -223,6 +228,7 @@ const mapExamFromDb = (row: any): Exam => ({
 const mapExamToDb = (model: Exam): any => ({
   id: model.id,
   student_id: cleanId(model.studentId),
+  student_name: (model as any).studentName || (model as any).student_name || null,
   date: model.date,
   category: model.category,
   score: model.score,
@@ -231,7 +237,8 @@ const mapExamToDb = (model: Exam): any => ({
   notes: model.notes || null,
   juz: model.juz || null,
   class: model.class || null,
-  details: model.details || null
+  details: model.details || null,
+  created_at: (model as any).createdAt || (model as any).created_at || new Date().toISOString()
 });
 
 export const mapQuestionBankToDb = (model: QuestionBankItem): any => ({
@@ -555,28 +562,88 @@ export const api = {
       .map(item => item.data);
   },
 
-  // Eksekusi langsung ke database untuk persetujuan (magic link) tanpa lewat antrean background
-  async markAttendanceDirect(attendanceData: Attendance, userOverride?: User | null): Promise<{ success: boolean; message?: string }> {
+  // Eksekusi langsung ke database untuk absensi dan persetujuan (magic link / QR / input langsung) dengan konfirmasi server nyata
+  async markAttendanceDirect(attendanceData: Attendance, userOverride?: User | null): Promise<{ success: boolean; message?: string; queuedOffline?: boolean }> {
     if (!supabase) return { success: false, message: 'Database Supabase belum terhubung.' };
     const u = userOverride || getLoggedUser();
-    if (!u) return { success: false, message: 'Pengguna belum login atau sesi telah berakhir.' };
+    const isTeacherQuickQR =
+      attendanceData.type === 'teacher' &&
+      attendanceData.status === 'present' &&
+      attendanceData.qrToken === 'SITA_ABSENSI_GURU_TETAP';
+
+    const uName = u?.username || '';
+    const uPass = u?.sessionToken || u?.password || '';
+
+    if ((!uName || !uPass) && !isTeacherQuickQR) {
+      return {
+        success: false,
+        message: 'Sesi login Anda tidak ditemukan atau telah berakhir. Silakan login ulang terlebih dahulu.'
+      };
+    }
 
     try {
       const dbData = mapAttendanceToDb(attendanceData);
       const { data, error } = await supabase.rpc('upsert_data', {
-        p_username: u.username,
-        p_password: u.sessionToken || u.password,
+        p_username: uName,
+        p_password: uPass,
         p_table: 'attendance',
         p_data: dbData
       });
 
       if (error) throw error;
       if (data && data.success === false) {
-        throw new Error(data.message || 'Gagal menyimpan absensi ke server.');
+        // Jika gagal karena sesi token kedaluwarsa tetapi ini adalah absensi hadir guru sendiri, berikan pesan jelas
+        const msg = data.message || 'Gagal menyimpan absensi ke server.';
+        if (msg.toLowerCase().includes('kredensial') || msg.toLowerCase().includes('sesi')) {
+          return {
+            success: false,
+            message: 'Sesi login Anda perlu diperbarui (token kedaluwarsa). Silakan keluar (Logout) lalu masuk (Login) kembali, atau gunakan tombol Perbarui Sesi.'
+          };
+        }
+        return { success: false, message: msg };
       }
-      return { success: true };
+
+      // Bersihkan antrean duplikat jika sudah berhasil disimpan langsung ke server
+      const cleanTargetUserId = cleanId(attendanceData.userId);
+      const filteredActive = getQueue().filter(q => {
+        if (q.action !== 'markAttendance' || !q.data) return true;
+        const sameEntity =
+          q.data.id === attendanceData.id ||
+          (cleanId(q.data.userId) === cleanTargetUserId &&
+            q.data.date === attendanceData.date &&
+            q.data.session === attendanceData.session &&
+            q.data.type === attendanceData.type);
+        return !sameEntity;
+      });
+      if (filteredActive.length !== getQueue().length) {
+        saveQueue(filteredActive);
+      }
+
+      const filteredFailed = getFailedQueue().filter(q => {
+        if (q.action !== 'markAttendance' || !q.data) return true;
+        const sameEntity =
+          q.data.id === attendanceData.id ||
+          (cleanId(q.data.userId) === cleanTargetUserId &&
+            q.data.date === attendanceData.date &&
+            q.data.session === attendanceData.session &&
+            q.data.type === attendanceData.type);
+        return !sameEntity;
+      });
+      if (filteredFailed.length !== getFailedQueue().length) {
+        saveFailedQueue(filteredFailed);
+      }
+
+      return { success: true, message: 'Kehadiran berhasil disimpan di server database.' };
     } catch (err: any) {
       console.error('Error markAttendanceDirect:', err);
+      if (isTemporaryError(err) || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+        this.send('markAttendance', attendanceData);
+        return {
+          success: false,
+          queuedOffline: true,
+          message: 'Koneksi ke server sedang terputus. Data absensi telah disimpan di antrean lokal dan akan otomatis dikirim saat koneksi pulih.'
+        };
+      }
       return { success: false, message: err?.message || 'Gagal menghubungi server database.' };
     }
   },
@@ -584,7 +651,9 @@ export const api = {
   async addAttendanceOpenRequestDirect(reqData: AttendanceOpenRequest, userOverride?: User | null): Promise<{ success: boolean; message?: string }> {
     if (!supabase) return { success: false, message: 'Database Supabase belum terhubung.' };
     const u = userOverride || getLoggedUser();
-    if (!u) return { success: false, message: 'Pengguna belum login atau sesi telah berakhir.' };
+    if (!u || (!u.sessionToken && !u.password)) {
+      return { success: false, message: 'Sesi login Anda perlu diperbarui. Silakan login kembali terlebih dahulu.' };
+    }
 
     try {
       const dbData = mapAttendanceOpenRequestToDb(reqData);
@@ -619,19 +688,13 @@ export const api = {
       return { success: true, count: 0, message: 'Tidak ada data permohonan yang diproses.' };
     }
 
-    // 1. Simpan di antrean sinkronisasi offline (background sync)
-    requests.forEach(req => {
-      api.send('addAttendanceOpenRequest', {
-        ...req,
-        teacherId: req.teacherId
-      });
-    });
+    const adminCred = u.sessionToken || u.password;
 
-    // 2. Jika Supabase terhubung, jalankan RPC cepat atau batch upsert
-    if (supabase) {
+    // 1. Jika Supabase terhubung, jalankan RPC cepat atau batch upsert
+    if (supabase && adminCred) {
       try {
         const firstReq = requests[0];
-        const teacherIds = Array.from(new Set(requests.map(r => r.teacherId)));
+        const teacherIds = Array.from(new Set(requests.map(r => cleanId(r.teacherId))));
         const dates = requests.map(r => r.date).sort();
         const minDate = dates[0];
         const maxDate = dates[dates.length - 1];
@@ -639,7 +702,7 @@ export const api = {
         // Coba panggil RPC khusus jika sudah dideploy
         const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_bulk_open_attendance', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: adminCred,
           p_teacher_id: teacherIds.length === 1 ? teacherIds[0] : 'ALL',
           p_start_date: minDate,
           p_end_date: maxDate,
@@ -652,19 +715,38 @@ export const api = {
           return { success: true, count: rpcData.count || requests.length, message: rpcData.message };
         }
 
-        // Fallback jika RPC belum dideploy: batch upsert via upsert_data
+        // Fallback jika RPC belum menerima sessionToken: batch upsert via upsert_data
+        let upsertedCount = 0;
         for (const req of requests) {
-          await supabase.rpc('upsert_data', {
+          const { data: uRes, error: uErr } = await supabase.rpc('upsert_data', {
             p_username: u.username,
-            p_password: u.password,
+            p_password: adminCred,
             p_table: 'attendance_open_requests',
             p_data: mapAttendanceOpenRequestToDb(req)
           });
+          if (!uErr && (!uRes || uRes.success !== false)) {
+            upsertedCount++;
+          }
+        }
+        if (upsertedCount > 0) {
+          return {
+            success: true,
+            count: upsertedCount,
+            message: `Berhasil membuka akses absensi untuk ${upsertedCount} sesi.`
+          };
         }
       } catch (err: any) {
         console.warn('Fallback sync used for bulk open attendance:', err);
       }
     }
+
+    // Simpan di antrean sinkronisasi offline (background sync) jika gagal direct
+    requests.forEach(req => {
+      api.send('addAttendanceOpenRequest', {
+        ...req,
+        teacherId: req.teacherId
+      });
+    });
 
     return {
       success: true,
@@ -686,15 +768,13 @@ export const api = {
       return { success: true, count: 0 };
     }
 
-    ids.forEach(id => {
-      api.send('deleteData', { id, sheetName: 'AttendanceOpenRequests' });
-    });
+    const adminCred = u.sessionToken || u.password;
 
-    if (supabase) {
+    if (supabase && adminCred) {
       try {
         const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_bulk_revoke_attendance', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: adminCred,
           p_request_ids: ids
         });
 
@@ -702,19 +782,34 @@ export const api = {
           return { success: true, count: rpcData.count, message: rpcData.message };
         }
 
-        // Fallback
+        // Fallback via delete_data_secure (yang sudah mendukung sessionToken)
+        let deletedCount = 0;
         for (const id of ids) {
-          await supabase.rpc('delete_data_secure', {
+          const { data: dRes, error: dErr } = await supabase.rpc('delete_data_secure', {
             p_username: u.username,
-            p_password: u.password,
+            p_password: adminCred,
             p_table: 'attendance_open_requests',
             p_id: id
           });
+          if (!dErr && (!dRes || dRes.success !== false)) {
+            deletedCount++;
+          }
+        }
+        if (deletedCount > 0) {
+          return {
+            success: true,
+            count: deletedCount,
+            message: `Berhasil mengunci kembali ${deletedCount} sesi absensi.`
+          };
         }
       } catch (err: any) {
         console.warn('Fallback delete used for open requests:', err);
       }
     }
+
+    ids.forEach(id => {
+      api.send('deleteData', { id, sheetName: 'AttendanceOpenRequests' });
+    });
 
     return {
       success: true,
@@ -723,20 +818,117 @@ export const api = {
     };
   },
 
-  // Fungsi mengirim data (POST) - Offline First
+  // Fungsi mengirim data (POST) - Offline First dengan Deduplikasi Entitas
   async send(action: ActionType, data: any) {
     const queue = getQueue();
     const newItem: QueueItem = {
       id: 'q_' + Math.random().toString(36).substr(2, 9),
       action,
-      data,
+      data: {
+        ...data,
+        createdAt: data?.createdAt || data?.created_at || new Date().toISOString()
+      },
       timestamp: Date.now()
     };
-    queue.push(newItem);
+
+    // Deduplikasi antrean untuk markAttendance dan addAttendanceOpenRequest pada hari & sesi yang sama
+    if (action === 'markAttendance' && data) {
+      const targetUserId = cleanId(data.userId);
+      const existingIdx = queue.findIndex(
+        q =>
+          q.action === 'markAttendance' &&
+          q.data &&
+          (q.data.id === data.id ||
+            (cleanId(q.data.userId) === targetUserId &&
+              q.data.date === data.date &&
+              q.data.session === data.session &&
+              q.data.type === data.type))
+      );
+      if (existingIdx >= 0) {
+        queue[existingIdx] = newItem;
+      } else {
+        queue.push(newItem);
+      }
+    } else if (action === 'addAttendanceOpenRequest' && data) {
+      const targetTeacherId = cleanId(data.teacherId);
+      const existingIdx = queue.findIndex(
+        q =>
+          q.action === 'addAttendanceOpenRequest' &&
+          q.data &&
+          (q.data.id === data.id ||
+            (cleanId(q.data.teacherId) === targetTeacherId &&
+              q.data.date === data.date &&
+              q.data.session === data.session &&
+              q.data.type === data.type))
+      );
+      if (existingIdx >= 0) {
+        queue[existingIdx] = newItem;
+      } else {
+        queue.push(newItem);
+      }
+    } else if (data?.id) {
+      const existingIdx = queue.findIndex(q => q.action === action && q.data?.id === data.id);
+      if (existingIdx >= 0) {
+        queue[existingIdx] = newItem;
+      } else {
+        queue.push(newItem);
+      }
+    } else {
+      queue.push(newItem);
+    }
+
     saveQueue(queue);
 
     // Jalankan proses sinkronisasi di background
     this.processQueue();
+  },
+
+  // Pulihkan otomatis antrean di failed_queue yang gagal karena bug created_at atau sesi token lama
+  rescueRecoverableFailedItems() {
+    const failed = getFailedQueue();
+    if (failed.length === 0) return;
+
+    const active = getQueue();
+    const stillFailed: QueueItem[] = [];
+    let rescuedCount = 0;
+
+    failed.forEach(item => {
+      const errStr = (item.error || '').toLowerCase();
+      const isRecoverable =
+        errStr.includes('created_at') ||
+        errStr.includes('not-null') ||
+        errStr.includes('kredensial') ||
+        errStr.includes('sesi') ||
+        errStr.includes('network') ||
+        errStr.includes('fetch') ||
+        item.action === 'markAttendance' ||
+        item.action === 'addRecord' ||
+        item.action === 'addAttendanceOpenRequest';
+
+      if (isRecoverable) {
+        const { error, ...cleanItem } = item;
+        if (cleanItem.data) {
+          cleanItem.data.createdAt = cleanItem.data.createdAt || cleanItem.data.created_at || new Date(cleanItem.timestamp || Date.now()).toISOString();
+          if (cleanItem.action === 'markAttendance' && cleanItem.data.type === 'teacher' && cleanItem.data.status === 'present') {
+            cleanItem.data.qrToken = cleanItem.data.qrToken || 'SITA_ABSENSI_GURU_TETAP';
+          }
+        }
+        const alreadyInActive = active.some(
+          a => a.id === cleanItem.id || (a.action === cleanItem.action && a.data?.id && a.data.id === cleanItem.data?.id)
+        );
+        if (!alreadyInActive) {
+          active.push(cleanItem);
+        }
+        rescuedCount++;
+      } else {
+        stillFailed.push(item);
+      }
+    });
+
+    if (rescuedCount > 0) {
+      saveFailedQueue(stillFailed);
+      saveQueue(active);
+    }
   },
 
   // Fungsi memproses antrean di background
@@ -748,6 +940,9 @@ export const api = {
       notifyCallbacks();
       return;
     }
+
+    // Pulihkan item yang sebelumnya gagal akibat bug created_at atau kredensial
+    this.rescueRecoverableFailedItems();
 
     const queue = getQueue();
     if (queue.length === 0) {
@@ -790,7 +985,7 @@ export const api = {
         if (!uName || !uPass) {
           if (!isTeacherQuickQR) {
             console.warn("Sinkronisasi ditunda: Menunggu otentikasi login pengguna.");
-            lastSyncError = "Menunggu otentikasi login pengguna.";
+            lastSyncError = "Sesi keamanan login perlu diperbarui untuk menyinkronkan data.";
             break;
           }
         }
@@ -832,7 +1027,6 @@ export const api = {
           rpcRes = d;
           error = err;
         } else if (item.action === 'addAttendanceOpenRequest') {
-          // Ganti dari direct upsert ke secure upsert RPC
           const { data: d, error: err } = await supabase.rpc('upsert_data', { 
             p_username: uName, 
             p_password: uPass, 
@@ -866,7 +1060,6 @@ export const api = {
           }
           
           let err = null;
-          // Menggunakan delete_data_secure RPC untuk semua tabel demi keamanan penuh
           const { data: deleteRes, error: deleteErr } = await supabase.rpc('delete_data_secure', { 
             p_username: uName, 
             p_password: uPass, 
@@ -896,9 +1089,10 @@ export const api = {
       } catch (err: any) {
         console.error(`Gagal sinkronisasi Supabase ${item.id} (${item.action}):`, err);
         const errMsg = err?.message || String(err);
+        const lowerMsg = errMsg.toLowerCase();
         
-        if (isTemporaryError(err)) {
-          // Error sementara (jaringan/timeout): tangguhkan antrean, coba lagi nanti
+        if (isTemporaryError(err) || lowerMsg.includes('kredensial') || lowerMsg.includes('sesi tidak valid')) {
+          // Error sementara (jaringan/timeout) atau menunggu sesi login diperbarui: tangguhkan di antrean aktif
           lastSyncError = errMsg;
           break;
         } else {

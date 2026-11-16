@@ -7,6 +7,7 @@ import {
   TahsinAttempt 
 } from '../../types';
 import { tahsinService, formatTahsinPassageDisplay } from '../../services/tahsinService';
+import { api, setSessionUser } from '../../api';
 import { TahsinExamSheet } from './TahsinExamSheet';
 import { 
   Search, 
@@ -24,7 +25,9 @@ import {
   RefreshCw,
   Cloud,
   CloudOff,
-  UploadCloud
+  UploadCloud,
+  Download,
+  Lock
 } from 'lucide-react';
 
 interface TahsinPelaksanaanViewProps {
@@ -60,28 +63,114 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
   const [activeAttemptNumber, setActiveAttemptNumber] = useState<number>(1);
 
   // Sync Queue State
+  const [effectiveUser, setEffectiveUser] = useState<User>(user);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+  const [conflictSyncCount, setConflictSyncCount] = useState<number>(0);
   const [pendingSyncError, setPendingSyncError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [reauthPassword, setReauthPassword] = useState<string>('');
+  const [isReauthenticating, setIsReauthenticating] = useState<boolean>(false);
+
+  useEffect(() => {
+    setEffectiveUser(user);
+  }, [user]);
 
   const checkPendingSync = () => {
-    const items = tahsinService.getPendingSyncItems(user.role === 'admin' ? undefined : user.id);
+    tahsinService.reconcileAndRescueLocalSessions();
+    const items = tahsinService.getPendingSyncItems(effectiveUser.role === 'admin' ? undefined : effectiveUser.id);
     setPendingSyncCount(items.length);
+    setConflictSyncCount(items.filter(i => i.conflictDetected).length);
     const conflictOrErr = items.find(i => i.lastError);
     setPendingSyncError(conflictOrErr?.lastError || null);
+    const snap = tahsinService.getSyncStateSnapshot(effectiveUser);
+    setAuthRequired(snap.authRequired || (!effectiveUser.sessionToken && !effectiveUser.password && items.length > 0));
   };
+
+  useEffect(() => {
+    const unsub = tahsinService.subscribeSync(() => {
+      const items = tahsinService.getPendingSyncItems(effectiveUser.role === 'admin' ? undefined : effectiveUser.id);
+      const snap = tahsinService.getSyncStateSnapshot(effectiveUser);
+      setPendingSyncCount(items.length);
+      setConflictSyncCount(items.filter(i => i.conflictDetected).length);
+      setIsSyncing(snap.isSyncing);
+      const conflictOrErr = items.find(i => i.lastError);
+      setPendingSyncError(conflictOrErr?.lastError || snap.lastError);
+      setAuthRequired(snap.authRequired || (!effectiveUser.sessionToken && !effectiveUser.password && items.length > 0));
+    });
+    return unsub;
+  }, [effectiveUser]);
 
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
-      const res = await tahsinService.syncPendingAttempts(user);
-      alert(`Hasil Sinkronisasi Cloud:\n- Berhasil: ${res.succeeded}\n- Konflik: ${res.conflicts}\n- Gagal: ${res.failed}\n- Sisa Antrean: ${tahsinService.getPendingSyncCount(user.role === 'admin' ? undefined : user.id)}`);
+      const res = await tahsinService.syncPendingAttempts(effectiveUser, { forceManual: true });
+      const remaining = tahsinService.getPendingSyncCount(effectiveUser.role === 'admin' ? undefined : effectiveUser.id);
+      const firstErr = res.details.find((d: any) => d.error)?.error;
+      if (res.authRequired) {
+        setAuthRequired(true);
+        alert(`Sesi login Anda perlu diperbarui sebelum sinkronisasi dapat dikirim ke server.\nSilakan masukkan password Anda pada kolom "Perbarui Sesi Login & Sinkronkan" di atas (data ujian lokal Anda tetap aman dan tidak hilang).`);
+      } else {
+        alert(`Hasil Sinkronisasi Cloud:\n- Berhasil: ${res.succeeded}\n- Konflik: ${res.conflicts}\n- Gagal: ${res.failed}\n- Sisa Antrean: ${remaining}${firstErr ? '\n\nCatatan: ' + firstErr : ''}`);
+      }
       await loadData();
     } catch (err: any) {
       alert(`Terjadi kendala saat sinkronisasi: ${err.message || 'Koneksi gagal'}`);
     } finally {
       setIsSyncing(false);
       checkPendingSync();
+    }
+  };
+
+  const handleInlineReauthAndSync = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reauthPassword.trim()) {
+      alert('Masukkan password akun Anda untuk memperbarui sesi login.');
+      return;
+    }
+    setIsReauthenticating(true);
+    try {
+      const res = await api.login(effectiveUser.username, reauthPassword.trim());
+      if (!res.success || !res.data) {
+        alert(res.message || 'Password tidak sesuai. Data lokal tetap aman.');
+        return;
+      }
+      const refreshedUser = res.data;
+      setSessionUser(refreshedUser);
+      setEffectiveUser(refreshedUser);
+      try {
+        const sanitized = { ...refreshedUser };
+        delete sanitized.password;
+        window.localStorage.setItem('sita_current_user_v1', JSON.stringify(sanitized));
+      } catch (_) {}
+      setReauthPassword('');
+      setAuthRequired(false);
+
+      const syncRes = await tahsinService.syncPendingAttempts(refreshedUser, { forceManual: true });
+      await loadData();
+      alert(`Sesi login berhasil diperbarui!\nHasil Sinkronisasi Cloud:\n- Berhasil: ${syncRes.succeeded}\n- Konflik: ${syncRes.conflicts}\n- Gagal: ${syncRes.failed}`);
+    } catch (err: any) {
+      alert('Gagal menghubungi server untuk memperbarui sesi: ' + (err?.message || 'Koneksi gagal'));
+    } finally {
+      setIsReauthenticating(false);
+      checkPendingSync();
+    }
+  };
+
+  const handleDownloadLocalBackup = () => {
+    try {
+      const jsonStr = tahsinService.exportPendingSyncBackup(effectiveUser.role === 'admin' ? undefined : effectiveUser.id);
+      const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backup_tahsin_lokal_${effectiveUser.username}_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert('Gagal mengunduh backup lokal: ' + (e?.message || 'Error'));
     }
   };
 
@@ -101,7 +190,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
       if (activePeriod) {
         setSelectedPeriodId(activePeriod.id);
         try {
-          const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id, user);
+          const fetchedSessions = await tahsinService.fetchSessions(activePeriod.id, effectiveUser);
           // Padukan data server dengan santri eligible tanpa menghapus sesi yang sudah tersimpan
           const initialized = tahsinService.initializeSessionsForPeriod(activePeriod, students, allTeachers, fetchedSessions);
           setSessions(initialized);
@@ -133,7 +222,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
     setFetchError(null);
     try {
       const targetPeriod = periods.find(p => p.id === newPeriodId);
-      const fetched = await tahsinService.fetchSessions(newPeriodId, user);
+      const fetched = await tahsinService.fetchSessions(newPeriodId, effectiveUser);
       if (targetPeriod) {
         const initialized = tahsinService.initializeSessionsForPeriod(targetPeriod, students, allTeachers, fetched);
         setSessions(initialized);
@@ -235,7 +324,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
     const studentObj = students.find(s => s.id === activeSession.studentId)!;
     return (
       <TahsinExamSheet
-        user={user}
+        user={effectiveUser}
         period={selectedPeriod!}
         session={activeSession}
         student={studentObj}
@@ -245,6 +334,7 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
         onBack={() => {
           setActiveSession(null);
           setActiveAttemptToEdit(null);
+          loadData();
         }}
         onSuccess={() => {
           setActiveSession(null);
@@ -323,33 +413,79 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
 
       {/* Pending Sync Alert Banner */}
       {pendingSyncCount > 0 && (
-        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-fade-in">
-          <div className="flex items-start gap-3">
-            <span className="p-2 bg-amber-100 text-amber-800 rounded-xl">
-              <UploadCloud size={20} />
-            </span>
-            <div>
-              <h4 className="text-xs font-bold text-amber-900">
-                Peringatan: {pendingSyncCount} Data Ujian Belum Tersinkronkan ke Database Server
-              </h4>
-              <p className="text-[11px] text-amber-700 mt-0.5">
-                Nilai tersimpan aman di perangkat ini dan belum dihitung sebagai nilai resmi hingga tersinkronisasi. Klik tombol di samping untuk mengirimkan antrean ke server cloud saat internet stabil.
-              </p>
-              {pendingSyncError && (
-                <p className="text-[11px] font-bold text-rose-700 mt-1">
-                  Info Status: {pendingSyncError}
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-3 shadow-sm animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="p-2 bg-amber-100 text-amber-800 rounded-xl">
+                <UploadCloud size={20} />
+              </span>
+              <div>
+                <h4 className="text-xs font-bold text-amber-900">
+                  Peringatan: {pendingSyncCount} Data Ujian Belum Tersinkronkan ke Database Server
+                  {conflictSyncCount > 0 ? ` (${conflictSyncCount} Konflik Data)` : ''}
+                </h4>
+                <p className="text-[11px] text-amber-700 mt-0.5">
+                  Nilai tersimpan aman di perangkat ini dan belum dihitung sebagai nilai resmi hingga tersinkronisasi. Klik tombol di samping untuk mengirimkan antrean ke server cloud saat internet stabil.
                 </p>
-              )}
+                {pendingSyncError && (
+                  <p className="text-[11px] font-bold text-rose-700 mt-1">
+                    Info Status: {pendingSyncError}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleDownloadLocalBackup}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold shadow-sm transition"
+                title="Unduh salinan cadangan data ujian lokal (.json) untuk penyelamatan darurat"
+              >
+                <Download size={14} />
+                Unduh Backup Lokal (.json)
+              </button>
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                {isSyncing ? 'Sedang Sinkronisasi...' : 'Sinkronkan Sekarang'}
+              </button>
             </div>
           </div>
-          <button
-            onClick={handleManualSync}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition disabled:opacity-50 self-start sm:self-auto flex-shrink-0"
-          >
-            <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-            {isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Sekarang'}
-          </button>
+
+          {/* Inline Re-Authentication Box When Session Token Is Missing/Expired */}
+          {authRequired && (
+            <form
+              onSubmit={handleInlineReauthAndSync}
+              className="bg-white border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+            >
+              <div className="flex items-center gap-2 text-xs text-slate-700">
+                <Lock size={15} className="text-amber-600 flex-shrink-0" />
+                <span>
+                  <strong>Sesi keamanan akun ({effectiveUser.username}) perlu diperbarui:</strong> Masukkan password Anda untuk memperbarui token tanpa keluar akun (data lokal tetap aman):
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={reauthPassword}
+                  onChange={(e) => setReauthPassword(e.target.value)}
+                  placeholder="Password akun Anda..."
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  disabled={isReauthenticating}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold whitespace-nowrap disabled:opacity-50"
+                >
+                  {isReauthenticating ? 'Memverifikasi...' : 'Perbarui Sesi & Sinkronkan'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
@@ -511,19 +647,31 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
                             <AlertTriangle size={12} /> Perlu Remedial
                           </span>
                         )}
-                        {/* Status Sinkronisasi Server */}
+                        {/* Status Sinkronisasi Server (6 Status Jelas) */}
                         <div className="mt-1 flex items-center justify-center">
-                          {session.syncStatus === 'synced_server' ? (
+                          {isSyncing && (session.syncStatus === 'pending_sync' || session.syncStatus === 'sync_failed') ? (
+                            <span className="text-[9px] text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 flex items-center gap-1 font-bold" title="Sedang mengirim ke server cloud">
+                              <RefreshCw size={10} className="animate-spin" /> Sedang Sinkronisasi
+                            </span>
+                          ) : session.syncStatus === 'synced_server' ? (
                             <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1" title="Tersimpan di Cloud Server">
                               <Cloud size={10} /> Cloud OK
                             </span>
+                          ) : session.syncStatus === 'conflict' ? (
+                            <span className="text-[9px] text-purple-800 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 flex items-center gap-1 font-bold" title="Konflik versi data dengan server">
+                              <AlertTriangle size={10} /> Konflik Data
+                            </span>
                           ) : session.syncStatus === 'sync_failed' ? (
-                            <span className="text-[9px] text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 flex items-center gap-1 font-bold" title="Belum tersinkronkan ke server">
-                              <CloudOff size={10} /> Belum Sync
+                            <span className="text-[9px] text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 flex items-center gap-1 font-bold" title="Gagal sinkronisasi, menunggu pengiriman ulang">
+                              <CloudOff size={10} /> Gagal Sync
                             </span>
                           ) : session.syncStatus === 'pending_sync' ? (
-                            <span className="text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1" title="Dalam antrean sinkronisasi">
-                              <UploadCloud size={10} /> Antrean Sync
+                            <span className="text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1" title="Menunggu sinkronisasi ke server">
+                              <UploadCloud size={10} /> Menunggu Sinkronisasi
+                            </span>
+                          ) : session.status !== 'not_started' && session.syncStatus === 'local_only' ? (
+                            <span className="text-[9px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 flex items-center gap-1" title="Tersimpan di perangkat lokal">
+                              <Clock size={10} /> Tersimpan Lokal
                             </span>
                           ) : null}
                         </div>
@@ -554,10 +702,11 @@ export const TahsinPelaksanaanView: React.FC<TahsinPelaksanaanViewProps> = ({
                             </button>
                           )}
 
-                          {session.status === 'completed' && (
+                          {(session.status === 'completed' || (isRemedial && session.attempts && session.attempts.length > 0)) && (
                             <button
                               onClick={() => handleStartExam(session, 'utama')}
                               className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+                              title="Lihat detail nilai, materi bacaan, atau koreksi nilai"
                             >
                               Lihat Nilai
                             </button>

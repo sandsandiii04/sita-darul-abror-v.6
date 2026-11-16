@@ -5,7 +5,7 @@ import {
   Lock, QrCode, Camera, Printer, Download, Key, History, Trash2,
   Unlock, Calendar, Users, Info, ShieldCheck, Filter, ChevronRight
 } from 'lucide-react';
-import { ADMIN_PHONE, getLocalDateString } from '../constants';
+import { ADMIN_PHONE, getLocalDateString, getJakartaDateParts } from '../constants';
 import { QRCodeCanvas } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 import QRScanner from './QRScanner';
@@ -15,11 +15,11 @@ interface AttendanceProps {
   students: Student[];
   users: User[]; // All users to find teachers
   attendance: Attendance[];
-  onMarkAttendance: (att: Attendance) => void;
+  onMarkAttendance: (att: Attendance) => Promise<{ success: boolean; message?: string; queuedOffline?: boolean } | void> | void;
   onDeleteAttendance?: (id: string) => void;
   type: 'student' | 'teacher';
   openRequests?: AttendanceOpenRequest[];
-  onMarkOpenRequest?: (req: AttendanceOpenRequest) => void;
+  onMarkOpenRequest?: (req: AttendanceOpenRequest) => Promise<{ success: boolean; message?: string } | void> | void;
   onDeleteOpenRequest?: (id: string) => void;
   onBulkOpenAttendance?: (requests: AttendanceOpenRequest[]) => Promise<{ success: boolean; count?: number; message?: string }>;
   onBulkDeleteOpenRequests?: (ids: string[]) => Promise<{ success: boolean; count?: number; message?: string }>;
@@ -66,7 +66,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
   const adminPhone = adminUser?.phoneNumber ? formatWhatsAppPhone(adminUser.phoneNumber) : formatWhatsAppPhone(ADMIN_PHONE);
 
   const [date, setDate] = useState(targetDate || getLocalDateString());
-  const [session, setSession] = useState<'pagi' | 'malam'>(targetSession || (new Date().getHours() >= 14 ? 'malam' : 'pagi'));
+  const [session, setSession] = useState<'pagi' | 'malam'>(targetSession || (getJakartaDateParts().hour >= 14 ? 'malam' : 'pagi'));
   const cleanSubId = (id: any) => id ? id.toString().split(' | ')[0].trim() : '';
 
   React.useEffect(() => {
@@ -107,7 +107,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     setBulkType(type);
   }, [type]);
 
-  // Fungsi pengecekan apakah guru terlambat
+  // Fungsi pengecekan apakah guru terlambat (menggunakan waktu Asia/Jakarta WIB)
   const checkIsLate = (sess: 'pagi' | 'malam', targetDate: string) => {
     const todayStr = getLocalDateString();
     
@@ -116,20 +116,19 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     // Tanggal besok belum bisa dianggap terlambat (akan diblokir di logic lock)
     if (targetDate > todayStr) return false;
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const { currentMinutes } = getJakartaDateParts();
 
     if (sess === 'pagi') {
-      const limitMinutes = 5 * 60 + 50; // 05:50
+      const limitMinutes = 5 * 60 + 50; // 05:50 WIB
       return currentMinutes > limitMinutes;
     } else if (sess === 'malam') {
-      const limitMinutes = 18 * 60 + 50; // 18:50
+      const limitMinutes = 18 * 60 + 50; // 18:50 WIB
       return currentMinutes > limitMinutes;
     }
     return false;
   };
 
-  // Fungsi pengecekan batas waktu absensi
+  // Fungsi pengecekan batas waktu absensi (menggunakan waktu Asia/Jakarta WIB)
   const checkSessionLock = (sess: 'pagi' | 'malam') => {
     if (user.role === 'admin') return { locked: false, reason: '', status: 'open' };
 
@@ -151,8 +150,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       return { locked: false, reason: '', status: 'approved', request };
     }
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const { currentMinutes } = getJakartaDateParts();
 
     // PERATURAN KHUSUS ABSENSI SANTRI
     if (type === 'student') {
@@ -246,8 +244,11 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     }
   }
 
-  const handleStatusClick = (subjectId: string, status: Attendance['status']): boolean => {
+  const [isSubmittingAttendance, setIsSubmittingAttendance] = useState(false);
+
+  const handleStatusClick = async (subjectId: string, status: Attendance['status'], extraProps?: Partial<Attendance>): Promise<boolean> => {
     if (user.role === 'parent') return false;
+    if (isSubmittingAttendance) return false;
     if (!date) {
       alert('Mohon pilih tanggal absensi terlebih dahulu!');
       return false;
@@ -266,7 +267,7 @@ const AttendanceView: React.FC<AttendanceProps> = ({
     const existing = attendance.find(a => cleanSubId(a.userId) === cleanSubId(subjectId) && a.date === date && a.type === type && a.session === session);
     
     // Pembatalan: jika klik status yang sudah aktif, hapus absensi tersebut
-    if (existing && existing.status === status) {
+    if (existing && existing.status === status && !extraProps?.qrToken) {
       if (onDeleteAttendance) {
         onDeleteAttendance(existing.id);
       }
@@ -312,9 +313,27 @@ const AttendanceView: React.FC<AttendanceProps> = ({
       status,
       type,
       approvalStatus: existing?.approvalStatus || approvalStatus,
-      lateReason: reasonText || existing?.lateReason || lateReasonToSave
+      lateReason: reasonText || existing?.lateReason || lateReasonToSave,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      ...extraProps
     };
-    onMarkAttendance(newRecord);
+
+    setIsSubmittingAttendance(true);
+    try {
+      const res = await onMarkAttendance(newRecord);
+      if (res && res.success === false && !res.queuedOffline) {
+        alert(`Gagal mencatat absensi ke server: ${res.message || 'Terjadi kendala pada server database.'}`);
+        return false;
+      }
+      if (res && res.queuedOffline && type === 'teacher') {
+        alert(`Koneksi server sedang terputus: Absensi Anda disimpan aman di antrean perangkat ini dan akan dikirim otomatis saat koneksi pulih.`);
+      }
+    } catch (err: any) {
+      alert(`Gagal mencatat absensi: ${err?.message || 'Koneksi gagal.'}`);
+      return false;
+    } finally {
+      setIsSubmittingAttendance(false);
+    }
 
     // --- WhatsApp Integration for Teacher Permissions (Magic Links) ---
     if (type === 'teacher' && (status === 'sick' || status === 'permission')) {
@@ -1139,12 +1158,12 @@ const AttendanceView: React.FC<AttendanceProps> = ({
                 <button onClick={() => setShowScanner(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10"><X size={20}/></button>
                 <h3 className="font-bold text-lg text-gray-800 mb-4 text-center">Scan QR Code Absensi</h3>
                 <QRScanner 
-                    onScanSuccess={(text) => {
+                    onScanSuccess={async (text) => {
                         if (text.trim() === "SITA_ABSENSI_GURU_TETAP" || text.includes("absen=guru")) {
-                            const success = handleStatusClick(user.id, 'present');
+                            const success = await handleStatusClick(user.id, 'present', { qrToken: 'SITA_ABSENSI_GURU_TETAP' });
                             if (success) {
                                 setShowScanner(false);
-                                alert("Absensi berhasil dicatat: HADIR.");
+                                alert("Absensi berhasil dicatat di server: HADIR.");
                             }
                         } else {
                             alert("QR Code tidak valid untuk absensi SITA.");

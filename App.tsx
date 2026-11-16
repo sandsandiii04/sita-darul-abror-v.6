@@ -30,9 +30,10 @@ import { TahsinReportsView } from './components/TahsinEvaluation/TahsinReportsVi
 import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
 import { api, setSessionUser } from './api';
+import { tahsinService } from './services/tahsinService';
 import ErrorBoundary from './components/ErrorBoundary';
 
-const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError, onQuickAttendance, onOpenDbConfig }: { onLogin: (user: User) => void, users: User[], students: Student[], isLoadingData: boolean, connectionError: string | null, onQuickAttendance: (att: Attendance) => void, onOpenDbConfig: () => void }) => {
+const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError, onQuickAttendance, onOpenDbConfig }: { onLogin: (user: User) => void, users: User[], students: Student[], isLoadingData: boolean, connectionError: string | null, onQuickAttendance: (att: Attendance) => Promise<{ success: boolean; message?: string; queuedOffline?: boolean }> | void, onOpenDbConfig: () => void }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -268,7 +269,7 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                         </div>
 
                         <button 
-                            onClick={() => {
+                            onClick={async () => {
                                 if (!quickUserId) return alert("Pilih nama Anda terlebih dahulu!");
                                 const cleanUserId = quickUserId.replace(/[^a-zA-Z0-9_-]/g, '_');
                                 const todayDate = getLocalDateString();
@@ -279,9 +280,14 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                                     session: quickSession,
                                     status: 'present',
                                     type: 'teacher',
-                                    qrToken: 'SITA_ABSENSI_GURU_TETAP'
+                                    qrToken: 'SITA_ABSENSI_GURU_TETAP',
+                                    createdAt: new Date().toISOString()
                                 };
-                                onQuickAttendance(att);
+                                const res = await onQuickAttendance(att);
+                                if (res && res.success === false && !res.queuedOffline) {
+                                    alert("Gagal mencatat kehadiran ke server: " + (res.message || "Terjadi kendala server."));
+                                    return;
+                                }
                                 setShowQuickScan(false);
                                 setQuickUserId('');
                                 
@@ -290,7 +296,11 @@ const LoginScreen = ({ onLogin, users, students, isLoadingData, connectionError,
                                     window.history.replaceState({}, document.title, window.location.pathname);
                                 }
                                 
-                                alert("Berhasil! Kehadiran Anda telah dicatat.");
+                                if (res && res.queuedOffline) {
+                                    alert("Koneksi server terputus: Kehadiran Anda disimpan di antrean perangkat ini dan akan dikirim otomatis saat koneksi pulih.");
+                                } else {
+                                    alert("Berhasil! Kehadiran Anda telah dicatat di server.");
+                                }
                             }}
                             disabled={!quickUserId}
                             className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-3.5 rounded-xl transition-all duration-300 flex justify-center items-center gap-2 disabled:opacity-50 disabled:hover:from-emerald-600 shadow-lg shadow-emerald-600/10 mt-4"
@@ -437,6 +447,32 @@ const App: React.FC = () => {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [isInAppBrowser, setIsInAppBrowser] = useState(false);
+
+  // Tahsin Sync State (terintegrasi agar tidak pernah menampilkan Mode Online palsu saat ada nilai Tahsin belum sync)
+  const [tahsinPendingCount, setTahsinPendingCount] = useState<number>(0);
+  const [tahsinConflictCount, setTahsinConflictCount] = useState<number>(0);
+  const [tahsinIsSyncing, setTahsinIsSyncing] = useState<boolean>(false);
+  const [tahsinSyncError, setTahsinSyncError] = useState<string | null>(null);
+  const [tahsinAuthRequired, setTahsinAuthRequired] = useState<boolean>(false);
+  const [reauthPassword, setReauthPassword] = useState<string>('');
+  const [isReauthenticating, setIsReauthenticating] = useState<boolean>(false);
+
+  useEffect(() => {
+    tahsinService.reconcileAndRescueLocalSessions();
+    const updateTahsinState = () => {
+      const snap = tahsinService.getSyncStateSnapshot(user);
+      setTahsinPendingCount(snap.pendingCount);
+      setTahsinConflictCount(snap.conflictCount);
+      setTahsinIsSyncing(snap.isSyncing);
+      setTahsinSyncError(snap.lastError);
+      setTahsinAuthRequired(snap.authRequired || Boolean(user && !user.sessionToken && !user.password && snap.pendingCount > 0));
+    };
+    updateTahsinState();
+    const unsubTahsin = tahsinService.subscribeSync(() => {
+      updateTahsinState();
+    });
+    return unsubTahsin;
+  }, [user]);
 
   useEffect(() => {
     // Ambil jumlah antrean gagal awal
@@ -640,6 +676,9 @@ const App: React.FC = () => {
     const handleOnline = () => {
       setIsOnline(true);
       api.processQueue();
+      if (user && (user.sessionToken || user.password)) {
+        tahsinService.syncPendingAttempts(user);
+      }
     };
     const handleOffline = () => {
       setIsOnline(false);
@@ -649,10 +688,24 @@ const App: React.FC = () => {
     
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       api.processQueue();
+      if (user && (user.sessionToken || user.password)) {
+        tahsinService.syncPendingAttempts(user);
+      }
     }
 
+    // Auto-sync berkala setiap 45 detik untuk data Tahsin yang tertunda
+    const tahsinAutoSyncInterval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine && user && (user.sessionToken || user.password)) {
+        const uid = user.role === 'admin' ? undefined : user.id;
+        if (tahsinService.getPendingSyncCount(uid) > 0) {
+          tahsinService.syncPendingAttempts(user);
+        }
+      }
+    }, 45000);
+
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (api.getQueueLength() > 0 || api.getFailedQueue().length > 0) {
+      const uid = user?.role === 'admin' ? undefined : user?.id;
+      if (api.getQueueLength() > 0 || api.getFailedQueue().length > 0 || tahsinService.getPendingSyncCount(uid) > 0) {
         e.preventDefault();
         e.returnValue = 'Terdapat data yang sedang dikirim ke server. Yakin ingin menutup halaman?';
         return e.returnValue;
@@ -661,11 +714,12 @@ const App: React.FC = () => {
     window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
+      clearInterval(tahsinAutoSyncInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []);
+  }, [user]);
 
   const cleanId = (id: any) => {
       if (id === null || id === undefined) return '';
@@ -779,6 +833,9 @@ const App: React.FC = () => {
               fetchData(true);
            }
            api.processQueue();
+           if (user && (user.sessionToken || user.password)) {
+              tahsinService.syncPendingAttempts(user);
+           }
         }
      };
      const handleWindowFocus = () => {
@@ -788,6 +845,9 @@ const App: React.FC = () => {
               fetchData(true);
            }
            api.processQueue();
+           if (user && (user.sessionToken || user.password)) {
+              tahsinService.syncPendingAttempts(user);
+           }
         }
      };
 
@@ -842,7 +902,35 @@ const App: React.FC = () => {
     }
   };
 
-  const handleMarkAttendance = (newAtt: Attendance) => {
+  const handleMarkAttendance = async (newAtt: Attendance): Promise<{ success: boolean; message?: string; queuedOffline?: boolean }> => {
+    const target = newAtt.type === 'student' ? students.find(s => s.id === newAtt.userId) : users.find(u => u.id === newAtt.userId);
+    const payloadAtt: Attendance = {
+      ...newAtt,
+      userId: target ? `${target.id} | ${target.name}` : newAtt.userId,
+      class: (newAtt.type === 'student' ? (target as Student)?.class : 'GURU') || '-',
+      createdAt: newAtt.createdAt || new Date().toISOString()
+    };
+
+    // Untuk Absensi Guru (diri sendiri, scan QR, maupun input Admin), konfirmasi langsung ke server Supabase terlebih dahulu
+    if (newAtt.type === 'teacher') {
+      const directRes = await api.markAttendanceDirect(payloadAtt, user);
+      if (directRes.success || directRes.queuedOffline) {
+        setAttendance(prev => {
+          const exists = prev.findIndex(a => 
+            a.id === newAtt.id || 
+            (cleanId(a.userId) === cleanId(newAtt.userId) && a.date === newAtt.date && a.type === newAtt.type && a.session === newAtt.session)
+          );
+          if (exists >= 0) {
+            const updated = [...prev];
+            updated[exists] = newAtt;
+            return updated;
+          }
+          return [...prev, newAtt];
+        });
+      }
+      return directRes;
+    }
+
     setAttendance(prev => {
         const exists = prev.findIndex(a => 
           a.id === newAtt.id || 
@@ -856,15 +944,19 @@ const App: React.FC = () => {
         return [...prev, newAtt];
     });
     
-    const target = newAtt.type === 'student' ? students.find(s => s.id === newAtt.userId) : users.find(u => u.id === newAtt.userId);
-    api.send('markAttendance', {
-        ...newAtt,
-        userId: target ? `${target.id} | ${target.name}` : newAtt.userId,
-        class: (newAtt.type === 'student' ? (target as Student)?.class : 'GURU') || '-'
-    });
+    api.send('markAttendance', payloadAtt);
+    return { success: true };
   };
 
-  const handleMarkAttendanceOpenRequest = (newReq: AttendanceOpenRequest) => {
+  const handleMarkAttendanceOpenRequest = async (newReq: AttendanceOpenRequest): Promise<{ success: boolean; message?: string }> => {
+    const teacher = users.find(u => u.id === newReq.teacherId);
+    const payloadReq: AttendanceOpenRequest = {
+      ...newReq,
+      teacherId: teacher ? `${teacher.id} | ${teacher.name}` : newReq.teacherId,
+      createdAt: newReq.createdAt || new Date().toISOString()
+    };
+
+    const directRes = await api.addAttendanceOpenRequestDirect(payloadReq, user);
     setAttendanceOpenRequests(prev => {
         const exists = prev.findIndex(r => r.id === newReq.id);
         if (exists >= 0) {
@@ -874,12 +966,7 @@ const App: React.FC = () => {
         }
         return [newReq, ...prev];
     });
-    
-    const teacher = users.find(u => u.id === newReq.teacherId);
-    api.send('addAttendanceOpenRequest', {
-        ...newReq,
-        teacherId: teacher ? `${teacher.id} | ${teacher.name}` : newReq.teacherId
-    });
+    return directRes;
   };
 
   const handleBulkOpenAttendance = async (newRequests: AttendanceOpenRequest[]) => {
@@ -960,10 +1047,33 @@ const App: React.FC = () => {
     updatedList.forEach(s => api.send('addStudent', s));
   };
 
+  const handleGlobalReauthAndSync = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !reauthPassword.trim()) return;
+    setIsReauthenticating(true);
+    try {
+      const res = await api.login(user.username, reauthPassword.trim());
+      if (!res.success || !res.data) {
+        alert(res.message || 'Password salah. Data lokal tetap aman.');
+        return;
+      }
+      setSessionUser(res.data);
+      setUser(res.data);
+      setReauthPassword('');
+      setTahsinAuthRequired(false);
+      await tahsinService.syncPendingAttempts(res.data, { forceManual: true });
+      api.retryFailedQueue();
+    } catch (err: any) {
+      alert('Gagal menghubungi server login: ' + (err?.message || 'Koneksi gagal'));
+    } finally {
+      setIsReauthenticating(false);
+    }
+  };
+
   const handleLogout = () => {
-    if (queueLength > 0 || failedQueueLength > 0) {
-      const total = queueLength + failedQueueLength;
-      const confirmMsg = `⚠️ PERINGATAN: Terdapat ${total} data yang belum tersinkronisasi ke server cloud.\n\nJika Anda keluar (logout), data ini dapat hilang dari memori browser perangkat ini.\n\nApakah Anda yakin ingin tetap keluar?`;
+    const total = queueLength + failedQueueLength + tahsinPendingCount;
+    if (total > 0) {
+      const confirmMsg = `⚠️ PERINGATAN: Terdapat ${total} data (termasuk ${tahsinPendingCount} nilai Ujian Tahsin) yang belum tersinkronisasi ke server cloud.\n\nData lokal Anda tetap dijaga, namun sangat disarankan melakukan sinkronisasi terlebih dahulu sebelum keluar.\n\nApakah Anda yakin ingin tetap keluar?`;
       if (!window.confirm(confirmMsg)) {
         return;
       }
@@ -1135,7 +1245,11 @@ const App: React.FC = () => {
     <>
       {!user ? (
         <LoginScreen 
-          onLogin={setUser} 
+          onLogin={(loggedInUser) => {
+            setUser(loggedInUser);
+            tahsinService.syncPendingAttempts(loggedInUser, { forceManual: true });
+            api.retryFailedQueue();
+          }} 
           users={users} 
           students={students} 
           isLoadingData={isLoadingData} 
@@ -1161,23 +1275,66 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Banner Peringatan Data Belum Sinkron */}
-          {(queueLength > 0 || failedQueueLength > 0) && (
-            <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-2xl text-xs md:text-sm font-semibold flex items-center justify-between gap-3 shadow-sm animate-pulse no-print">
+          {/* Banner Pembaruan Sesi Keamanan Tanpa Logout (Menyelamatkan Sesi Lama yang Belum Memiliki sessionToken) */}
+          {(!user.sessionToken || tahsinAuthRequired) && (
+            <form
+              onSubmit={handleGlobalReauthAndSync}
+              className="mb-4 bg-amber-50 border border-amber-300 text-amber-900 px-4 py-3 rounded-2xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm no-print"
+            >
+              <div className="flex items-start gap-2">
+                <Lock className="text-amber-600 shrink-0 mt-0.5" size={16} />
+                <div>
+                  <strong>Perbarui Sesi Keamanan ({user.name}):</strong> Sesi login perangkat ini perlu diperbarui agar sinkronisasi Nilai Tahsin & Absensi Guru berjalan otomatis. Masukkan password Anda (tanpa perlu logout, seluruh data lokal aman):
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="password"
+                  value={reauthPassword}
+                  onChange={(e) => setReauthPassword(e.target.value)}
+                  placeholder="Password akun..."
+                  className="px-3 py-1.5 bg-white border border-amber-300 rounded-xl text-xs font-medium outline-none focus:border-emerald-600"
+                />
+                <button
+                  type="submit"
+                  disabled={isReauthenticating}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3.5 rounded-xl text-xs transition-colors whitespace-nowrap shadow-sm disabled:opacity-50"
+                >
+                  {isReauthenticating ? 'Memproses...' : 'Perbarui & Sync'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Banner Peringatan Data Belum Sinkron (Termasuk Antrean Tahsin) */}
+          {(queueLength > 0 || failedQueueLength > 0 || tahsinPendingCount > 0) && (
+            <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-2xl text-xs md:text-sm font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm no-print">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="text-rose-500 shrink-0" size={18} />
                 <span>
-                  <strong>Perhatian:</strong> Ada <strong>{queueLength + failedQueueLength} data</strong> yang belum terkirim ke server cloud. Pastikan internet menyala dan tunggu status di pojok kanan bawah menjadi hijau (Online) sebelum menutup aplikasi.
+                  <strong>Perhatian:</strong> Ada <strong>{queueLength + failedQueueLength + tahsinPendingCount} data</strong>
+                  {tahsinPendingCount > 0 ? ` (${tahsinPendingCount} nilai Ujian Tahsin)` : ''} yang belum terkirim ke server cloud.
+                  {tahsinSyncError ? ` Info: ${tahsinSyncError}` : ' Pastikan internet menyala dan klik Sinkronkan Sekarang.'}
                 </span>
               </div>
-              {failedQueueLength > 0 && (
+              <div className="flex items-center gap-2 shrink-0">
                 <button 
-                  onClick={() => api.retryFailedQueue()} 
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 px-3 rounded-xl text-xs transition-colors shrink-0 shadow-sm"
+                  onClick={() => {
+                    if (tahsinPendingCount > 0 && user) {
+                      tahsinService.syncPendingAttempts(user, { forceManual: true });
+                    }
+                    if (failedQueueLength > 0) {
+                      api.retryFailedQueue();
+                    } else {
+                      api.processQueue();
+                    }
+                  }} 
+                  disabled={isSyncing || tahsinIsSyncing}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 px-3 rounded-xl text-xs transition-colors shrink-0 shadow-sm disabled:opacity-50"
                 >
-                  Sinkronkan Sekarang
+                  {isSyncing || tahsinIsSyncing ? 'Sedang Sinkronisasi...' : 'Sinkronkan Sekarang'}
                 </button>
-              )}
+              </div>
             </div>
           )}
 
@@ -1187,11 +1344,11 @@ const App: React.FC = () => {
         </Layout>
       )}
       <SyncStatusWidget 
-        queueLength={queueLength} 
-        failedQueueLength={failedQueueLength}
-        isSyncing={isSyncing} 
+        queueLength={queueLength + tahsinPendingCount} 
+        failedQueueLength={failedQueueLength + tahsinConflictCount}
+        isSyncing={isSyncing || tahsinIsSyncing} 
         isOnline={isOnline} 
-        syncError={syncError} 
+        syncError={syncError || tahsinSyncError} 
         onOpenDbConfig={() => setShowDbConfig(true)}
       />
       {showDbConfig && <DatabaseConfigModal onClose={() => setShowDbConfig(false)} />}
