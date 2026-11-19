@@ -1358,7 +1358,7 @@ export const api = {
       // 1. Panggil Secure RPC yang memverifikasi admin & password di PostgreSQL
       const { data: rpcData, error: rpcError } = await supabase.rpc('upsert_question_bank_item', {
         p_username: u.username,
-        p_password: u.password,
+        p_password: u.sessionToken || u.password,
         p_data: payload
       });
 
@@ -1426,7 +1426,7 @@ export const api = {
         // Coba lewat Secure RPC terlebih dahulu
         const { data: rpcData, error: rpcError } = await supabase.rpc('get_question_bank_secure', {
           p_username: u.username,
-          p_password: u.password
+          p_password: u.sessionToken || u.password
         });
 
         if (!rpcError && rpcData?.success && Array.isArray(rpcData.data)) {
@@ -1534,7 +1534,7 @@ export const api = {
     try {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('archive_question_bank_item', {
         p_username: u.username,
-        p_password: u.password,
+        p_password: u.sessionToken || u.password,
         p_id: id
       });
 
@@ -1570,7 +1570,7 @@ export const api = {
     try {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('restore_question_bank_item', {
         p_username: u.username,
-        p_password: u.password,
+        p_password: u.sessionToken || u.password,
         p_id: id
       });
 
@@ -1607,7 +1607,7 @@ export const api = {
         // 1. Panggil RPC delete_question_bank_item
         const { data: rpcData, error: rpcErr } = await supabase.rpc('delete_question_bank_item', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_id: id
         });
 
@@ -1663,7 +1663,7 @@ export const api = {
         // 1. Panggil RPC delete_all_question_bank_items
         const { data: rpcData, error: rpcErr } = await supabase.rpc('delete_all_question_bank_items', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_exam_type: examType && examType !== 'all' ? examType : null,
           p_status: status && status !== 'all' ? status : null
         });
@@ -1689,7 +1689,7 @@ export const api = {
                 chunk.map(id => 
                   supabase!.rpc('delete_question_bank_item', {
                     p_username: u.username,
-                    p_password: u.password,
+                    p_password: u.sessionToken || u.password,
                     p_id: id
                   })
                 )
@@ -1749,7 +1749,7 @@ export const api = {
         // 1. Coba RPC bulk_activate_question_bank_drafts
         const { data: rpcData, error: rpcErr } = await supabase.rpc('bulk_activate_question_bank_drafts', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_exam_type: examType && examType !== 'all' ? examType : null
         });
 
@@ -1774,7 +1774,7 @@ export const api = {
                   const payload = mapQuestionBankToDb(updated);
                   return supabase!.rpc('upsert_question_bank_item', {
                     p_username: u.username,
-                    p_password: u.password,
+                    p_password: u.sessionToken || u.password,
                     p_data: payload
                   });
                 })
@@ -1960,7 +1960,7 @@ export const api = {
         const payloadArray = itemsToSave.map(mapQuestionBankToDb);
         const { data: rpcData, error: rpcError } = await supabase.rpc('bulk_insert_question_bank_candidates', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_items: payloadArray
         });
 
@@ -2095,7 +2095,7 @@ export const api = {
         const payloadArray = itemsToSave.map(mapQuestionBankToDb);
         const { data: rpcData, error: rpcError } = await supabase.rpc('bulk_insert_question_bank_candidates', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_items: payloadArray
         });
 
@@ -2217,7 +2217,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_academic_terms', {
           p_username: u.username,
-          p_password: u.password
+          p_password: u.sessionToken || u.password
         });
         if (!error && data?.success) {
           const list: AcademicTerm[] = data.data || [];
@@ -2253,7 +2253,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('upsert_academic_term', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_term: payload
         });
         if (!error && data?.success) {
@@ -2322,7 +2322,7 @@ export const api = {
       try {
         const { data: rpcData, error: rpcError } = await supabase.rpc('get_exam_periods', {
           p_username: u.username,
-          p_password: u.password
+          p_password: u.sessionToken || u.password
         });
 
         if (!rpcError && rpcData?.success && Array.isArray(rpcData.data)) {
@@ -2420,7 +2420,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('create_exam_period_with_participants', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period: payload,
           p_student_ids: studentIds
         });
@@ -2525,7 +2525,7 @@ export const api = {
         // 1. Coba lewat RPC delete_exam_period
         const { data, error } = await supabase.rpc('delete_exam_period', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId
         });
 
@@ -2586,7 +2586,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('save_material_snapshots_batch', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId,
           p_snapshots: snapshots
         });
@@ -2657,7 +2657,7 @@ export const api = {
       try {
         const { data: rpcData, error } = await supabase.rpc('verify_or_override_material_snapshot', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_snapshot_id: snapshotId,
           p_action: action,
           p_data: data,
@@ -2694,7 +2694,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('reopen_material_snapshot', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_snapshot_id: snapshotId,
           p_reason: reason
         });
@@ -2724,7 +2724,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('bulk_finalize_material_snapshots', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId
         });
         if (!error && data?.success) {
@@ -2758,7 +2758,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_tahfiz_evaluation_data', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId
         });
         if (!error && data?.success) {
@@ -2874,7 +2874,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('generate_uts_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId,
           p_strategy: params.strategy || 'hybrid',
@@ -2960,7 +2960,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('regenerate_uts_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId,
           p_strategy: params.strategy || 'hybrid',
@@ -3015,7 +3015,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_uts_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId,
           p_student_id: studentId
         });
@@ -3081,7 +3081,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_period_question_sets_summary', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId
         });
 
@@ -3139,7 +3139,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('generate_uas_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId,
           p_strategy: params.strategy || 'hybrid',
@@ -3200,7 +3200,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('regenerate_uas_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId,
           p_reason: params.reason,
@@ -3254,7 +3254,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_uas_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId,
           p_student_id: studentId
         });
@@ -3438,7 +3438,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('assign_examiner_secure', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId,
           p_examiner_id: params.examinerId,
@@ -3504,7 +3504,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_examiner_uts_students', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId
         });
 
@@ -3640,7 +3640,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('start_uts_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId
         });
@@ -3788,7 +3788,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('save_uts_question_assessment', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: params.attemptId,
           p_question_number: params.questionNumber,
           p_assessment_data: params.assessmentData,
@@ -3936,7 +3936,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_uts_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId
         });
 
@@ -3999,7 +3999,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('submit_uts_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId,
           p_examiner_notes: examinerNotes || null
         });
@@ -4131,7 +4131,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('reopen_uts_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: params.attemptId,
           p_reason: params.reason
         });
@@ -4167,7 +4167,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_examiner_uas_students', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: periodId
         });
 
@@ -4178,8 +4178,16 @@ export const api = {
             students: data.students || []
           };
         }
+        return {
+          success: false,
+          message: data?.message || error?.message || 'Gagal memuat daftar santri UAS dari server database.'
+        };
       } catch (e: any) {
-        console.warn("getExaminerUASStudents remote error, fallback to local:", e);
+        console.error("getExaminerUASStudents remote error:", e);
+        return {
+          success: false,
+          message: e?.message || 'Gagal menghubungi server database saat memuat daftar peserta UAS.'
+        };
       }
     }
 
@@ -4303,7 +4311,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('start_uas_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_period_id: params.periodId,
           p_student_id: params.studentId
         });
@@ -4317,8 +4325,16 @@ export const api = {
           }
           return data;
         }
+        return {
+          success: false,
+          message: error?.message || 'Gagal memulai sesi ujian UAS di server database.'
+        };
       } catch (e: any) {
-        console.warn("startUASAttempt remote error, fallback to local:", e);
+        console.error("startUASAttempt remote error:", e);
+        return {
+          success: false,
+          message: e?.message || 'Gagal menghubungi server database saat memulai ujian UAS.'
+        };
       }
     }
 
@@ -4446,17 +4462,18 @@ export const api = {
       };
     },
     userOverride?: User | null
-  ): Promise<{ success: boolean; isConflict?: boolean; message?: string; assessment?: any }> {
+  ): Promise<{ success: boolean; savedToServer?: boolean; savedLocally?: boolean; isConflict?: boolean; message?: string; assessment?: any }> {
     const u = userOverride || getLoggedUser();
     if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
       return { success: false, message: 'Akses ditolak.' };
     }
 
+    let remoteFailMessage: string | null = null;
     if (supabase) {
       try {
         const { data, error } = await supabase.rpc('save_uas_question_assessment', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: params.attemptId,
           p_question_number: params.questionNumber,
           p_assessment_data: params.assessmentData,
@@ -4465,11 +4482,60 @@ export const api = {
         });
 
         if (!error && data) {
-          return data;
+          if (data.success && data.assessment) {
+            const localAsms = this.getLocalQuestionAssessments(params.attemptId);
+            const lIdx = localAsms.findIndex(a => a.questionNumber === params.questionNumber);
+            if (lIdx >= 0) {
+              localAsms[lIdx] = {
+                ...localAsms[lIdx],
+                fluencyEvents: params.assessmentData.fluencyEvents || [],
+                tajwidEvents: params.assessmentData.tajwidEvents || [],
+                makhrajEvents: params.assessmentData.makhrajEvents || [],
+                notes: params.assessmentData.notes || '',
+                fluencyScore: data.assessment.fluencyScore ?? localAsms[lIdx].fluencyScore,
+                tajwidScore: data.assessment.tajwidScore ?? localAsms[lIdx].tajwidScore,
+                makhrajScore: data.assessment.makhrajScore ?? localAsms[lIdx].makhrajScore,
+                questionScore: data.assessment.questionScore ?? localAsms[lIdx].questionScore,
+                completedAt: data.assessment.completedAt ?? localAsms[lIdx].completedAt,
+                version: data.assessment.version ?? localAsms[lIdx].version,
+                pendingSync: false
+              } as any;
+              this.saveLocalQuestionAssessments(params.attemptId, localAsms);
+            }
+          }
+          return { ...data, savedToServer: Boolean(data.success) };
         }
+        remoteFailMessage = error?.message || 'Gagal menyimpan ke server database.';
       } catch (e: any) {
-        console.warn("saveUASQuestionAssessment remote error, fallback to local:", e);
+        console.warn("saveUASQuestionAssessment remote error:", e);
+        remoteFailMessage = e?.message || 'Koneksi ke server terputus.';
       }
+    }
+
+    // Jika Supabase aktif tetapi gagal, jangan pernah mengembalikan success: true palsu!
+    // Amankan salinan lokal agar penguji tidak kehilangan progres, lalu laporkan savedLocally: true.
+    if (supabase && remoteFailMessage) {
+      const localAsms = this.getLocalQuestionAssessments(params.attemptId);
+      const lIdx = localAsms.findIndex(a => a.questionNumber === params.questionNumber);
+      if (lIdx >= 0) {
+        localAsms[lIdx] = {
+          ...localAsms[lIdx],
+          fluencyEvents: params.assessmentData.fluencyEvents || [],
+          tajwidEvents: params.assessmentData.tajwidEvents || [],
+          makhrajEvents: params.assessmentData.makhrajEvents || [],
+          notes: params.assessmentData.notes || '',
+          completedAt: (params.markCompleted ?? params.assessmentData.isCompleted) ? (localAsms[lIdx].completedAt || new Date().toISOString()) : localAsms[lIdx].completedAt,
+          pendingSync: true,
+          updatedAt: new Date().toISOString()
+        } as any;
+        this.saveLocalQuestionAssessments(params.attemptId, localAsms);
+      }
+      return {
+        success: false,
+        savedToServer: false,
+        savedLocally: true,
+        message: `Tersimpan lokal sementara (${remoteFailMessage})`
+      };
     }
 
     // Check attempt status (read-only if submitted)
@@ -4577,6 +4643,48 @@ export const api = {
     };
   },
 
+  async syncPendingUASAssessments(
+    attemptId: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; syncedCount: number; remainingCount: number; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+      return { success: false, syncedCount: 0, remainingCount: 0, message: 'Akses ditolak.' };
+    }
+    const localAsms = this.getLocalQuestionAssessments(attemptId) as any[];
+    const pending = localAsms.filter(a => a.pendingSync === true);
+    if (pending.length === 0) {
+      return { success: true, syncedCount: 0, remainingCount: 0 };
+    }
+
+    let syncedCount = 0;
+    for (const item of pending) {
+      const res = await this.saveUASQuestionAssessment({
+        attemptId,
+        questionNumber: item.questionNumber,
+        expectedVersion: item.version,
+        markCompleted: Boolean(item.completedAt),
+        assessmentData: {
+          fluencyEvents: item.fluencyEvents || [],
+          tajwidEvents: item.tajwidEvents || [],
+          makhrajEvents: item.makhrajEvents || [],
+          notes: item.notes || '',
+          isCompleted: Boolean(item.completedAt)
+        }
+      }, u);
+      if (!res.success) {
+        return {
+          success: false,
+          syncedCount,
+          remainingCount: pending.length - syncedCount,
+          message: res.message || `Gagal menyinkronkan soal #${item.questionNumber}.`
+        };
+      }
+      syncedCount++;
+    }
+    return { success: true, syncedCount, remainingCount: 0, message: `${syncedCount} penilaian lokal berhasil disinkronkan ke server.` };
+  },
+
   async getUASAttempt(
     attemptId: string,
     userOverride?: User | null
@@ -4597,15 +4705,23 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_uas_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId
         });
 
         if (!error && data) {
           return data;
         }
+        return {
+          success: false,
+          message: error?.message || 'Gagal memuat detail ujian UAS dari server database.'
+        };
       } catch (e: any) {
-        console.warn("getUASAttempt remote error, fallback to local:", e);
+        console.error("getUASAttempt remote error:", e);
+        return {
+          success: false,
+          message: e?.message || 'Gagal menghubungi server database saat memuat sesi ujian UAS.'
+        };
       }
     }
 
@@ -4642,15 +4758,23 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('submit_uas_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId
         });
 
         if (!error && data) {
           return data;
         }
+        return {
+          success: false,
+          message: error?.message || 'Gagal mengesahkan hasil ujian UAS ke server database.'
+        };
       } catch (e: any) {
-        console.warn("submitUASAttempt remote error, fallback to local:", e);
+        console.error("submitUASAttempt remote error:", e);
+        return {
+          success: false,
+          message: e?.message || 'Koneksi terputus: Hasil ujian UAS belum tersimpan resmi di server. Silakan coba lagi saat koneksi stabil.'
+        };
       }
     }
 
@@ -4765,7 +4889,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('reopen_uas_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: params.attemptId,
           p_reason: params.reason
         });
@@ -4773,8 +4897,16 @@ export const api = {
         if (!error && data) {
           return data;
         }
+        return {
+          success: false,
+          message: error?.message || 'Gagal membuka kembali ujian UAS di server database.'
+        };
       } catch (e: any) {
-        console.warn("reopenUASAttempt remote error, fallback to local:", e);
+        console.error("reopenUASAttempt remote error:", e);
+        return {
+          success: false,
+          message: e?.message || 'Gagal menghubungi server database saat membuka kembali ujian UAS.'
+        };
       }
     }
 
@@ -4829,7 +4961,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_semester_evaluation_configs', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_academic_term_id: academicTermId || null
         });
 
@@ -4889,7 +5021,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('upsert_semester_evaluation_config', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_config: payload
         });
 
@@ -4958,7 +5090,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_semester_tahfiz_recap', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_academic_term_id: params.academicTermId || null,
           p_config_id: params.configId || null,
           p_uts_period_id: params.utsPeriodId || null,
@@ -5289,7 +5421,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_remedial_generation_candidates', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_academic_term_id: params.academicTermId || null,
           p_config_id: params.configId || null,
           p_exam_period_id: params.examPeriodId || null
@@ -5379,7 +5511,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('generate_uts_remedial_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_original_period_id: params.originalPeriodId,
           p_student_id: params.studentId,
           p_strategy: params.strategy || 'hybrid',
@@ -5454,7 +5586,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('generate_uas_remedial_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_original_period_id: params.originalPeriodId,
           p_student_id: params.studentId,
           p_strategy: params.strategy || 'hybrid',
@@ -5522,7 +5654,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_remedial_question_set', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_remedial_session_id: remedialSessionId
         });
 
@@ -5561,7 +5693,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('assign_remedial_examiner_secure', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_remedial_session_id: remedialSessionId,
           p_examiner_id: examinerId,
           p_reason: reason || null
@@ -5612,7 +5744,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_examiner_remedial_students', {
           p_username: u.username,
-          p_password: u.password
+          p_password: u.sessionToken || u.password
         });
 
         if (data && data.success === false) {
@@ -5648,7 +5780,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('start_remedial_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_remedial_session_id: remedialSessionId
         });
 
@@ -5691,7 +5823,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('save_remedial_question_assessment', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: params.attemptId,
           p_question_number: params.questionNumber,
           p_assessment_data: params.assessmentData,
@@ -5732,7 +5864,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_remedial_attempt_detail', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId
         });
 
@@ -5769,7 +5901,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('submit_remedial_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId
         });
 
@@ -5811,7 +5943,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('reopen_remedial_attempt', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_attempt_id: attemptId,
           p_reason: reason
         });
@@ -5861,7 +5993,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_semester_final_recap', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_academic_term_id: params.academicTermId || null,
           p_config_id: params.configId || null,
           p_uts_period_id: params.utsPeriodId || null,
@@ -5910,7 +6042,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_semester_monitoring_stats', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_academic_term_id: params.academicTermId || null,
           p_config_id: params.configId || null,
           p_uts_period_id: params.utsPeriodId || null,
@@ -5955,7 +6087,7 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc('get_student_evaluation_history', {
           p_username: u.username,
-          p_password: u.password,
+          p_password: u.sessionToken || u.password,
           p_student_id: params.studentId,
           p_academic_term_id: params.academicTermId || null,
           p_config_id: params.configId || null

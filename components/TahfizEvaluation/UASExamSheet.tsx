@@ -237,7 +237,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan');
+          setSaveMessage('Tersimpan di Server');
           if (res.assessment?.version) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updatedAsm.questionNumber 
@@ -248,9 +248,12 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
         } else if (res.isConflict) {
           setSaveStatus('error');
           setSaveMessage('Konflik versi: ' + res.message);
-        } else {
+        } else if (res.savedLocally) {
           setSaveStatus('local');
-          setSaveMessage(res.message || 'Tersimpan lokal');
+          setSaveMessage('Tersimpan Lokal (Belum Sync Server)');
+        } else {
+          setSaveStatus('error');
+          setSaveMessage(res.message || 'Gagal simpan ke server');
         }
       } catch (err: any) {
         setSaveStatus('error');
@@ -432,7 +435,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
       }, user).then(res => {
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan');
+          setSaveMessage('Tersimpan di Server');
           if (res.assessment?.version) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updated.questionNumber 
@@ -440,9 +443,15 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
                 : a
             ));
           }
-        } else {
+        } else if (res.isConflict) {
+          setSaveStatus('error');
+          setSaveMessage('Konflik versi: ' + res.message);
+        } else if (res.savedLocally) {
           setSaveStatus('local');
-          setSaveMessage(res.message || 'Tersimpan lokal');
+          setSaveMessage('Tersimpan Lokal (Belum Sync Server)');
+        } else {
+          setSaveStatus('error');
+          setSaveMessage(res.message || 'Gagal simpan ke server');
         }
       }).catch(err => {
         setSaveStatus('error');
@@ -539,9 +548,29 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
                 {saveStatus === 'saved' && <Cloud size={11} className="text-emerald-400" />}
                 {saveStatus === 'local' && <CloudOff size={11} className="text-blue-400" />}
                 {saveStatus === 'error' && <AlertTriangle size={11} className="text-rose-400" />}
-                <span className={saveStatus === 'saved' ? 'text-emerald-400' : 'text-slate-400'}>
+                <span className={saveStatus === 'saved' ? 'text-emerald-400' : saveStatus === 'local' ? 'text-blue-300 font-bold' : 'text-slate-400'}>
                   {saveMessage}
                 </span>
+                {saveStatus === 'local' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setSaveStatus('saving');
+                      setSaveMessage('Menyinkronkan ke server...');
+                      const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
+                      if (syncRes.success) {
+                        setSaveStatus('saved');
+                        setSaveMessage('Tersimpan di Server');
+                      } else {
+                        setSaveStatus('local');
+                        setSaveMessage(syncRes.message || 'Masih tersimpan lokal');
+                      }
+                    }}
+                    className="ml-1.5 px-2 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/40 text-[10px] font-bold"
+                  >
+                    Sinkronkan Ulang
+                  </button>
+                )}
               </span>
             </div>
           </div>
@@ -906,6 +935,10 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           questions={initialQuestions}
           assessments={assessments}
           onSubmitFinal={async () => {
+            const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
+            if (!syncRes.success) {
+              throw new Error(syncRes.message || 'Masih ada penilaian lokal yang belum tersinkron ke server. Periksa koneksi internet dan coba lagi.');
+            }
             const res = await api.submitUASAttempt(attempt.id, user);
             if (res.success) {
               onFinish();

@@ -56,10 +56,10 @@ export const ExamPeriodModal: React.FC<ExamPeriodModalProps> = ({
     return Array.from(set).sort();
   }, [students]);
 
-  // Compute selected students count
+  // Compute selected students count (kecualikan santri dummy kelas 7-UJI secara bawaan pada mode Semua Santri)
   const filteredStudents = useMemo(() => {
     if (selectionMode === 'all') {
-      return students;
+      return students.filter(s => !String(s.class || '').toUpperCase().includes('7-UJI'));
     }
     if (selectionMode === 'class') {
       return students.filter(s => selectedClasses.includes(s.class));
