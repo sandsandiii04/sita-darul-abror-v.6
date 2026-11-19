@@ -302,6 +302,8 @@ export const mapQuestionBankFromDb = (row: any): QuestionBankItem => ({
   id: row.id,
   examType: row.exam_type || 'generic',
   questionType: row.question_type || 'random',
+  questionFormat: row.question_format || (row.question_type === 'mandatory' ? 'full_page' : 'continuation'),
+  pageNumber: row.page_number ?? row.start_page,
   promptStart: {
     surahNumber: row.prompt_start_surah,
     ayahNumber: row.prompt_start_ayah,

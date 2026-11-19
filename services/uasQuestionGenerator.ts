@@ -369,6 +369,12 @@ export class UASQuestionGenerator {
     let promptStart: QuranPosition;
     let promptEnd: QuranPosition;
 
+    let cSurah = targetSurah;
+    let cAyah = targetAyah;
+    let cWord = totalWords;
+    let cPage = targetVerse?.pageNumber || 1;
+    let currentNodeIdx = nodeIndex;
+
     if (bWord > 1) {
       const wordsBeforeB = bWord - 1;
       const promptLen = Math.min(wordsBeforeB, Math.floor(prng() * 4) + 3);
@@ -390,7 +396,10 @@ export class UASQuestionGenerator {
       const prevNode = (nodeIndex > 0) ? path.nodes[nodeIndex - 1] : null;
       const canTakePrev = prevNode && (
         path.direction !== 'backward' ? true : prevNode.surahNumber === targetSurah
-      );
+      ) && comparePositions(
+        { surahNumber: prevNode.surahNumber, ayahNumber: prevNode.ayahNumber, wordPosition: 1, pageNumber: prevNode.pageNumber },
+        answerStart
+      ) < 0;
 
       if (canTakePrev && prevNode) {
         const prevVerse = await this.getVerseSafe(prevNode.surahNumber, prevNode.ayahNumber);
@@ -426,6 +435,31 @@ export class UASQuestionGenerator {
             wordPosition: 1,
             pageNumber: targetVerse?.pageNumber || 1
           };
+        } else if (nodeIndex >= 0 && nodeIndex + 1 < path.nodes.length) {
+          // 1-word ayah at start of material/surah: prompt is this ayah, answer starts at next node in material
+          const nextNode = path.nodes[nodeIndex + 1];
+          const nextVerse = await this.getVerseSafe(nextNode.surahNumber, nextNode.ayahNumber);
+          const nextWords = (nextVerse?.words || []).filter(w => w.charTypeName !== 'end');
+          const nextTotal = Math.max(1, nextWords.length);
+
+          promptStart = {
+            surahNumber: targetSurah,
+            ayahNumber: targetAyah,
+            wordPosition: 1,
+            pageNumber: targetVerse?.pageNumber || 1
+          };
+          promptEnd = { ...promptStart };
+
+          answerStart.surahNumber = nextNode.surahNumber;
+          answerStart.ayahNumber = nextNode.ayahNumber;
+          answerStart.wordPosition = 1;
+          answerStart.pageNumber = nextVerse?.pageNumber || nextNode.pageNumber;
+
+          currentNodeIdx = nodeIndex + 1;
+          cSurah = nextNode.surahNumber;
+          cAyah = nextNode.ayahNumber;
+          cWord = nextTotal;
+          cPage = nextVerse?.pageNumber || nextNode.pageNumber;
         } else {
           promptStart = { ...answerStart, wordPosition: 1 };
           promptEnd = { ...answerStart, wordPosition: 1 };
@@ -435,12 +469,9 @@ export class UASQuestionGenerator {
 
     // Target jawaban: 20-35 kata (~3-5 baris mushaf)
     const targetWordCount = Math.floor(prng() * 15) + 20;
-    let accumulatedWords = Math.max(1, totalWords - answerStart.wordPosition + 1);
-    let cSurah = targetSurah;
-    let cAyah = targetAyah;
-    let cWord = totalWords;
-    let cPage = targetVerse?.pageNumber || 1;
-    let currentNodeIdx = nodeIndex;
+    let accumulatedWords = (cSurah === targetSurah && cAyah === targetAyah)
+      ? Math.max(1, totalWords - answerStart.wordPosition + 1)
+      : cWord;
 
     while (accumulatedWords < targetWordCount && currentNodeIdx < path.nodes.length - 1) {
       const nextNode = path.nodes[currentNodeIdx + 1];
@@ -793,7 +824,7 @@ export class UASQuestionGenerator {
         );
 
         const bKey = makeBKey(pts.answerStart);
-        if (!usedBKeys.has(bKey)) {
+        if (comparePositions(pts.promptEnd, pts.answerStart) < 0 && !usedBKeys.has(bKey)) {
           if (isFallbackOverlap && pts.answerStart.wordPosition === 1) {
             continue;
           }
@@ -805,17 +836,35 @@ export class UASQuestionGenerator {
       }
 
       if (!generatedPoints) {
-        const targetNode = candidateNodes[0] || zone.nodes[0];
-        const pts = await this.buildQuestionPoints(
-          targetNode.surahNumber,
-          targetNode.ayahNumber,
-          (attempts % 3) + 2,
-          path,
-          snapshot,
-          prng
-        );
-        generatedPoints = pts;
-        usedBKeys.add(makeBKey(pts.answerStart));
+        const fallbackCandidates = candidateNodes.length > 0 ? candidateNodes : zone.nodes;
+        for (const fallbackNode of fallbackCandidates) {
+          const pts = await this.buildQuestionPoints(
+            fallbackNode.surahNumber,
+            fallbackNode.ayahNumber,
+            (attempts % 3) + 2,
+            path,
+            snapshot,
+            prng
+          );
+          if (comparePositions(pts.promptEnd, pts.answerStart) < 0) {
+            generatedPoints = pts;
+            usedBKeys.add(makeBKey(pts.answerStart));
+            break;
+          }
+        }
+        if (!generatedPoints) {
+          const targetNode = fallbackCandidates[0];
+          const pts = await this.buildQuestionPoints(
+            targetNode.surahNumber,
+            targetNode.ayahNumber,
+            (attempts % 3) + 2,
+            path,
+            snapshot,
+            prng
+          );
+          generatedPoints = pts;
+          usedBKeys.add(makeBKey(pts.answerStart));
+        }
       }
 
       questions.push({

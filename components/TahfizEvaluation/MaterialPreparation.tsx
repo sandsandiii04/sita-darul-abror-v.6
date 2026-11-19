@@ -10,6 +10,7 @@ import { MaterialVerificationModal } from './MaterialVerificationModal';
 import { UTSQuestionPreview } from './UTSQuestionPreview';
 import { UASQuestionPreview } from './UASQuestionPreview';
 import { UTSBulkGeneratorModal } from './UTSBulkGeneratorModal';
+import { UASBulkGeneratorModal } from './UASBulkGeneratorModal';
 import { 
   BookOpen, 
   CheckCircle2, 
@@ -647,11 +648,11 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
                 <span>Finalisasi Semua yang Siap ({metrics.ready})</span>
               </button>
 
-              {currentPeriod?.examType === 'uts' && (
+              {(currentPeriod?.examType === 'uts' || currentPeriod?.examType === 'uas') && (
                 <button
                   onClick={() => setShowBulkGenModal(true)}
                   className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 active:from-teal-800 active:to-emerald-800 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-600/20 transition-all flex items-center gap-1.5"
-                  title="Buka panel pratinjau kelayakan dan generator soal UTS massal"
+                  title={`Buka panel pratinjau kelayakan dan generator soal ${currentPeriod.examType.toUpperCase()} massal`}
                 >
                   <Sparkles size={14} className="text-amber-300" />
                   <span>Generate Soal Massal</span>
@@ -716,6 +717,16 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
           <div className="text-right shrink-0">
             <span className="text-xs text-emerald-200 block">Progress Finalisasi</span>
             <strong className="text-lg font-black">{metrics.percentFinal}%</strong>
+          </div>
+        </div>
+      )}
+
+      {/* Official UAS Material Policy Banner */}
+      {currentPeriod?.examType === 'uas' && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 flex items-start gap-2.5">
+          <BookOpen size={16} className="text-amber-700 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Kebijakan Resmi Materi UAS Tahfidz:</span> Materi UAS hanya berasal dari setoran hafalan baru (<strong>sabaq/ziyadah</strong>) pada semester berjalan ({currentTerm?.startDate} s.d. {currentPeriod.materialCutoffDate}). Hafalan semester sebelumnya dan murojaah tidak digunakan secara otomatis.
           </div>
         </div>
       )}
@@ -806,6 +817,24 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         onOpenQuestionPreview={handleOpenQuestionPreview}
         onGenerateQuestions={handleGenerateQuestions}
       />
+
+      {/* UAS Bulk Question Generator Modal */}
+      {showBulkGenModal && currentPeriod && currentPeriod.examType === 'uas' && (
+        <UASBulkGeneratorModal
+          isOpen={showBulkGenModal}
+          onClose={() => setShowBulkGenModal(false)}
+          period={currentPeriod}
+          participants={participants}
+          snapshots={snapshots}
+          questionSetMap={questionSetMap}
+          user={user}
+          onSuccess={async () => {
+            if (selectedPeriodId) {
+              await loadQuestionSets(selectedPeriodId);
+            }
+          }}
+        />
+      )}
 
       {/* UTS Bulk Question Generator Modal */}
       {showBulkGenModal && currentPeriod && currentPeriod.examType === 'uts' && (

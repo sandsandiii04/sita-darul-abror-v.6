@@ -279,6 +279,35 @@ export class MaterialDetectionService {
     const endJuz = coverage.endJuz;
     const estimatedPages = coverage.estimatedPages;
 
+    // 5b. Deteksi lompatan halaman & rentang tidak kontinu (Kebijakan UAS: halaman antara min-max tidak otomatis dianggap dihafal)
+    const touchedPages = new Set<number>();
+    let prevRecStartPage: number | null = null;
+    let maxPageJump = 0;
+    for (const r of effectiveRecords) {
+      const sNum = this.getSurahNumber(r.surah);
+      const rCov = quranService.calculateMaterialCoverage(
+        sNum,
+        Math.max(1, r.ayahStart || 1),
+        sNum,
+        Math.max(1, r.ayahEnd || r.ayahStart || 1),
+        direction
+      );
+      const loP = Math.min(rCov.startPage, rCov.endPage);
+      const hiP = Math.max(rCov.startPage, rCov.endPage);
+      for (let p = loP; p <= hiP; p++) touchedPages.add(p);
+      if (prevRecStartPage !== null) {
+        const jump = Math.abs(rCov.startPage - prevRecStartPage);
+        if (jump > maxPageJump) maxPageJump = jump;
+      }
+      prevRecStartPage = rCov.startPage;
+    }
+
+    if (maxPageJump >= 10 || (estimatedPages - touchedPages.size > 15)) {
+      anomalies.push(
+        `Terdeteksi lompatan/ketidak-kontinuan materi (lompatan maks ${maxPageJump} hal; hanya ${touchedPages.size} dari ${estimatedPages} hal tersentuh setoran sabaq/ziyadah).`
+      );
+    }
+
     // 6. Tentukan Status & Review Reason
     let status: MaterialSnapshotStatus = 'ready';
     let reviewReason: string | null = null;
