@@ -729,6 +729,12 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+     if (user?.role === 'shared_uas_examiner') {
+        setConnectionError(null);
+        setIsLoadingData(false);
+        return;
+     }
+
      const fetchData = async (isSilent = false) => {
         // Concurrency guard: cegah request bertumpuk saat koneksi lambat
         if (isFetchingRef.current) return;
@@ -1084,6 +1090,10 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+    if (user?.role === 'shared_uas_examiner') {
+      return <UASPelaksanaanView user={user} />;
+    }
+
     switch (activeTab) {
       case 'dashboard': return <Dashboard user={user!} students={students} records={records} users={users} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
       case 'ziyadah': return <TahfidzLog key="ziyadah" user={user!} students={students} records={records} onAddRecord={handleAddRecord} onDeleteRecord={handleDeleteRecord} onUpdateRecord={handleUpdateRecord} onUpdateStudent={handleUpdateStudent} defaultTab="sabaq" allowedTabs={['sabaq']} />;
@@ -1278,7 +1288,7 @@ const App: React.FC = () => {
           )}
 
           {/* Banner Pembaruan Sesi Keamanan Tanpa Logout (Menyelamatkan Sesi Lama yang Belum Memiliki sessionToken) */}
-          {(!user.sessionToken || tahsinAuthRequired) && (
+          {user.role !== 'shared_uas_examiner' && (!user.sessionToken || tahsinAuthRequired) && (
             <form
               onSubmit={handleGlobalReauthAndSync}
               className="mb-4 bg-amber-50 border border-amber-300 text-amber-900 px-4 py-3 rounded-2xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm no-print"
@@ -1309,7 +1319,7 @@ const App: React.FC = () => {
           )}
 
           {/* Banner Peringatan Data Belum Sinkron (Termasuk Antrean Tahsin) */}
-          {(queueLength > 0 || failedQueueLength > 0 || tahsinPendingCount > 0) && (
+          {user.role !== 'shared_uas_examiner' && (queueLength > 0 || failedQueueLength > 0 || tahsinPendingCount > 0) && (
             <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-2xl text-xs md:text-sm font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm no-print">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="text-rose-500 shrink-0" size={18} />
@@ -1345,15 +1355,17 @@ const App: React.FC = () => {
           </ErrorBoundary>
         </Layout>
       )}
-      <SyncStatusWidget 
-        queueLength={queueLength + tahsinPendingCount} 
-        failedQueueLength={failedQueueLength + tahsinConflictCount}
-        isSyncing={isSyncing || tahsinIsSyncing} 
-        isOnline={isOnline} 
-        syncError={syncError || tahsinSyncError} 
-        onOpenDbConfig={() => setShowDbConfig(true)}
-      />
-      {showDbConfig && <DatabaseConfigModal onClose={() => setShowDbConfig(false)} />}
+      {user?.role !== 'shared_uas_examiner' && (
+        <SyncStatusWidget 
+          queueLength={queueLength + tahsinPendingCount} 
+          failedQueueLength={failedQueueLength + tahsinConflictCount}
+          isSyncing={isSyncing || tahsinIsSyncing} 
+          isOnline={isOnline} 
+          syncError={syncError || tahsinSyncError} 
+          onOpenDbConfig={() => setShowDbConfig(true)}
+        />
+      )}
+      {showDbConfig && user?.role === 'admin' && <DatabaseConfigModal onClose={() => setShowDbConfig(false)} />}
     </>
   );
 };

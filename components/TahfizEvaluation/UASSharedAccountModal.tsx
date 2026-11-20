@@ -10,8 +10,8 @@ interface UASSharedAccountModalProps {
 }
 
 export const UASSharedAccountModal: React.FC<UASSharedAccountModalProps> = ({ isOpen, onClose, user }) => {
-  const [accountUsername, setAccountUsername] = useState('penguji_uas');
-  const [accountName, setAccountName] = useState('Akun Penguji Bersama UAS');
+  const [accountUsername, setAccountUsername] = useState('');
+  const [accountName, setAccountName] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [savingAccount, setSavingAccount] = useState(false);
@@ -66,6 +66,7 @@ export const UASSharedAccountModal: React.FC<UASSharedAccountModalProps> = ({ is
           ? `Akun bersama '${res.username}' berhasil disimpan/diaktifkan.`
           : `Akun bersama '${res.username}' dinonaktifkan & seluruh sesi dicabut.`
       });
+      await loadTeachers();
     } else {
       setStatusMsg({ type: 'error', text: res.message || 'Gagal menyimpan konfigurasi akun bersama.' });
     }
@@ -149,11 +150,12 @@ export const UASSharedAccountModal: React.FC<UASSharedAccountModalProps> = ({ is
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Username Akun Bersama</label>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Username Akun Bersama (yang sudah ada / baru)</label>
                 <input
                   type="text"
                   value={accountUsername}
                   onChange={e => setAccountUsername(e.target.value)}
+                  placeholder="Contoh: UAS"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white"
                   required
                 />
@@ -164,6 +166,7 @@ export const UASSharedAccountModal: React.FC<UASSharedAccountModalProps> = ({ is
                   type="text"
                   value={accountName}
                   onChange={e => setAccountName(e.target.value)}
+                  placeholder="Contoh: Akun Ujian (kosongkan jika tetap)"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white"
                 />
               </div>

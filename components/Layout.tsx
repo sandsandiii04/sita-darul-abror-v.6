@@ -85,6 +85,12 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
       ];
     }
 
+    if (role === 'shared_uas_examiner') {
+      return [
+        { id: 'uas_execution', label: 'Pelaksanaan UAS', icon: ClipboardCheck }
+      ];
+    }
+
     return [
       ...common,
       { id: 'master_data', label: 'Data Master', icon: Database },
@@ -181,7 +187,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
             <div className="min-w-0 flex-1">
               <p className="font-bold text-slate-800 text-xs truncate leading-normal">{user?.name || 'Pengguna'}</p>
               <span className="inline-block text-[9px] px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 uppercase font-extrabold mt-0.5">
-                {user?.role || '-'}
+                {user?.role === 'shared_uas_examiner' ? 'AKUN BERSAMA UAS' : (user?.role || '-')}
               </span>
             </div>
           </div>
