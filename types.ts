@@ -430,6 +430,17 @@ export interface UASMaterialSegment {
   hasGap?: boolean;
 }
 
+export type UASTeacherPrepStatus =
+  | 'draft_auto'
+  | 'needs_teacher_review'
+  | 'teacher_verified'
+  | 'pending_admin_approval'
+  | 'admin_approved'
+  | 'rejected'
+  | 'needs_correction'
+  | 'stale'
+  | 'exception_pending';
+
 export interface ExamMaterialPart {
   id: string;
   examPeriodId: string;
@@ -453,11 +464,18 @@ export interface ExamMaterialPart {
   segments: UASMaterialSegment[];
   hasGap: boolean;
   status: UASMaterialPartStatus;
+  teacherStatus?: UASTeacherPrepStatus;
+  approvalStatus?: string;
+  verificationNotes?: string | null;
+  rejectedReason?: string | null;
+  revisionNumber?: number;
   reviewReason?: string | null;
   verifiedBy?: string | null;
   verifiedAt?: string | null;
   finalizedBy?: string | null;
   finalizedAt?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
 }
 
 export interface ExamUASSession {
@@ -481,12 +499,58 @@ export interface ExamUASSession {
   questionSetId?: string | null;
   questionSetStatus?: string | null;
   attemptId?: string | null;
+  source?: 'auto' | 'manual';
+  createdBy?: string | null;
+  createdByName?: string | null;
+  changeReason?: string | null;
+  approvalStatus?: string;
+  rejectedReason?: string | null;
+  isLocked?: boolean;
+  revisionNumber?: number;
   status: 'planned' | 'draft_ready' | 'pending_mandatory' | 'ready' | 'in_progress' | 'submitted' | 'void';
   score?: number | null;
   predikat?: string | null;
   actualExaminerId?: string | null;
   actualExaminerName?: string | null;
   examinerHistory?: Array<{ teacher_id?: string; teacher_name?: string; session_number?: number; verified_at?: string }>;
+}
+
+export interface ExamUASPrepSubmission {
+  id: string;
+  examPeriodId: string;
+  studentId: string;
+  teacherId: string;
+  teacherName: string;
+  halaqah?: string | null;
+  studentName?: string | null;
+  studentClass?: string | null;
+  status: 'draft' | 'pending_admin_approval' | 'admin_approved' | 'rejected' | 'needs_correction' | 'exception_pending' | 'stale';
+  isException: boolean;
+  exceptionReason?: string | null;
+  revisionNumber: number;
+  fullJuzCount: number;
+  partialJuzCount: number;
+  manualSessionCount: number;
+  totalSessionCount: number;
+  submittedAt?: string | null;
+  approvedBy?: string | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
+  rejectedReason?: string | null;
+}
+
+export interface ExamUASPrepAuditLog {
+  id: string;
+  examPeriodId: string;
+  studentId: string;
+  actorId: string;
+  actorName: string;
+  actorRole: string;
+  action: string;
+  targetId?: string | null;
+  reason?: string | null;
+  details?: Record<string, any>;
+  createdAt: string;
 }
 
 export interface ExamQuestionSet {

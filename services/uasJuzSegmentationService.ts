@@ -86,6 +86,7 @@ export interface StudentJuzAnalysisResult {
   sessions: ExamUASSession[];
   hasUnverifiedGaps: boolean;
   needsAdminDecision: boolean;
+  anomalies: string[];
   summaryReason: string;
 }
 
@@ -275,6 +276,7 @@ export function analyzeStudentJuzPartsAndSessions(params: {
       sessions: [],
       hasUnverifiedGaps: false,
       needsAdminDecision: true,
+      anomalies: [],
       summaryReason: 'Belum ditemukan setoran sabaq/ziyadah pada semester berjalan sampai cutoff.'
     };
   }
@@ -282,18 +284,33 @@ export function analyzeStudentJuzPartsAndSessions(params: {
   // Kumpulkan himpunan unik ayat ("surah:ayah") — deduplikasi setoran tumpang tindih
   const coveredAyahSet = new Set<string>();
   const anomalies: string[] = [];
+  const anomaliesByJuz = new Map<number, string[]>();
+
+  const pushJuzAnomaly = (juzNum: number, msg: string) => {
+    anomalies.push(msg);
+    const list = anomaliesByJuz.get(juzNum) || [];
+    list.push(msg);
+    anomaliesByJuz.set(juzNum, list);
+  };
 
   for (const r of relevantRecords) {
-    const sNum = materialDetectionService.getSurahNumber(r.surah);
+    const rawSurah = (r.surah || '').trim();
+    const sNum = materialDetectionService.getSurahNumber(rawSurah);
+    if (sNum === 1 && !rawSurah.toLowerCase().includes('fatihah')) {
+      anomalies.push(`Surah tidak dikenali pada ${r.date} ("${r.surah}" ${r.ayahStart}-${r.ayahEnd})`);
+      continue;
+    }
     const maxAyah = SURAH_TOTAL_AYAHS[sNum] || 286;
     const startA = Math.max(1, r.ayahStart || 1);
     const endA = Math.max(1, r.ayahEnd || startA);
+    const clampedPage = quranService.getAyahPage(sNum, Math.min(maxAyah, Math.max(1, startA)));
+    const approxJuz = getJuzForPage(clampedPage);
     if (r.ayahStart > r.ayahEnd && r.ayahEnd > 0) {
-      anomalies.push(`Ayat terbalik pada ${r.date} (${r.surah} ${r.ayahStart}-${r.ayahEnd})`);
+      pushJuzAnomaly(approxJuz, `Ayat terbalik pada ${r.date} (${r.surah} ${r.ayahStart}-${r.ayahEnd})`);
       continue;
     }
-    if (endA > maxAyah) {
-      anomalies.push(`Ayat melebihi batas ${r.surah} pada ${r.date} (${endA} > ${maxAyah})`);
+    if (endA > maxAyah || startA > maxAyah) {
+      pushJuzAnomaly(approxJuz, `Ayat melebihi batas ${r.surah} pada ${r.date} (${startA}-${endA} > maks ${maxAyah})`);
       continue;
     }
     for (let a = startA; a <= endA; a++) {
@@ -354,17 +371,18 @@ export function analyzeStudentJuzPartsAndSessions(params: {
     const firstSeg = segments[0];
     const lastSeg = segments[segments.length - 1];
     const existing = existingByJuz.get(juz);
+    const juzAnomalies = anomaliesByJuz.get(juz) || [];
 
     let status: UASMaterialPartStatus = existing?.status || 'ready';
     let reviewReason = existing?.reviewReason || null;
     if (!existing) {
-      if (hasGap || anomalies.length > 0) {
+      if (hasGap || juzAnomalies.length > 0) {
         status = 'needs_review';
         reviewReason = [
           hasGap
-            ? `Terdapat ${segments.length} segmen tidak kontinu di Juz ${juz} (${coveredIndices.length}/${totalAyahsInJuz} ayat, ${fullPages.length} hal penuh).`
+            ? `Terdapat ${segments.length} segmen tidak kontinu di Juz ${juz} (${coveredIndices.length}/${totalAyahsInJuz} ayat, ${fullPages.length} hal sah).`
             : '',
-          ...anomalies
+          ...juzAnomalies
         ]
           .filter(Boolean)
           .join(' ');
@@ -372,7 +390,7 @@ export function analyzeStudentJuzPartsAndSessions(params: {
         status = 'ready';
         reviewReason = `Tambahan materi < 50% pada Juz ${juz} (${coveredWeight.toFixed(1)}/${totalJuzWeight.toFixed(1)} hal, ${(lengthCoverageRatio * 100).toFixed(1)}%).`;
       } else if (partType === 'partial_half') {
-        reviewReason = `Materi parsial Juz ${juz}: ${coveredWeight.toFixed(1)}/${totalJuzWeight.toFixed(1)} hal (${(lengthCoverageRatio * 100).toFixed(1)}%, ${fullPages.length} hal penuh).`;
+        reviewReason = `Materi parsial Juz ${juz}: ${coveredWeight.toFixed(1)}/${totalJuzWeight.toFixed(1)} hal (${(lengthCoverageRatio * 100).toFixed(1)}%, ${fullPages.length} hal sah).`;
       }
     }
 
@@ -479,6 +497,7 @@ export function analyzeStudentJuzPartsAndSessions(params: {
     sessions,
     hasUnverifiedGaps,
     needsAdminDecision,
+    anomalies,
     summaryReason
   };
 }

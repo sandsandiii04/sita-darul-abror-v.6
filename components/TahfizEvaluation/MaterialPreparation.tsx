@@ -141,7 +141,14 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
     try {
       const res = await api.getTahfizEvaluationData(periodId, user);
       if (res.success && res.data && res.data.participants && res.data.participants.length > 0) {
-        setParticipants(res.data.participants || []);
+        const rawParticipants = res.data.participants || [];
+        const scopedParticipants = isTeacher
+          ? rawParticipants.filter(
+              (p: ExamParticipant) =>
+                p.teacherId === user.id || p.halaqah?.toLowerCase().includes(user.name.toLowerCase())
+            )
+          : rawParticipants;
+        setParticipants(scopedParticipants);
         const rawSnaps = res.data.materialSnapshots || [];
         const sanitizedSnaps = rawSnaps.map(snap => {
           if (snap.totalRecordsAnalyzed === 0 || (snap.status === 'not_ready' && snap.startSurah === 1 && snap.endSurah === 1 && snap.startAyah === 1 && snap.endAyah === 1 && (snap.estimatedPages === 0 || !snap.estimatedPages))) {

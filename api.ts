@@ -5009,7 +5009,7 @@ export const api = {
   async getUASJuzPartsAndSessions(
     periodId: string,
     userOverride?: User | null
-  ): Promise<{ success: boolean; parts?: any[]; sessions?: any[]; message?: string }> {
+  ): Promise<{ success: boolean; parts?: any[]; sessions?: any[]; submissions?: any[]; message?: string }> {
     const u = userOverride || getLoggedUser();
     if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
     try {
@@ -5033,7 +5033,7 @@ export const api = {
     userOverride?: User | null
   ): Promise<{ success: boolean; message?: string }> {
     const u = userOverride || getLoggedUser();
-    if (!u || u.role !== 'admin' || !supabase) return { success: false, message: 'Akses ditolak.' };
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
     try {
       const { data, error } = await supabase.rpc('save_uas_juz_parts_and_sessions_secure', {
         p_username: u.username,
@@ -5055,9 +5055,9 @@ export const api = {
     action: 'verify' | 'finalize' | 'exclude',
     reason?: string,
     userOverride?: User | null
-  ): Promise<{ success: boolean; partId?: string; status?: string; message?: string }> {
+  ): Promise<{ success: boolean; partId?: string; status?: string; teacherStatus?: string; message?: string }> {
     const u = userOverride || getLoggedUser();
-    if (!u || u.role !== 'admin' || !supabase) return { success: false, message: 'Akses ditolak.' };
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
     try {
       const { data, error } = await supabase.rpc('verify_or_finalize_uas_material_part_secure', {
         p_username: u.username,
@@ -5070,6 +5070,154 @@ export const api = {
       return data;
     } catch (e: any) {
       return { success: false, message: e?.message || 'Gagal memverifikasi bagian materi.' };
+    }
+  },
+
+  async upsertUASManualSession(
+    periodId: string,
+    studentId: string,
+    session: any,
+    reason: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; sessionId?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('upsert_uas_manual_session_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId,
+        p_session: session,
+        p_reason: reason
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal menyimpan sesi manual.' };
+    }
+  },
+
+  async deleteUASManualSession(
+    sessionId: string,
+    reason: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('delete_uas_manual_session_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_session_id: sessionId,
+        p_reason: reason
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal menghapus sesi manual.' };
+    }
+  },
+
+  async submitUASPrepForApproval(
+    periodId: string,
+    studentId: string,
+    isException = false,
+    exceptionReason?: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; submissionId?: string; status?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('submit_uas_prep_for_approval_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId,
+        p_is_exception: isException,
+        p_exception_reason: exceptionReason || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal mengirim pengajuan ke Admin.' };
+    }
+  },
+
+  async reopenUASPrepRevision(
+    periodId: string,
+    studentId: string,
+    reason: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; revisionNumber?: number; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('reopen_uas_prep_revision_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId,
+        p_reason: reason
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal membuka revisi baru.' };
+    }
+  },
+
+  async adminBulkDecideUASPrep(
+    periodId: string,
+    studentIds: string[],
+    decision: 'approve' | 'approve_manual_exception' | 'reject',
+    reason?: string,
+    userOverride?: User | null
+  ): Promise<{
+    success: boolean;
+    approvedCount?: number;
+    alreadyApprovedCount?: number;
+    skippedCount?: number;
+    failedCount?: number;
+    results?: Array<{ studentId: string; studentName?: string; outcome: string; reason: string }>;
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin' || !supabase) return { success: false, message: 'Akses ditolak: Hanya Admin.' };
+    try {
+      const { data, error } = await supabase.rpc('admin_bulk_decide_uas_prep_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_ids: studentIds,
+        p_decision: decision,
+        p_reason: reason || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memproses persetujuan massal.' };
+    }
+  },
+
+  async getUASPrepAuditLogs(
+    periodId: string,
+    studentId?: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; logs?: any[]; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('get_uas_prep_audit_logs_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memuat audit log.' };
     }
   },
 
