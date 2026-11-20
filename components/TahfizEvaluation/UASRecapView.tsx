@@ -35,6 +35,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [students, setStudents] = useState<ExaminerStudentItem[]>([]);
+  const [sessionsByStudent, setSessionsByStudent] = useState<Map<string, any[]>>(new Map());
   const [periodInfo, setPeriodInfo] = useState<{ id: string; name: string; kkm: number; status: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,9 +84,30 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.getExaminerUASStudents(periodId, user);
+      const [res, juzRes] = await Promise.all([
+        api.getExaminerUASStudents(periodId, user),
+        api.getUASJuzPartsAndSessions(periodId, user)
+      ]);
+      if (juzRes?.success && Array.isArray(juzRes.sessions)) {
+        const sMap = new Map<string, any[]>();
+        juzRes.sessions.forEach((sess: any) => {
+          const sid = sess.student_id || sess.studentId;
+          const arr = sMap.get(sid) || [];
+          arr.push(sess);
+          sMap.set(sid, arr);
+        });
+        setSessionsByStudent(sMap);
+      } else {
+        setSessionsByStudent(new Map());
+      }
       if (res.success && res.students) {
-        setStudents(res.students);
+        const uniqueMap = new Map<string, ExaminerStudentItem>();
+        res.students.forEach(st => {
+          if (!uniqueMap.has(st.studentId)) {
+            uniqueMap.set(st.studentId, st);
+          }
+        });
+        setStudents(Array.from(uniqueMap.values()));
         if (res.period) {
           setPeriodInfo(res.period);
         }
@@ -475,16 +497,49 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                         <span className="text-slate-600 text-xs">{s.halaqah}</span>
                       </td>
                       <td className="py-3 px-4">
-                        {s.startSurahName ? (
-                          <span className="font-medium text-slate-700">
-                            {s.startSurahName} : {s.startAyah} s.d. {s.endSurahName} : {s.endAyah}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 italic text-[11px]">Belum difinalisasi</span>
-                        )}
+                        {(() => {
+                          const sSessions = sessionsByStudent.get(s.studentId) || [];
+                          if (sSessions.length > 0) {
+                            const doneCount = sSessions.filter((x: any) => x.status === 'submitted').length;
+                            return (
+                              <div className="space-y-1">
+                                <div className="text-[10px] font-bold text-teal-700">
+                                  {doneCount}/{sSessions.length} Sesi Selesai
+                                </div>
+                                {sSessions.map((ss: any) => (
+                                  <div key={ss.id} className="text-[11px] text-slate-700">
+                                    S{ss.session_number || ss.sessionNumber}: Juz {ss.juz_number || ss.juzNumber} ({(ss.session_type || ss.sessionType) === 'partial_half' ? '½ Juz' : 'Penuh'})
+                                    {ss.score !== null && ss.score !== undefined ? ` • Nilai: ${ss.score}` : ' • Belum'}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return s.startSurahName ? (
+                            <span className="font-medium text-slate-700">
+                              {s.startSurahName} : {s.startAyah} s.d. {s.endSurahName} : {s.endAyah}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">Belum difinalisasi</span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-slate-600 font-medium">
-                        {s.examinerName || s.teacherName || '-'}
+                        {(() => {
+                          const sSessions = sessionsByStudent.get(s.studentId) || [];
+                          if (sSessions.length > 0) {
+                            return (
+                              <div className="space-y-0.5 text-[11px]">
+                                {sSessions.map((ss: any) => (
+                                  <div key={ss.id}>
+                                    S{ss.session_number || ss.sessionNumber}: {ss.actual_examiner_name || ss.actualExaminerName || '-'}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return s.examinerName || s.teacherName || '-';
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-center">
                         {isSubmitted ? (

@@ -20,6 +20,7 @@ import {
   calculateUASMakhrajScore,
   calculateUASQuestionScore,
   calculateUASAttemptTotalScore,
+  getQuestionMaxScores,
   isMandatoryQuestion,
   generateEventId
 } from '../../services/uasScoringService';
@@ -94,22 +95,27 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
+  const sessionType = attempt.sessionType || (initialQuestions.length === 4 ? 'partial_half' : 'full_juz');
+  const totalQuestionsCount = initialQuestions.length || (sessionType === 'partial_half' ? 4 : 9);
   const currentQuestion = initialQuestions[currentQIndex];
   const currentQNum = currentQuestion?.questionNumber || (currentQIndex + 1);
-  const isCurrentMandatory = isMandatoryQuestion(currentQNum, (currentQuestion as any)?.questionRole || (currentQuestion as any)?.question_role);
+  const isCurrentMandatory = sessionType === 'partial_half'
+    ? false
+    : isMandatoryQuestion(currentQNum, (currentQuestion as any)?.questionRole || (currentQuestion as any)?.question_role);
+  const currentMax = getQuestionMaxScores(currentQNum, (currentQuestion as any)?.questionRole || (currentQuestion as any)?.question_role, sessionType);
 
   const currentAssessment = assessments.find(a => a.questionNumber === currentQNum) || {
     id: '',
     examAttemptId: attempt.id,
     examQuestionId: currentQuestion?.id || '',
     questionNumber: currentQNum,
-    fluencyScore: isCurrentMandatory ? 9 : 6,
-    tajwidScore: isCurrentMandatory ? 3 : 2,
-    makhrajScore: isCurrentMandatory ? 3 : 2,
+    fluencyScore: currentMax.maxFluency,
+    tajwidScore: currentMax.maxTajwid,
+    makhrajScore: currentMax.maxMakhraj,
     fluencyEvents: [],
     tajwidEvents: [],
     makhrajEvents: [],
-    questionScore: isCurrentMandatory ? 15 : 10,
+    questionScore: currentMax.maxQuestionScore,
     notes: '',
     version: 1
   };
@@ -276,8 +282,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     };
 
     const newEvents = [...currentAssessment.fluencyEvents, newEvent];
-    const { score: fScore } = calculateUASFluencyScore(newEvents, isCurrentMandatory);
-    const qScore = calculateUASQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore, isCurrentMandatory);
+    const { score: fScore } = calculateUASFluencyScore(newEvents, isCurrentMandatory, sessionType);
+    const qScore = calculateUASQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore, isCurrentMandatory, sessionType);
 
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
@@ -292,8 +298,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
   const handleRemoveFluency = (eventId: string) => {
     const newEvents = currentAssessment.fluencyEvents.filter(e => e.id !== eventId);
-    const { score: fScore } = calculateUASFluencyScore(newEvents, isCurrentMandatory);
-    const qScore = calculateUASQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore, isCurrentMandatory);
+    const { score: fScore } = calculateUASFluencyScore(newEvents, isCurrentMandatory, sessionType);
+    const qScore = calculateUASQuestionScore(fScore, currentAssessment.tajwidScore, currentAssessment.makhrajScore, isCurrentMandatory, sessionType);
 
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
@@ -319,8 +325,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     };
 
     const newEvents = [...currentAssessment.tajwidEvents, newEvent];
-    const { score: tScore } = calculateUASTajwidScore(newEvents, isCurrentMandatory);
-    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore, isCurrentMandatory);
+    const { score: tScore } = calculateUASTajwidScore(newEvents, isCurrentMandatory, sessionType);
+    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore, isCurrentMandatory, sessionType);
 
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
@@ -335,8 +341,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
   const handleRemoveTajwid = (eventId: string) => {
     const newEvents = currentAssessment.tajwidEvents.filter(e => e.id !== eventId);
-    const { score: tScore } = calculateUASTajwidScore(newEvents, isCurrentMandatory);
-    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore, isCurrentMandatory);
+    const { score: tScore } = calculateUASTajwidScore(newEvents, isCurrentMandatory, sessionType);
+    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, tScore, currentAssessment.makhrajScore, isCurrentMandatory, sessionType);
 
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
@@ -362,8 +368,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     };
 
     const newEvents = [...currentAssessment.makhrajEvents, newEvent];
-    const { score: mScore } = calculateUASMakhrajScore(newEvents, isCurrentMandatory);
-    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore, isCurrentMandatory);
+    const { score: mScore } = calculateUASMakhrajScore(newEvents, isCurrentMandatory, sessionType);
+    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore, isCurrentMandatory, sessionType);
 
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
@@ -378,8 +384,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
   const handleRemoveMakhraj = (eventId: string) => {
     const newEvents = currentAssessment.makhrajEvents.filter(e => e.id !== eventId);
-    const { score: mScore } = calculateUASMakhrajScore(newEvents, isCurrentMandatory);
-    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore, isCurrentMandatory);
+    const { score: mScore } = calculateUASMakhrajScore(newEvents, isCurrentMandatory, sessionType);
+    const qScore = calculateUASQuestionScore(currentAssessment.fluencyScore, currentAssessment.tajwidScore, mScore, isCurrentMandatory, sessionType);
 
     const updated: ExamQuestionAssessment = {
       ...currentAssessment,
@@ -511,10 +517,10 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     isLoading: true
   };
 
-  const maxFluency = isCurrentMandatory ? UAS_SCORING_CONFIG.mandatory.maxFluency : UAS_SCORING_CONFIG.random.maxFluency;
-  const maxTajwid = isCurrentMandatory ? UAS_SCORING_CONFIG.mandatory.maxTajwid : UAS_SCORING_CONFIG.random.maxTajwid;
-  const maxMakhraj = isCurrentMandatory ? UAS_SCORING_CONFIG.mandatory.maxMakhraj : UAS_SCORING_CONFIG.random.maxMakhraj;
-  const maxQScore = isCurrentMandatory ? UAS_SCORING_CONFIG.mandatory.maxQuestionScore : UAS_SCORING_CONFIG.random.maxQuestionScore;
+  const maxFluency = currentMax.maxFluency;
+  const maxTajwid = currentMax.maxTajwid;
+  const maxMakhraj = currentMax.maxMakhraj;
+  const maxQScore = currentMax.maxQuestionScore;
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans select-none pb-12">
@@ -540,7 +546,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
                 Penguji: {attempt.actualExaminerName || user.verifiedExaminer?.teacherName || user.name} (Sesi {attempt.sessionNumber || attempt.attemptNumber || 1})
               </span>
               <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                UAS Tahfiz
+                {sessionType === 'partial_half' ? 'UAS Setengah Juz (4×25)' : 'UAS Juz Penuh (9 Soal)'}
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-slate-400">
@@ -916,7 +922,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           </button>
 
           <span className="text-xs text-slate-400 font-semibold">
-            Soal {currentQNum} dari 9 ({completedCount}/9 selesai)
+            Soal {currentQNum} dari {totalQuestionsCount} ({completedCount}/{totalQuestionsCount} selesai)
           </span>
 
           <button

@@ -1,7 +1,182 @@
-import { ExamParticipant, ExamMaterialSnapshot, QuestionBankItem } from '../types';
+import { ExamParticipant, ExamMaterialSnapshot, QuestionBankItem, ExamMaterialPart, ExamUASSession } from '../types';
 import { uasQuestionGenerator } from './uasQuestionGenerator';
 import { comparePositions } from './quranService';
 import { MUSHAF_604_PAGE_BOUNDARIES } from '../constants/mushafPageBoundaries';
+
+export interface UASSessionEligibilityResult {
+  sessionId: string;
+  sessionNumber: number;
+  sessionType: 'full_juz' | 'partial_half';
+  juzNumber: number;
+  status: UASEligibilityStatus;
+  reason: string;
+  requiredZones: 4 | 7;
+  coveredZones: number;
+  missingZones: number[];
+  fullPagesCount: number;
+}
+
+/**
+ * Evaluasi kelayakan satu sesi UAS (Penuh 9 soal / Setengah Juz 4 soal)
+ * terhadap daftar bagian materi & Bank Soal aktif.
+ */
+export function evaluateUASSessionEligibility(params: {
+  session: ExamUASSession;
+  primaryPart?: ExamMaterialPart | null;
+  bankQuestions: QuestionBankItem[];
+}): UASSessionEligibilityResult {
+  const { session, primaryPart, bankQuestions } = params;
+  const isPartial = session.sessionType === 'partial_half';
+  const requiredZones: 4 | 7 = isPartial ? 4 : 7;
+
+  if (primaryPart?.status === 'needs_admin_decision') {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: 'MATERI_TIDAK_CUKUP',
+      reason: primaryPart.reviewReason || 'Materi kurang dari setengah juz; memerlukan keputusan Admin.',
+      requiredZones,
+      coveredZones: 0,
+      missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
+      fullPagesCount: 0
+    };
+  }
+
+  if (primaryPart?.status === 'needs_review') {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: 'MATERI_PERLU_REVIEW',
+      reason: primaryPart.reviewReason || 'Terdapat lompatan/ketidak-kontinuan yang wajib diverifikasi Admin.',
+      requiredZones,
+      coveredZones: 0,
+      missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
+      fullPagesCount: 0
+    };
+  }
+
+  if (primaryPart && primaryPart.status !== 'finalized') {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: 'MATERI_BELUM_FINAL',
+      reason: `Bagian Juz ${session.juzNumber} belum difinalisasi Admin.`,
+      requiredZones,
+      coveredZones: 0,
+      missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
+      fullPagesCount: 0
+    };
+  }
+
+  if (session.questionSetId) {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: session.questionSetStatus === 'stale' ? 'STALE' : 'SUDAH_ADA',
+      reason: session.questionSetStatus === 'stale'
+        ? `Paket Sesi ${session.sessionNumber} berstatus STALE.`
+        : `Paket Sesi ${session.sessionNumber} (${isPartial ? '4 soal' : '7 draft + 2 wajib'}) sudah tersedia.`,
+      requiredZones,
+      coveredZones: requiredZones,
+      missingZones: [],
+      fullPagesCount: session.coveredPages.length
+    };
+  }
+
+  const coveredSet = new Set(session.coveredPages || []);
+  const fullPagesCount = session.coveredPages.filter(p => Boolean(MUSHAF_604_PAGE_BOUNDARIES[p])).length;
+  if (!isPartial && fullPagesCount < 2) {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: 'MATERI_TIDAK_CUKUP',
+      reason: `Sesi penuh membutuhkan minimal 2 halaman penuh (tersedia ${fullPagesCount}).`,
+      requiredZones,
+      coveredZones: 0,
+      missingZones: [1, 2, 3, 4, 5, 6, 7],
+      fullPagesCount
+    };
+  }
+
+  const path = uasQuestionGenerator.buildMaterialPathForCoveredPages(session.coveredPages);
+  if (path.nodes.length < requiredZones) {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: 'MATERI_TIDAK_CUKUP',
+      reason: `Cakupan ayat (${path.nodes.length}) kurang untuk ${requiredZones} zona.`,
+      requiredZones,
+      coveredZones: 0,
+      missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
+      fullPagesCount
+    };
+  }
+
+  const zones = uasQuestionGenerator.divideIntoZonesCount(path, requiredZones);
+  const activeRandomBank = (bankQuestions || []).filter(
+    q =>
+      q.status === 'active' &&
+      q.questionType === 'random' &&
+      (q.examType === 'uas' || q.examType === 'generic') &&
+      q.promptStart && q.promptEnd && q.answerStart && q.answerEnd &&
+      comparePositions(q.promptStart, q.promptEnd) <= 0 &&
+      comparePositions(q.promptEnd, q.answerStart) < 0 &&
+      comparePositions(q.answerStart, q.answerEnd) <= 0
+  );
+
+  const missingZones: number[] = [];
+  let coveredZones = 0;
+  for (let i = 0; i < zones.length; i++) {
+    const z = zones[i];
+    const ok = activeRandomBank.some(bq =>
+      coveredSet.has(bq.startPage) &&
+      coveredSet.has(bq.endPage) &&
+      z.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber)
+    );
+    if (ok) coveredZones++;
+    else missingZones.push(i + 1);
+  }
+
+  if (missingZones.length > 0) {
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      juzNumber: session.juzNumber,
+      status: 'BANK_SOAL_KURANG',
+      reason: `Bank Soal Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) kurang pada zona: ${missingZones.join(', ')}.`,
+      requiredZones,
+      coveredZones,
+      missingZones,
+      fullPagesCount
+    };
+  }
+
+  return {
+    sessionId: session.id,
+    sessionNumber: session.sessionNumber,
+    sessionType: session.sessionType,
+    juzNumber: session.juzNumber,
+    status: 'SIAP_GENERATE',
+    reason: `Siap generate Sesi ${session.sessionNumber} (${isPartial ? '4/4 zona x 25 poin' : '7/7 zona + 2 wajib'}).`,
+    requiredZones,
+    coveredZones,
+    missingZones: [],
+    fullPagesCount
+  };
+}
 
 export type UASEligibilityStatus =
   | 'SIAP_GENERATE'

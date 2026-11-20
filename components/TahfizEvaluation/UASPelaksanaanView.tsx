@@ -148,9 +148,53 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.getExaminerUASStudents(periodId, user);
+      const [res, juzRes] = await Promise.all([
+        api.getExaminerUASStudents(periodId, user),
+        api.getUASJuzPartsAndSessions(periodId, user)
+      ]);
       if (res.success && res.students) {
-        setStudents(res.students);
+        const sessMap = new Map<string, any[]>();
+        if (juzRes?.success && Array.isArray(juzRes.sessions)) {
+          juzRes.sessions.forEach((s: any) => {
+            const sid = s.student_id || s.studentId;
+            const list = sessMap.get(sid) || [];
+            list.push({
+              id: s.id,
+              examPeriodId: s.exam_period_id || s.examPeriodId,
+              studentId: sid,
+              sessionNumber: s.session_number || s.sessionNumber,
+              sessionType: s.session_type || s.sessionType,
+              juzNumber: s.juz_number || s.juzNumber,
+              supplementalParts: s.supplemental_parts || [],
+              coveredPages: s.covered_pages || [],
+              startSurah: s.start_surah,
+              startAyah: s.start_ayah,
+              endSurah: s.end_surah,
+              endAyah: s.end_ayah,
+              startPage: s.start_page,
+              endPage: s.end_page,
+              questionSetId: s.question_set_id,
+              attemptId: s.attempt_id,
+              status: s.status,
+              score: s.score,
+              predikat: s.predikat,
+              actualExaminerId: s.actual_examiner_id,
+              actualExaminerName: s.actual_examiner_name,
+              examinerHistory: s.examiner_history || []
+            });
+            sessMap.set(sid, list);
+          });
+        }
+        const uniqueMap = new Map<string, ExaminerStudentItem>();
+        res.students.forEach(st => {
+          if (!uniqueMap.has(st.studentId)) {
+            uniqueMap.set(st.studentId, {
+              ...st,
+              sessions: sessMap.get(st.studentId) || []
+            });
+          }
+        });
+        setStudents(Array.from(uniqueMap.values()));
         if (res.period) {
           setPeriodInfo(res.period);
         }
@@ -164,34 +208,47 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     }
   };
 
-  // Start exam
-  const handleStartExam = async (student: ExaminerStudentItem) => {
+  // Start specific UAS session (multi-session per juz) or fallback single session
+  const handleStartExam = async (student: ExaminerStudentItem, sessionItem?: any) => {
     if (isSharedExaminer && !verifiedExaminer) {
       setErrorMsg('Identitas penguji UAS belum diverifikasi.');
       return;
     }
-    if (student.questionSetStatus === 'pending_mandatory') {
-      setManualMandatoryStudent(student);
+    const isPartialSession = sessionItem?.sessionType === 'partial_half';
+    const needsMandatory = sessionItem
+      ? (sessionItem.sessionType === 'full_juz' && sessionItem.status === 'pending_mandatory')
+      : (student.questionSetStatus === 'pending_mandatory');
+
+    if (!isPartialSession && needsMandatory) {
+      setManualMandatoryStudent({
+        ...student,
+        uasSessionId: sessionItem?.id || student.uasSessionId,
+        sessionNumber: sessionItem?.sessionNumber || student.sessionNumber,
+        juzNumber: sessionItem?.juzNumber || student.juzNumber
+      });
       return;
     }
     setErrorMsg(null);
     try {
       const effectiveUser = verifiedExaminer ? { ...user, verifiedExaminer } : user;
-      const res = await api.startUASAttempt({
-        periodId: selectedPeriodId,
-        studentId: student.studentId
-      }, effectiveUser);
+      const res = sessionItem
+        ? await api.startUASSessionAttempt(selectedPeriodId, student.studentId, sessionItem.id, effectiveUser)
+        : await api.startUASAttempt({ periodId: selectedPeriodId, studentId: student.studentId }, effectiveUser);
 
-      if (res.requiresManualMandatory) {
+      if ((res as any).requiresManualMandatory) {
         setManualMandatoryStudent(student);
         return;
       }
 
       if (res.success && res.attempt && res.questions && res.assessments) {
         setActiveSession({
-          student,
-          attempt: res.attempt,
-          kkm: res.kkm || periodInfo?.kkm || 75,
+          student: sessionItem ? { ...student, sessionNumber: sessionItem.sessionNumber, sessionType: sessionItem.sessionType, juzNumber: sessionItem.juzNumber } : student,
+          attempt: {
+            ...res.attempt,
+            sessionType: sessionItem?.sessionType || res.attempt.sessionType || (res.questions.length === 4 ? 'partial_half' : 'full_juz'),
+            sessionNumber: sessionItem?.sessionNumber || res.attempt.sessionNumber || 1
+          },
+          kkm: (res as any).kkm || periodInfo?.kkm || 75,
           questions: res.questions,
           assessments: res.assessments
         });
@@ -653,7 +710,50 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
                 {/* Card Action Buttons */}
                 <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                  {isSubmitted ? (
+                  {student.sessions && student.sessions.length > 0 ? (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Pilih Sesi UAS ({student.sessions.length} Sesi)
+                      </div>
+                      {student.sessions.map(sess => {
+                        const sessDone = sess.status === 'submitted';
+                        const sessReady = Boolean(sess.questionSetId);
+                        return (
+                          <div key={sess.id} className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-slate-800 truncate">
+                                Sesi {sess.sessionNumber}: Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? '½ Juz • 4 Soal' : 'Penuh • 9 Soal'})
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate">
+                                {sessDone
+                                  ? `Selesai • Nilai: ${sess.score ?? '-'} (${sess.actualExaminerName || '-'})`
+                                  : sessReady
+                                  ? (sess.actualExaminerName ? `Berjalan • Penguji: ${sess.actualExaminerName}` : 'Siap Diuji')
+                                  : 'Paket soal sesi belum di-generate'}
+                              </div>
+                            </div>
+                            {sessDone ? (
+                              <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0">
+                                Selesai
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleStartExam(student, sess)}
+                                disabled={!canExamine || !sessReady}
+                                className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold shrink-0 disabled:opacity-40"
+                              >
+                                {sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory'
+                                  ? 'Pilih Wajib'
+                                  : sess.status === 'in_progress'
+                                  ? 'Lanjutkan'
+                                  : 'Mulai'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : isSubmitted ? (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleViewResult(student)}
@@ -723,7 +823,16 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
           onSuccessStartExam={() => {
             const st = manualMandatoryStudent;
             setManualMandatoryStudent(null);
-            handleStartExam({ ...st, questionSetStatus: 'locked' });
+            const sessionObj = st.uasSessionId
+              ? {
+                  id: st.uasSessionId,
+                  sessionNumber: st.sessionNumber || 1,
+                  sessionType: 'full_juz' as const,
+                  juzNumber: st.juzNumber || 30,
+                  status: 'ready'
+                }
+              : undefined;
+            handleStartExam({ ...st, questionSetStatus: 'locked' }, sessionObj);
           }}
         />
       )}

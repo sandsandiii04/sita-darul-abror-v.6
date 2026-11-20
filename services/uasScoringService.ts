@@ -4,8 +4,19 @@ import {
   MakhrajEventType, 
   UASAssessmentEvent, 
   ExamQuestionAssessment, 
-  UASScoringConfig 
+  UASScoringConfig,
+  UASPartialScoringConfig,
+  UASSessionType
 } from '../types';
+
+export const UAS_PARTIAL_SCORING_CONFIG: UASPartialScoringConfig = {
+  maxFluency: 15,
+  maxTajwid: 5,
+  maxMakhraj: 5,
+  maxQuestionScore: 25,
+  totalQuestions: 4,
+  maxTotalScore: 100
+};
 
 export const UAS_SCORING_CONFIG: UASScoringConfig = {
   mandatory: {
@@ -123,12 +134,15 @@ export function isMandatoryQuestion(questionNumber: number, role?: string): bool
   return questionNumber <= 2;
 }
 
-export function getQuestionMaxScores(questionNumber: number, role?: string) {
+export function getQuestionMaxScores(questionNumber: number, role?: string, sessionType?: UASSessionType) {
+  if (sessionType === 'partial_half') {
+    return UAS_PARTIAL_SCORING_CONFIG;
+  }
   const mandatory = isMandatoryQuestion(questionNumber, role);
   return mandatory ? UAS_SCORING_CONFIG.mandatory : UAS_SCORING_CONFIG.random;
 }
 
-export function calculateUASFluencyScore(events: UASAssessmentEvent[], isMandatory: boolean): { score: number; deduction: number } {
+export function calculateUASFluencyScore(events: UASAssessmentEvent[], isMandatory: boolean, sessionType?: UASSessionType): { score: number; deduction: number } {
   let deduction = 0;
   for (const ev of events) {
     if (ev.type === 'self_correction') deduction += 0.5;
@@ -137,7 +151,9 @@ export function calculateUASFluencyScore(events: UASAssessmentEvent[], isMandato
     else if (ev.type === 'unable') deduction += 4.0;
     else if (typeof ev.deduction === 'number') deduction += ev.deduction;
   }
-  const maxFluency = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxFluency : UAS_SCORING_CONFIG.random.maxFluency;
+  const maxFluency = sessionType === 'partial_half'
+    ? UAS_PARTIAL_SCORING_CONFIG.maxFluency
+    : (isMandatory ? UAS_SCORING_CONFIG.mandatory.maxFluency : UAS_SCORING_CONFIG.random.maxFluency);
   const score = Math.max(0, maxFluency - deduction);
   return {
     score: Math.round(score * 100) / 100,
@@ -145,14 +161,16 @@ export function calculateUASFluencyScore(events: UASAssessmentEvent[], isMandato
   };
 }
 
-export function calculateUASTajwidScore(events: UASAssessmentEvent[], isMandatory: boolean): { score: number; deduction: number } {
+export function calculateUASTajwidScore(events: UASAssessmentEvent[], isMandatory: boolean, sessionType?: UASSessionType): { score: number; deduction: number } {
   let deduction = 0;
   for (const ev of events) {
     if (ev.type === 'minor') deduction += 0.5;
     else if (ev.type === 'major') deduction += 1.0;
     else if (typeof ev.deduction === 'number') deduction += ev.deduction;
   }
-  const maxTajwid = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxTajwid : UAS_SCORING_CONFIG.random.maxTajwid;
+  const maxTajwid = sessionType === 'partial_half'
+    ? UAS_PARTIAL_SCORING_CONFIG.maxTajwid
+    : (isMandatory ? UAS_SCORING_CONFIG.mandatory.maxTajwid : UAS_SCORING_CONFIG.random.maxTajwid);
   const score = Math.max(0, maxTajwid - deduction);
   return {
     score: Math.round(score * 100) / 100,
@@ -160,14 +178,16 @@ export function calculateUASTajwidScore(events: UASAssessmentEvent[], isMandator
   };
 }
 
-export function calculateUASMakhrajScore(events: UASAssessmentEvent[], isMandatory: boolean): { score: number; deduction: number } {
+export function calculateUASMakhrajScore(events: UASAssessmentEvent[], isMandatory: boolean, sessionType?: UASSessionType): { score: number; deduction: number } {
   let deduction = 0;
   for (const ev of events) {
     if (ev.type === 'minor') deduction += 0.5;
     else if (ev.type === 'major') deduction += 1.0;
     else if (typeof ev.deduction === 'number') deduction += ev.deduction;
   }
-  const maxMakhraj = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxMakhraj : UAS_SCORING_CONFIG.random.maxMakhraj;
+  const maxMakhraj = sessionType === 'partial_half'
+    ? UAS_PARTIAL_SCORING_CONFIG.maxMakhraj
+    : (isMandatory ? UAS_SCORING_CONFIG.mandatory.maxMakhraj : UAS_SCORING_CONFIG.random.maxMakhraj);
   const score = Math.max(0, maxMakhraj - deduction);
   return {
     score: Math.round(score * 100) / 100,
@@ -175,8 +195,10 @@ export function calculateUASMakhrajScore(events: UASAssessmentEvent[], isMandato
   };
 }
 
-export function calculateUASQuestionScore(fluency: number, tajwid: number, makhraj: number, isMandatory: boolean): number {
-  const maxScore = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxQuestionScore : UAS_SCORING_CONFIG.random.maxQuestionScore;
+export function calculateUASQuestionScore(fluency: number, tajwid: number, makhraj: number, isMandatory: boolean, sessionType?: UASSessionType): number {
+  const maxScore = sessionType === 'partial_half'
+    ? UAS_PARTIAL_SCORING_CONFIG.maxQuestionScore
+    : (isMandatory ? UAS_SCORING_CONFIG.mandatory.maxQuestionScore : UAS_SCORING_CONFIG.random.maxQuestionScore);
   const total = fluency + tajwid + makhraj;
   return Math.round(Math.min(maxScore, Math.max(0, total)) * 100) / 100;
 }

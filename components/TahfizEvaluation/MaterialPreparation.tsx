@@ -11,6 +11,7 @@ import { UTSQuestionPreview } from './UTSQuestionPreview';
 import { UASQuestionPreview } from './UASQuestionPreview';
 import { UTSBulkGeneratorModal } from './UTSBulkGeneratorModal';
 import { UASBulkGeneratorModal } from './UASBulkGeneratorModal';
+import { UASJuzPreparationPanel } from './UASJuzPreparationPanel';
 import { 
   BookOpen, 
   CheckCircle2, 
@@ -802,6 +803,21 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
           title={`Perlu Verifikasi: ${metrics.needsReview}`}
         />
       </div>
+
+      {/* Per-Juz & Multi-Session UAS Panel */}
+      {currentPeriod?.examType === 'uas' && currentTerm && (
+        <UASJuzPreparationPanel
+          user={user}
+          period={currentPeriod}
+          term={currentTerm}
+          participants={participants}
+          snapshots={snapshots}
+          records={records}
+          onSessionsUpdated={() => {
+            if (selectedPeriodId) loadQuestionSets(selectedPeriodId);
+          }}
+        />
+      )}
 
       {/* Table Section */}
       <MaterialTable

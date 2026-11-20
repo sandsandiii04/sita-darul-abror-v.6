@@ -4932,10 +4932,11 @@ export const api = {
 
     const assessments = this.getLocalQuestionAssessments(attemptId);
     const completedCount = assessments.filter(a => !!a.completedAt).length;
-    if (assessments.length !== 9 || completedCount !== 9) {
+    const expectedCount = (foundAtt?.attempt?.sessionType === 'partial_half' || assessments.length === 4) ? 4 : 9;
+    if (assessments.length !== expectedCount || completedCount !== expectedCount) {
       return {
         success: false,
-        message: `Validasi gagal: Seluruh 9 butir soal wajib diselesaikan (completed) sebelum submit final. Saat ini ${completedCount} dari 9 soal selesai.`
+        message: `Validasi gagal: Seluruh ${expectedCount} butir soal wajib diselesaikan (completed) sebelum submit final. Saat ini ${completedCount} dari ${expectedCount} soal selesai.`
       };
     }
 
@@ -5002,6 +5003,120 @@ export const api = {
       submittedAt: new Date().toISOString(),
       message: 'Hasil ujian UAS berhasil dikirim dan difinalisasi.'
     };
+  },
+
+  // ================= UAS PER JUZ & MULTI-SESI API =================
+  async getUASJuzPartsAndSessions(
+    periodId: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; parts?: any[]; sessions?: any[]; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('get_uas_juz_parts_and_sessions', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memuat bagian materi & sesi UAS.' };
+    }
+  },
+
+  async saveUASJuzPartsAndSessions(
+    periodId: string,
+    studentId: string,
+    parts: any[],
+    sessions: any[],
+    userOverride?: User | null
+  ): Promise<{ success: boolean; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin' || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('save_uas_juz_parts_and_sessions_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId,
+        p_parts: parts,
+        p_sessions: sessions
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal menyimpan bagian materi & sesi UAS.' };
+    }
+  },
+
+  async verifyOrFinalizeUASMaterialPart(
+    partId: string,
+    action: 'verify' | 'finalize' | 'exclude',
+    reason?: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; partId?: string; status?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin' || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('verify_or_finalize_uas_material_part_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_part_id: partId,
+        p_action: action,
+        p_reason: reason || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memverifikasi bagian materi.' };
+    }
+  },
+
+  async saveUASSessionQuestionSet(
+    uasSessionId: string,
+    questionSet: any,
+    questions: any[],
+    userOverride?: User | null
+  ): Promise<{ success: boolean; questionSetId?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin' || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('save_uas_session_question_set_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_uas_session_id: uasSessionId,
+        p_question_set: questionSet,
+        p_questions: questions
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal menyimpan paket soal sesi UAS.' };
+    }
+  },
+
+  async startUASSessionAttempt(
+    periodId: string,
+    studentId: string,
+    uasSessionId: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; attempt?: any; session?: any; questions?: any[]; assessments?: any[]; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('start_uas_session_attempt', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId,
+        p_uas_session_id: uasSessionId
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memulai sesi ujian UAS.' };
+    }
   },
 
   async reopenUASAttempt(

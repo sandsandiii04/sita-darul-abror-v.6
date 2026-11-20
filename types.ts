@@ -413,11 +413,90 @@ export type QuestionSetStatus = 'generated' | 'locked' | 'void' | 'stale';
 export type UTSGenerationStrategy = 'hybrid' | 'bank_only' | 'auto_only';
 export type QuestionSourceType = 'bank' | 'auto';
 
+export type UASSessionType = 'full_juz' | 'partial_half';
+export type UASMaterialPartType = 'full_juz' | 'partial_half' | 'minor_addition';
+export type UASMaterialPartStatus = 'ready' | 'needs_review' | 'needs_admin_decision' | 'finalized' | 'excluded';
+
+export interface UASMaterialSegment {
+  startSurah: number;
+  startAyah: number;
+  endSurah: number;
+  endAyah: number;
+  startPage: number;
+  endPage: number;
+  startSurahName?: string;
+  endSurahName?: string;
+  pages: number[];
+  hasGap?: boolean;
+}
+
+export interface ExamMaterialPart {
+  id: string;
+  examPeriodId: string;
+  studentId: string;
+  snapshotId?: string | null;
+  partOrder: number;
+  juzNumber: number;
+  partType: UASMaterialPartType;
+  startSurah: number;
+  startAyah: number;
+  endSurah: number;
+  endAyah: number;
+  startPage: number;
+  endPage: number;
+  startSurahName?: string;
+  endSurahName?: string;
+  coveredPages: number[];
+  coveredPagesCount: number;
+  juzTotalPages: number;
+  coverageRatio: number;
+  segments: UASMaterialSegment[];
+  hasGap: boolean;
+  status: UASMaterialPartStatus;
+  reviewReason?: string | null;
+  verifiedBy?: string | null;
+  verifiedAt?: string | null;
+  finalizedBy?: string | null;
+  finalizedAt?: string | null;
+}
+
+export interface ExamUASSession {
+  id: string;
+  examPeriodId: string;
+  studentId: string;
+  sessionNumber: number;
+  sessionType: UASSessionType;
+  primaryPartId?: string | null;
+  juzNumber: number;
+  supplementalParts: ExamMaterialPart[];
+  coveredPages: number[];
+  startSurah: number;
+  startAyah: number;
+  endSurah: number;
+  endAyah: number;
+  startPage: number;
+  endPage: number;
+  startSurahName?: string;
+  endSurahName?: string;
+  questionSetId?: string | null;
+  questionSetStatus?: string | null;
+  attemptId?: string | null;
+  status: 'planned' | 'draft_ready' | 'pending_mandatory' | 'ready' | 'in_progress' | 'submitted' | 'void';
+  score?: number | null;
+  predikat?: string | null;
+  actualExaminerId?: string | null;
+  actualExaminerName?: string | null;
+  examinerHistory?: Array<{ teacher_id?: string; teacher_name?: string; session_number?: number; verified_at?: string }>;
+}
+
 export interface ExamQuestionSet {
   id: string;
   examPeriodId: string;
   studentId: string;
   materialSnapshotId: string;
+  uasSessionId?: string | null;
+  sessionNumber?: number;
+  sessionType?: UASSessionType;
   version: number;
   generationStrategy: UTSGenerationStrategy;
   generationSeed: string;
@@ -637,6 +716,9 @@ export interface ExamAttempt {
   loginAccountId?: string | null;
   loginAccountUsername?: string | null;
   sessionNumber?: number;
+  uasSessionId?: string | null;
+  sessionType?: UASSessionType;
+  examinerHistory?: Array<{ teacher_id?: string; teacher_name?: string; session_number?: number; verified_at?: string }>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -665,6 +747,11 @@ export interface ExaminerStudentItem {
   actualExaminerId?: string;
   actualExaminerName?: string;
   sessionNumber?: number;
+  uasSessionId?: string | null;
+  sessionType?: UASSessionType;
+  juzNumber?: number;
+  sessions?: ExamUASSession[];
+  materialParts?: ExamMaterialPart[];
   memorizationDirection?: string;
   questionSetId?: string;
   questionSetStatus?: string;
@@ -706,6 +793,15 @@ export interface UASScoringConfig {
   totalQuestions: number; // 9
   mandatoryQuestionsCount: number; // 2
   randomQuestionsCount: number; // 7
+  maxTotalScore: number; // 100
+}
+
+export interface UASPartialScoringConfig {
+  maxFluency: number; // 15
+  maxTajwid: number; // 5
+  maxMakhraj: number; // 5
+  maxQuestionScore: number; // 25
+  totalQuestions: number; // 4
   maxTotalScore: number; // 100
 }
 

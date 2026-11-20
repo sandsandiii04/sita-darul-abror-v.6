@@ -3,6 +3,7 @@ import {
   ExamPeriod,
   ExamQuestionSet,
   ExamQuestion,
+  ExamUASSession,
   GeneratedUASQuestion,
   GeneratedUASQuestionSet,
   MaterialPath,
@@ -270,19 +271,61 @@ export class UASQuestionGenerator {
   }
 
   /**
-   * KLAUSUL 15: 7-ZONE STRATIFIED RANDOMIZATION
-   * Membagi MaterialPath menjadi tepat 7 zona yang mewakili masing-masing ~14.28% materi
+   * Membangun MaterialPath hanya dari halaman-halaman sah yang benar-benar disetorkan
+   * (tanpa menganggap halaman kosong di antara lompatan sudah dihafal).
    */
-  public divideIntoZones(path: MaterialPath): MaterialZone[] {
+  public buildMaterialPathForCoveredPages(
+    coveredPages: number[],
+    direction: MemorizationDirection = 'forward'
+  ): MaterialPath {
+    const sortedPages = Array.from(new Set((coveredPages || []).filter(p => p >= 1 && p <= 604))).sort((a, b) => a - b);
+    const nodes: MaterialPathNode[] = [];
+    const seenKeys = new Set<string>();
+    let pedagogicalIndex = 0;
+
+    for (const p of sortedPages) {
+      const boundary = MUSHAF_604_PAGE_BOUNDARIES[p];
+      if (!boundary || !boundary.verses) continue;
+      for (const v of boundary.verses) {
+        const key = `${v.surah}:${v.ayah}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        nodes.push({
+          surahNumber: v.surah,
+          ayahNumber: v.ayah,
+          pedagogicalIndex: pedagogicalIndex++,
+          pageNumber: p,
+          surahName: this.getSurahName(v.surah)
+        });
+      }
+    }
+
+    const firstNode = nodes[0];
+    const lastNode = nodes[nodes.length - 1];
+    return {
+      nodes,
+      direction,
+      startSurah: firstNode?.surahNumber || 1,
+      startAyah: firstNode?.ayahNumber || 1,
+      endSurah: lastNode?.surahNumber || 1,
+      endAyah: lastNode?.ayahNumber || 1,
+      totalAyahs: nodes.length
+    };
+  }
+
+  /**
+   * KLAUSUL 15: STRATIFIED RANDOMIZATION (7 zona untuk juz penuh, 4 zona untuk setengah juz)
+   */
+  public divideIntoZonesCount(path: MaterialPath, zoneCount: 4 | 7): MaterialZone[] {
     const total = path.nodes.length;
     if (total === 0) {
       throw new Error('Materi santri kosong.');
     }
 
     const zones: MaterialZone[] = [];
-    for (let k = 0; k < 7; k++) {
-      const startIndex = Math.floor((k * total) / 7);
-      const endIndex = (k === 6) ? total - 1 : Math.floor(((k + 1) * total) / 7) - 1;
+    for (let k = 0; k < zoneCount; k++) {
+      const startIndex = Math.floor((k * total) / zoneCount);
+      const endIndex = (k === zoneCount - 1) ? total - 1 : Math.floor(((k + 1) * total) / zoneCount) - 1;
       const zoneNodes = path.nodes.slice(startIndex, endIndex + 1);
 
       zones.push({
@@ -290,11 +333,18 @@ export class UASQuestionGenerator {
         startIndex,
         endIndex: Math.max(startIndex, endIndex),
         nodes: zoneNodes.length > 0 ? zoneNodes : [path.nodes[Math.min(startIndex, total - 1)]],
-        label: `Zona ${k + 1} (${Math.round((k * 100) / 7)}% - ${Math.round(((k + 1) * 100) / 7)}%)`
+        label: `Zona ${k + 1} (${Math.round((k * 100) / zoneCount)}% - ${Math.round(((k + 1) * 100) / zoneCount)}%)`
       });
     }
 
     return zones;
+  }
+
+  /**
+   * Membagi MaterialPath menjadi tepat 7 zona yang mewakili masing-masing ~14.28% materi
+   */
+  public divideIntoZones(path: MaterialPath): MaterialZone[] {
+    return this.divideIntoZonesCount(path, 7);
   }
 
   /**
@@ -1079,6 +1129,134 @@ export class UASQuestionGenerator {
       promptTextPreview: `Bacakan Mushaf Standar Madinah Halaman ${pageNumber} secara penuh.`,
       answerTextPreview: `[Halaman ${pageNumber}] ${this.getSurahName(pageBoundary.startSurah)}:${pageBoundary.startAyah} s.d. ${this.getSurahName(pageBoundary.endSurah)}:${pageBoundary.endAyah}`
     };
+  }
+
+  /**
+   * GENERATOR PAKET SOAL PER SESI UAS (FULL JUZ vs PARTIAL HALF JUZ):
+   * - full_juz: 7 soal acak Bank Soal (10 poin/soal) -> status 'pending_mandatory' (2 soal wajib x 15 poin dipilih penguji = 100).
+   * - partial_half: 4 soal acak Bank Soal (25 poin/soal = 100 poin) dari 4 zona -> status 'locked' (tanpa soal wajib).
+   * Dilarang membuat soal sintetis jika Bank Soal pada zona kosong.
+   */
+  public async generateUASSessionRandomDraft(params: {
+    period: ExamPeriod;
+    session: ExamUASSession;
+    snapshotId: string;
+    bankQuestions: QuestionBankItem[];
+    seed?: string;
+    actorId?: string;
+  }): Promise<{
+    questionSet: ExamQuestionSet;
+    questions: GeneratedUASQuestion[];
+    missingZones: number[];
+  }> {
+    const { period, session, snapshotId, bankQuestions = [], actorId } = params;
+    const isPartial = session.sessionType === 'partial_half';
+    const zoneCount: 4 | 7 = isPartial ? 4 : 7;
+    const maxScorePerRandom = isPartial ? 25 : 10;
+    const questionStartNumber = isPartial ? 1 : 3;
+
+    const path = this.buildMaterialPathForCoveredPages(session.coveredPages);
+    if (path.nodes.length < zoneCount) {
+      throw new Error(`Materi Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) terlalu sempit (${path.nodes.length} ayat untuk ${zoneCount} zona).`);
+    }
+
+    const zones = this.divideIntoZonesCount(path, zoneCount);
+    const coveredPageSet = new Set(session.coveredPages);
+    const seed = params.seed || `seed_uas_s${session.sessionNumber}_${period.id}_${session.studentId}_${Date.now()}`;
+    const prng = createPRNG(seed);
+
+    const usedBKeys = new Set<string>();
+    const makeBKey = (pos: QuranPosition) => `${pos.surahNumber}:${pos.ayahNumber}:${pos.wordPosition}`;
+    const questions: GeneratedUASQuestion[] = [];
+    const missingZones: number[] = [];
+
+    for (let zIdx = 0; zIdx < zoneCount; zIdx++) {
+      const zone = zones[zIdx];
+      const zoneNumber = zIdx + 1;
+      const questionNumber = zIdx + questionStartNumber;
+
+      const bankCandidates = bankQuestions.filter(bq => {
+        if (bq.status !== 'active') return false;
+        if (bq.questionType !== 'random') return false;
+        if (bq.examType !== 'uas' && bq.examType !== 'generic') return false;
+        if (!bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd) return false;
+        if (comparePositions(bq.promptStart, bq.promptEnd) > 0) return false;
+        if (comparePositions(bq.promptEnd, bq.answerStart) >= 0) return false;
+        if (comparePositions(bq.answerStart, bq.answerEnd) > 0) return false;
+        // Wajib seluruh rentang soal berada di halaman sah sesi ini
+        if (!coveredPageSet.has(bq.startPage) || !coveredPageSet.has(bq.endPage)) return false;
+
+        const bInZone = zone.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber);
+        if (!bInZone) return false;
+        if (usedBKeys.has(makeBKey(bq.answerStart))) return false;
+        return true;
+      });
+
+      if (bankCandidates.length === 0) {
+        missingZones.push(zoneNumber);
+        continue;
+      }
+
+      const chosen = bankCandidates[Math.floor(prng() * bankCandidates.length)];
+      usedBKeys.add(makeBKey(chosen.answerStart));
+
+      questions.push({
+        questionNumber,
+        questionRole: 'random',
+        zoneNumber,
+        sourceType: 'bank',
+        questionBankId: chosen.id,
+        pageNumber: chosen.startPage,
+        maxScore: maxScorePerRandom,
+        promptStart: chosen.promptStart,
+        promptEnd: chosen.promptEnd,
+        answerStart: chosen.answerStart,
+        answerEnd: chosen.answerEnd,
+        startPage: chosen.startPage,
+        endPage: chosen.endPage,
+        metadata: {
+          juzNumber: session.juzNumber,
+          sessionNumber: session.sessionNumber,
+          sessionType: session.sessionType,
+          zoneNumber,
+          surahName: this.getSurahName(chosen.answerStart.surahNumber),
+          endSurahName: this.getSurahName(chosen.answerEnd.surahNumber),
+          difficulty: chosen.difficulty,
+          notes: chosen.notes
+        },
+        promptTextPreview: chosen.promptText,
+        answerTextPreview: chosen.answerText
+      });
+    }
+
+    if (missingZones.length > 0) {
+      throw new Error(`Bank Soal UAS kurang pada Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) zona kosong: ${missingZones.join(', ')}.`);
+    }
+
+    const nowIso = new Date().toISOString();
+    const setId = `eqs_uas_${period.id}_${session.studentId}_s${session.sessionNumber}_v1`;
+    const questionSet: ExamQuestionSet = {
+      id: setId,
+      examPeriodId: period.id,
+      studentId: session.studentId,
+      materialSnapshotId: snapshotId,
+      uasSessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      sessionType: session.sessionType,
+      version: 1,
+      generationStrategy: 'bank_only',
+      generationSeed: seed,
+      materialFingerprint: md5(`${session.juzNumber}:${session.sessionType}:${session.coveredPages.join(',')}`),
+      status: isPartial ? 'locked' : ('pending_mandatory' as any),
+      totalQuestions: isPartial ? 4 : 9,
+      generatedBy: actorId || null,
+      generatedAt: nowIso,
+      lockedAt: isPartial ? nowIso : null,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    return { questionSet, questions, missingZones: [] };
   }
 }
 

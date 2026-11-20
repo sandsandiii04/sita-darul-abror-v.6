@@ -64,6 +64,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const [bankQuestions, setBankQuestions] = useState<QuestionBankItem[]>([]);
+  const [juzSessionsByStudent, setJuzSessionsByStudent] = useState<Map<string, any[]>>(new Map());
   const [loadingBank, setLoadingBank] = useState(false);
 
   const [isExecuting, setIsExecuting] = useState(false);
@@ -84,14 +85,48 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
 
     let cancelled = false;
     setLoadingBank(true);
-    api.getQuestionBankList({ status: 'active' })
-      .then(res => {
+    Promise.all([
+      api.getQuestionBankList({ status: 'active' }),
+      api.getUASJuzPartsAndSessions(period.id, user)
+    ])
+      .then(([res, juzRes]) => {
         if (!cancelled) {
           setBankQuestions(res?.data || []);
+          const map = new Map<string, any[]>();
+          if (juzRes?.success && Array.isArray(juzRes.sessions)) {
+            juzRes.sessions.forEach((s: any) => {
+              const sid = s.student_id || s.studentId;
+              const arr = map.get(sid) || [];
+              arr.push({
+                id: s.id,
+                examPeriodId: s.exam_period_id || s.examPeriodId,
+                studentId: sid,
+                sessionNumber: s.session_number || s.sessionNumber,
+                sessionType: s.session_type || s.sessionType,
+                primaryPartId: s.primary_part_id || s.primaryPartId,
+                juzNumber: s.juz_number || s.juzNumber,
+                supplementalParts: s.supplemental_parts || s.supplementalParts || [],
+                coveredPages: s.covered_pages || s.coveredPages || [],
+                startSurah: s.start_surah || s.startSurah,
+                startAyah: s.start_ayah || s.startAyah,
+                endSurah: s.end_surah || s.endSurah,
+                endAyah: s.end_ayah || s.endAyah,
+                startPage: s.start_page || s.startPage,
+                endPage: s.end_page || s.endPage,
+                questionSetId: s.question_set_id || s.questionSetId,
+                status: s.status
+              });
+              map.set(sid, arr);
+            });
+          }
+          setJuzSessionsByStudent(map);
         }
       })
       .catch(() => {
-        if (!cancelled) setBankQuestions([]);
+        if (!cancelled) {
+          setBankQuestions([]);
+          setJuzSessionsByStudent(new Map());
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingBank(false);
@@ -213,38 +248,71 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
         }
 
         try {
-          const genResult = await uasQuestionGenerator.generateUASRandomDraftSet({
-            period,
-            snapshot: item.snapshot,
-            bankQuestions,
-            actorId: user.id
-          });
+          const studentSessions = juzSessionsByStudent.get(item.studentId) || [];
+          if (studentSessions.length > 0) {
+            let genSessions = 0;
+            for (const sess of studentSessions) {
+              if (sess.questionSetId) continue;
+              const sessRes = await uasQuestionGenerator.generateUASSessionRandomDraft({
+                period,
+                session: sess,
+                snapshotId: item.snapshot.id,
+                bankQuestions,
+                actorId: user.id
+              });
+              const saveSessRes = await api.saveUASSessionQuestionSet(
+                sess.id,
+                sessRes.questionSet,
+                sessRes.questions,
+                user
+              );
+              if (!saveSessRes.success) {
+                throw new Error(saveSessRes.message || `Gagal menyimpan paket Sesi ${sess.sessionNumber}.`);
+              }
+              genSessions++;
+            }
+            results.push({
+              studentId: item.studentId,
+              studentName: item.studentName,
+              status: genSessions > 0 ? 'SUCCESS' : 'SKIPPED',
+              message: genSessions > 0
+                ? `${genSessions} sesi UAS per juz berhasil di-generate sesuai jenis sesi (Penuh 7 draft + 2 wajib / Setengah Juz 4 soal).`
+                : 'Seluruh sesi UAS santri ini sudah memiliki paket soal.'
+            });
+          } else {
+            const genResult = await uasQuestionGenerator.generateUASRandomDraftSet({
+              period,
+              snapshot: item.snapshot,
+              bankQuestions,
+              actorId: user.id
+            });
 
-          const randomZones = new Set(genResult.questions.filter(q => q.questionRole === 'random' && q.sourceType === 'bank' && q.questionBankId).map(q => q.zoneNumber));
-          const totalDraftScore = genResult.questions.reduce((acc, q) => acc + q.maxScore, 0);
+            const randomZones = new Set(genResult.questions.filter(q => q.questionRole === 'random' && q.sourceType === 'bank' && q.questionBankId).map(q => q.zoneNumber));
+            const totalDraftScore = genResult.questions.reduce((acc, q) => acc + q.maxScore, 0);
 
-          if (genResult.questions.length !== 7 || randomZones.size !== 7 || totalDraftScore !== 70) {
-            throw new Error(`Validasi draft 7 soal acak gagal (total=${genResult.questions.length}, zona=${randomZones.size}, skor=${totalDraftScore}).`);
+            if (genResult.questions.length !== 7 || randomZones.size !== 7 || totalDraftScore !== 70) {
+              throw new Error(`Validasi draft 7 soal acak gagal (total=${genResult.questions.length}, zona=${randomZones.size}, skor=${totalDraftScore}).`);
+            }
+
+            const saveRes = await api.generateUASQuestionSet({
+              periodId: period.id,
+              studentId: item.studentId,
+              strategy: 'bank_only',
+              seed: genResult.questionSet?.generationSeed,
+              questions: genResult.questions as any
+            }, user);
+
+            if (!saveRes.success) {
+              throw new Error(saveRes.message || 'Gagal menyimpan draft 7 soal acak UAS ke server.');
+            }
+
+            results.push({
+              studentId: item.studentId,
+              studentName: item.studentName,
+              status: 'SUCCESS',
+              message: 'Draft 7 soal acak dari Bank Soal tersimpan (menunggu pilihan manual 2 soal wajib oleh Penguji).'
+            });
           }
-
-          const saveRes = await api.generateUASQuestionSet({
-            periodId: period.id,
-            studentId: item.studentId,
-            strategy: 'bank_only',
-            seed: genResult.questionSet?.generationSeed,
-            questions: genResult.questions as any
-          }, user);
-
-          if (!saveRes.success) {
-            throw new Error(saveRes.message || 'Gagal menyimpan draft 7 soal acak UAS ke server.');
-          }
-
-          results.push({
-            studentId: item.studentId,
-            studentName: item.studentName,
-            status: 'SUCCESS',
-            message: 'Draft 7 soal acak dari Bank Soal tersimpan (menunggu pilihan manual 2 soal wajib oleh Penguji).'
-          });
         } catch (err: any) {
           results.push({
             studentId: item.studentId,
