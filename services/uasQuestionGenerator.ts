@@ -1,18 +1,18 @@
-import { 
-  ExamMaterialSnapshot, 
-  ExamPeriod, 
-  ExamQuestionSet, 
-  ExamQuestion, 
-  GeneratedUASQuestion, 
-  GeneratedUASQuestionSet, 
-  MaterialPath, 
-  MaterialPathNode, 
-  MaterialZone, 
-  QuranPosition, 
-  QuranVerse, 
-  QuranWord, 
-  QuestionBankItem, 
-  UASGenerationStrategy, 
+import {
+  ExamMaterialSnapshot,
+  ExamPeriod,
+  ExamQuestionSet,
+  ExamQuestion,
+  GeneratedUASQuestion,
+  GeneratedUASQuestionSet,
+  MaterialPath,
+  MaterialPathNode,
+  MaterialZone,
+  QuranPosition,
+  QuranVerse,
+  QuranWord,
+  QuestionBankItem,
+  UASGenerationStrategy,
   MemorizationDirection,
   QuestionSourceType
 } from '../types';
@@ -156,7 +156,7 @@ export class UASQuestionGenerator {
           verses: contentVerses.map(v => ({ surah: v.surahNumber, ayah: v.ayahNumber }))
         };
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Fallback darurat jika offline mutlak
     return {
@@ -304,7 +304,7 @@ export class UASQuestionGenerator {
     try {
       const v = await quranService.getVerse(surahNumber, ayahNumber);
       if (v) return v;
-    } catch (e) {}
+    } catch (e) { }
 
     const surahInfo = quranService.getSurah(surahNumber);
     const exactPage = quranService.getAyahPage(surahNumber, ayahNumber);
@@ -739,154 +739,64 @@ export class UASQuestionGenerator {
       const zoneNumber = zIdx + 1;
       const questionNumber = zIdx + 3; // 3 to 9
 
-      // Cek apakah ada Bank Soal acak yang cocok untuk zona ini
-      let chosenRandomBank: QuestionBankItem | null = null;
-      if (strategy === 'hybrid' || strategy === 'bank_only') {
-        const bankCandidates = bankQuestions.filter(bq => {
-          if (bq.status !== 'active') return false;
-          if (bq.questionType !== 'random') return false;
-          if (bq.examType !== 'uas' && bq.examType !== 'generic') return false;
+      // 6. GENERATE 7 SOAL ACAK (Soal 3 s.d. 9) — HANYA DARI BANK SOAL RESMI (TANPA FABRIKASI SINTETIS)
+      const minPos: QuranPosition = { surahNumber: snapshot.startSurah, ayahNumber: snapshot.startAyah, wordPosition: 1, pageNumber: snapshot.startPage };
+      const maxPos: QuranPosition = { surahNumber: snapshot.endSurah, ayahNumber: snapshot.endAyah, wordPosition: 999, pageNumber: snapshot.endPage };
+      const loPos = comparePositions(minPos, maxPos) <= 0 ? minPos : maxPos;
+      const hiPos = comparePositions(minPos, maxPos) <= 0 ? maxPos : minPos;
 
-          const bInZone = zone.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber);
-          if (!bInZone) return false;
+      const bankCandidates = bankQuestions.filter(bq => {
+        if (bq.status !== 'active') return false;
+        if (bq.questionType !== 'random') return false;
+        if (bq.examType !== 'uas' && bq.examType !== 'generic') return false;
+        if (!bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd) return false;
+        if (comparePositions(bq.promptStart, bq.promptEnd) > 0) return false;
+        if (comparePositions(bq.promptEnd, bq.answerStart) >= 0) return false;
+        if (comparePositions(bq.answerStart, bq.answerEnd) > 0) return false;
+        // Wajib berada penuh di dalam materi sabaq/ziyadah semester berjalan yang disahkan
+        if (comparePositions(bq.promptStart, loPos) < 0 || comparePositions(bq.answerEnd, hiPos) > 0) return false;
 
-          const bPage = bq.answerStart.pageNumber || bq.startPage;
-          if (mandatoryPages.includes(bPage)) return false;
+        const bInZone = zone.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber);
+        if (!bInZone) return false;
 
-          if (usedBKeys.has(makeBKey(bq.answerStart))) return false;
+        const bPage = bq.answerStart.pageNumber || bq.startPage;
+        if (mandatoryPages.includes(bPage)) return false;
 
-          return true;
-        });
+        if (usedBKeys.has(makeBKey(bq.answerStart))) return false;
 
-        if (bankCandidates.length > 0) {
-          const pickIdx = Math.floor(prng() * bankCandidates.length);
-          chosenRandomBank = bankCandidates[pickIdx];
-        }
+        return true;
+      });
+
+      if (bankCandidates.length === 0) {
+        throw new Error('Bank Soal UAS belum mencukupi untuk materi/zona santri ini.');
       }
 
-      if (chosenRandomBank) {
-        usedBKeys.add(makeBKey(chosenRandomBank.answerStart));
-        questions.push({
-          questionNumber,
-          questionRole: 'random',
-          zoneNumber,
-          sourceType: 'bank',
-          questionBankId: chosenRandomBank.id,
-          pageNumber: chosenRandomBank.startPage,
-          maxScore: 10,
-          promptStart: chosenRandomBank.promptStart,
-          promptEnd: chosenRandomBank.promptEnd,
-          answerStart: chosenRandomBank.answerStart,
-          answerEnd: chosenRandomBank.answerEnd,
-          startPage: chosenRandomBank.startPage,
-          endPage: chosenRandomBank.endPage,
-          metadata: {
-            surahName: this.getSurahName(chosenRandomBank.answerStart.surahNumber),
-            endSurahName: this.getSurahName(chosenRandomBank.answerEnd.surahNumber),
-            difficulty: chosenRandomBank.difficulty,
-            notes: chosenRandomBank.notes
-          },
-          promptTextPreview: chosenRandomBank.promptText,
-          answerTextPreview: chosenRandomBank.answerText
-        });
-        continue;
-      }
+      const pickIdx = Math.floor(prng() * bankCandidates.length);
+      const chosenRandomBank = bankCandidates[pickIdx];
 
-      if (strategy === 'bank_only') {
-        throw new Error(`Tidak ditemukan soal Bank Soal aktif untuk Zona ${zoneNumber}.`);
-      }
-
-      // 7. Pembangkitan Otomatis (Auto Candidate)
-      let candidateNodes = zone.nodes.filter(n => !mandatoryPages.includes(n.pageNumber));
-      let isFallbackOverlap = false;
-
-      if (candidateNodes.length === 0) {
-        candidateNodes = zone.nodes;
-        isFallbackOverlap = true;
-      }
-
-      let generatedPoints: any = null;
-      let attempts = 0;
-      const maxAttempts = Math.min(candidateNodes.length * 3, 20);
-
-      while (attempts < maxAttempts) {
-        attempts++;
-        const targetNodeIdx = Math.floor(prng() * candidateNodes.length);
-        const targetNode = candidateNodes[targetNodeIdx];
-
-        const pts = await this.buildQuestionPoints(
-          targetNode.surahNumber,
-          targetNode.ayahNumber,
-          null,
-          path,
-          snapshot,
-          prng
-        );
-
-        const bKey = makeBKey(pts.answerStart);
-        if (comparePositions(pts.promptEnd, pts.answerStart) < 0 && !usedBKeys.has(bKey)) {
-          if (isFallbackOverlap && pts.answerStart.wordPosition === 1) {
-            continue;
-          }
-
-          usedBKeys.add(bKey);
-          generatedPoints = pts;
-          break;
-        }
-      }
-
-      if (!generatedPoints) {
-        const fallbackCandidates = candidateNodes.length > 0 ? candidateNodes : zone.nodes;
-        for (const fallbackNode of fallbackCandidates) {
-          const pts = await this.buildQuestionPoints(
-            fallbackNode.surahNumber,
-            fallbackNode.ayahNumber,
-            (attempts % 3) + 2,
-            path,
-            snapshot,
-            prng
-          );
-          if (comparePositions(pts.promptEnd, pts.answerStart) < 0) {
-            generatedPoints = pts;
-            usedBKeys.add(makeBKey(pts.answerStart));
-            break;
-          }
-        }
-        if (!generatedPoints) {
-          const targetNode = fallbackCandidates[0];
-          const pts = await this.buildQuestionPoints(
-            targetNode.surahNumber,
-            targetNode.ayahNumber,
-            (attempts % 3) + 2,
-            path,
-            snapshot,
-            prng
-          );
-          generatedPoints = pts;
-          usedBKeys.add(makeBKey(pts.answerStart));
-        }
-      }
-
+      usedBKeys.add(makeBKey(chosenRandomBank.answerStart));
       questions.push({
         questionNumber,
         questionRole: 'random',
         zoneNumber,
-        sourceType: 'auto',
-        questionBankId: null,
-        pageNumber: generatedPoints.startPage,
+        sourceType: 'bank',
+        questionBankId: chosenRandomBank.id,
+        pageNumber: chosenRandomBank.startPage,
         maxScore: 10,
-        promptStart: generatedPoints.promptStart,
-        promptEnd: generatedPoints.promptEnd,
-        answerStart: generatedPoints.answerStart,
-        answerEnd: generatedPoints.answerEnd,
-        startPage: generatedPoints.startPage,
-        endPage: generatedPoints.endPage,
+        promptStart: chosenRandomBank.promptStart,
+        promptEnd: chosenRandomBank.promptEnd,
+        answerStart: chosenRandomBank.answerStart,
+        answerEnd: chosenRandomBank.answerEnd,
+        startPage: chosenRandomBank.startPage,
+        endPage: chosenRandomBank.endPage,
         metadata: {
-          ...generatedPoints.metadata,
-          fallbackMandatoryOverlap: isFallbackOverlap
+          surahName: this.getSurahName(chosenRandomBank.answerStart.surahNumber),
+          endSurahName: this.getSurahName(chosenRandomBank.answerEnd.surahNumber),
+          difficulty: chosenRandomBank.difficulty,
+          notes: chosenRandomBank.notes
         },
-        promptTextPreview: `QS. ${this.getSurahName(generatedPoints.promptStart.surahNumber)}:${generatedPoints.promptStart.ayahNumber}`,
-        answerTextPreview: `QS. ${this.getSurahName(generatedPoints.answerStart.surahNumber)}:${generatedPoints.answerStart.ayahNumber} s.d. ${this.getSurahName(generatedPoints.answerEnd.surahNumber)}:${generatedPoints.answerEnd.ayahNumber}`
+        promptTextPreview: chosenRandomBank.promptText,
+        answerTextPreview: chosenRandomBank.answerText
       });
     }
 
@@ -965,6 +875,209 @@ export class UASQuestionGenerator {
     return {
       questionSet: { ...questionSet, questions: finalQuestions },
       questions: finalQuestions
+    };
+  }
+
+  /**
+   * GENERATOR MASSAL UAS (BAGIAN 3 & 4):
+   * Hanya menyiapkan 7 soal acak dari Bank Soal (Soal 3 s.d. 9) sebagai draft 'pending_mandatory'.
+   * 2 soal wajib halaman penuh TIDAK dipilih otomatis — dipilih manual oleh penguji saat ujian.
+   */
+  public async generateUASRandomDraftSet(params: {
+    period: ExamPeriod;
+    snapshot: ExamMaterialSnapshot;
+    seed?: string;
+    bankQuestions: QuestionBankItem[];
+    actorId?: string;
+  }): Promise<{
+    questionSet: ExamQuestionSet;
+    questions: GeneratedUASQuestion[];
+  }> {
+    const { period, snapshot, bankQuestions = [], actorId } = params;
+
+    if (snapshot.status !== 'finalized') {
+      throw new Error('Materi UAS santri belum difinalisasi.');
+    }
+    if (period.examType !== 'uas') {
+      throw new Error('Generator ini khusus untuk periode ujian UAS.');
+    }
+
+    const path = this.buildMaterialPath(snapshot);
+    if (path.nodes.length < 7) {
+      throw new Error('Materi terlalu pendek untuk menghasilkan 7 soal acak UAS.');
+    }
+
+    const zones = this.divideIntoZones(path);
+    if (zones.length !== 7) {
+      throw new Error('Pembagian zona gagal menghasilkan tepat 7 zona.');
+    }
+
+    const seed = params.seed || `seed_uas_draft7_${period.id}_${snapshot.studentId}_${Date.now()}`;
+    const prng = createPRNG(seed);
+
+    const minPos: QuranPosition = { surahNumber: snapshot.startSurah, ayahNumber: snapshot.startAyah, wordPosition: 1, pageNumber: snapshot.startPage };
+    const maxPos: QuranPosition = { surahNumber: snapshot.endSurah, ayahNumber: snapshot.endAyah, wordPosition: 999, pageNumber: snapshot.endPage };
+    const loPos = comparePositions(minPos, maxPos) <= 0 ? minPos : maxPos;
+    const hiPos = comparePositions(minPos, maxPos) <= 0 ? maxPos : minPos;
+
+    const usedBKeys = new Set<string>();
+    const makeBKey = (pos: QuranPosition) => `${pos.surahNumber}:${pos.ayahNumber}:${pos.wordPosition}`;
+    const questions: GeneratedUASQuestion[] = [];
+
+    for (let zIdx = 0; zIdx < 7; zIdx++) {
+      const zone = zones[zIdx];
+      const zoneNumber = zIdx + 1;
+      const questionNumber = zIdx + 3;
+
+      const bankCandidates = bankQuestions.filter(bq => {
+        if (bq.status !== 'active') return false;
+        if (bq.questionType !== 'random') return false;
+        if (bq.examType !== 'uas' && bq.examType !== 'generic') return false;
+        if (!bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd) return false;
+        if (comparePositions(bq.promptStart, bq.promptEnd) > 0) return false;
+        if (comparePositions(bq.promptEnd, bq.answerStart) >= 0) return false;
+        if (comparePositions(bq.answerStart, bq.answerEnd) > 0) return false;
+        if (comparePositions(bq.promptStart, loPos) < 0 || comparePositions(bq.answerEnd, hiPos) > 0) return false;
+
+        const bInZone = zone.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber);
+        if (!bInZone) return false;
+
+        if (usedBKeys.has(makeBKey(bq.answerStart))) return false;
+        return true;
+      });
+
+      if (bankCandidates.length === 0) {
+        throw new Error('Bank Soal UAS belum mencukupi untuk materi/zona santri ini.');
+      }
+
+      const chosen = bankCandidates[Math.floor(prng() * bankCandidates.length)];
+      usedBKeys.add(makeBKey(chosen.answerStart));
+
+      const gq: GeneratedUASQuestion = {
+        questionNumber,
+        questionRole: 'random',
+        zoneNumber,
+        sourceType: 'bank',
+        questionBankId: chosen.id,
+        pageNumber: chosen.startPage,
+        maxScore: 10,
+        promptStart: chosen.promptStart,
+        promptEnd: chosen.promptEnd,
+        answerStart: chosen.answerStart,
+        answerEnd: chosen.answerEnd,
+        startPage: chosen.startPage,
+        endPage: chosen.endPage,
+        metadata: {
+          surahName: this.getSurahName(chosen.answerStart.surahNumber),
+          endSurahName: this.getSurahName(chosen.answerEnd.surahNumber),
+          difficulty: chosen.difficulty,
+          notes: chosen.notes
+        },
+        promptTextPreview: chosen.promptText,
+        answerTextPreview: chosen.answerText
+      };
+
+      const v = this.validateGeneratedQuestion(gq, path, snapshot);
+      if (!v.valid) {
+        throw new Error(`Validasi butir soal acak nomor ${questionNumber} gagal: ${v.reason}`);
+      }
+      questions.push(gq);
+    }
+
+    const nowIso = new Date().toISOString();
+    const setId = `eqs_uas_${period.id}_${snapshot.studentId}_v1`;
+    const questionSet: ExamQuestionSet = {
+      id: setId,
+      examPeriodId: period.id,
+      studentId: snapshot.studentId,
+      materialSnapshotId: snapshot.id,
+      version: 1,
+      generationStrategy: 'bank_only',
+      generationSeed: seed,
+      materialFingerprint: this.calculateMaterialFingerprint(snapshot),
+      status: 'pending_mandatory' as any,
+      generatedBy: actorId || null,
+      generatedAt: nowIso,
+      lockedAt: null,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    return { questionSet, questions };
+  }
+
+  /**
+   * Membangun 1 butir soal wajib halaman penuh (15 poin) dari pilihan manual Penguji
+   * berdasarkan batas Mushaf Madinah yang valid.
+   */
+  public async buildManualMandatoryQuestion(params: {
+    questionNumber: 1 | 2;
+    pageNumber: number;
+    snapshot: ExamMaterialSnapshot;
+    bankQuestions?: QuestionBankItem[];
+  }): Promise<GeneratedUASQuestion> {
+    const { questionNumber, pageNumber, snapshot, bankQuestions = [] } = params;
+    if (snapshot.status !== 'finalized') {
+      throw new Error('Snapshot materi santri belum difinalisasi.');
+    }
+    const pageBoundary = await this.getPageWordBoundary(pageNumber);
+    const minPos: QuranPosition = { surahNumber: snapshot.startSurah, ayahNumber: snapshot.startAyah, wordPosition: 1, pageNumber: snapshot.startPage };
+    const maxPos: QuranPosition = { surahNumber: snapshot.endSurah, ayahNumber: snapshot.endAyah, wordPosition: 999, pageNumber: snapshot.endPage };
+    const loPos = comparePositions(minPos, maxPos) <= 0 ? minPos : maxPos;
+    const hiPos = comparePositions(minPos, maxPos) <= 0 ? maxPos : minPos;
+
+    const answerStart: QuranPosition = {
+      surahNumber: pageBoundary.startSurah,
+      ayahNumber: pageBoundary.startAyah,
+      wordPosition: pageBoundary.startWord || 1,
+      pageNumber
+    };
+    const answerEnd: QuranPosition = {
+      surahNumber: pageBoundary.endSurah,
+      ayahNumber: pageBoundary.endAyah,
+      wordPosition: pageBoundary.endWord || 1,
+      pageNumber
+    };
+
+    if (comparePositions(answerStart, loPos) < 0 || comparePositions(answerEnd, hiPos) > 0) {
+      throw new Error(`Halaman ${pageNumber} bukan halaman penuh yang sepenuhnya berada di dalam materi sah santri.`);
+    }
+
+    const matchingBank = bankQuestions.find(
+      q =>
+        q.status === 'active' &&
+        (q.questionType === 'mandatory' || q.questionFormat === 'full_page') &&
+        (q.pageNumber || q.startPage) === pageNumber
+    );
+
+    return {
+      questionNumber,
+      questionRole: 'mandatory',
+      zoneNumber: null,
+      sourceType: matchingBank ? 'bank' : ('manual_mushaf' as any),
+      questionBankId: matchingBank?.id || null,
+      pageNumber,
+      maxScore: 15,
+      promptStart: null,
+      promptEnd: null,
+      answerStart,
+      answerEnd,
+      startPage: pageNumber,
+      endPage: pageNumber,
+      metadata: {
+        isFullPage: true,
+        manualExaminerChoice: true,
+        pageNumber,
+        startSurah: pageBoundary.startSurah,
+        startAyah: pageBoundary.startAyah,
+        endSurah: pageBoundary.endSurah,
+        endAyah: pageBoundary.endAyah,
+        surahName: this.getSurahName(pageBoundary.startSurah),
+        endSurahName: this.getSurahName(pageBoundary.endSurah),
+        notes: `Pilihan Manual Penguji — Halaman Penuh ${pageNumber}`
+      },
+      promptTextPreview: `Bacakan Mushaf Standar Madinah Halaman ${pageNumber} secara penuh.`,
+      answerTextPreview: `[Halaman ${pageNumber}] ${this.getSurahName(pageBoundary.startSurah)}:${pageBoundary.startAyah} s.d. ${this.getSurahName(pageBoundary.endSurah)}:${pageBoundary.endAyah}`
     };
   }
 }

@@ -22,7 +22,7 @@ export interface UASEligibilityItem {
   reason: string;
   estimatedPages: number;
   fullPagesInMaterial: number;
-  mandatoryMatchCount: number;
+  coveredRandomZones: number;
   questionSetVersion?: number;
   snapshot?: ExamMaterialSnapshot;
 }
@@ -73,8 +73,8 @@ export function getFullMushafPagesInSnapshot(snap: ExamMaterialSnapshot, pathPag
 }
 
 /**
- * Evaluasi kelayakan pembuatan paket 9 soal UAS secara Read-Only (DB Delta = 0).
- * Memisahkan MATERI_TIDAK_CUKUP (termasuk rentang parsial < 2 halaman penuh) dari BANK_SOAL_KURANG.
+ * Evaluasi kelayakan pembuatan draft 7 soal acak UAS dari Bank Soal (Read-Only, DB Delta = 0).
+ * 2 soal wajib halaman penuh dipilih manual oleh penguji saat pelaksanaan ujian.
  */
 export function evaluateUASEligibility(params: {
   participants: ExamParticipant[];
@@ -102,13 +102,18 @@ export function evaluateUASEligibility(params: {
   const snapshotMap = new Map<string, ExamMaterialSnapshot>();
   snapshots.forEach(s => snapshotMap.set(s.studentId, s));
 
-  const activeMandatoryBank = (bankQuestions || []).filter(
+  const activeRandomBank = (bankQuestions || []).filter(
     q =>
       q.status === 'active' &&
-      (q.questionType === 'mandatory' || q.questionFormat === 'full_page') &&
-      q.pageNumber &&
-      q.pageNumber >= 1 &&
-      q.pageNumber <= 604
+      q.questionType === 'random' &&
+      (q.examType === 'uas' || q.examType === 'generic') &&
+      q.promptStart &&
+      q.promptEnd &&
+      q.answerStart &&
+      q.answerEnd &&
+      comparePositions(q.promptStart, q.promptEnd) <= 0 &&
+      comparePositions(q.promptEnd, q.answerStart) < 0 &&
+      comparePositions(q.answerStart, q.answerEnd) <= 0
   );
 
   const items: UASEligibilityItem[] = [];
@@ -128,7 +133,7 @@ export function evaluateUASEligibility(params: {
     let status: UASEligibilityStatus;
     let reason: string;
     let fullPagesInMaterial = 0;
-    let mandatoryMatchCount = 0;
+    let coveredRandomZones = 0;
 
     if (!snap || snap.status === 'not_ready' || snap.totalRecordsAnalyzed === 0) {
       status = 'MATERI_TIDAK_CUKUP';
@@ -149,7 +154,9 @@ export function evaluateUASEligibility(params: {
         stale++;
       } else {
         status = 'SUDAH_ADA';
-        reason = `Paket 9 soal v${qInfo.version} sudah tersimpan dan tidak akan ditimpa.`;
+        reason = qInfo.status === 'pending_mandatory'
+          ? `Draft 7 soal acak v${qInfo.version} sudah siap (menunggu pilihan manual 2 soal wajib oleh penguji).`
+          : `Paket 9 soal v${qInfo.version} sudah terkunci dan tidak akan ditimpa.`;
         sudahAda++;
       }
     } else if (estPages < 2) {
@@ -169,20 +176,33 @@ export function evaluateUASEligibility(params: {
           materiTidakCukup++;
         } else if (fullPagesInMaterial < 2) {
           status = 'MATERI_TIDAK_CUKUP';
-          reason = `Belum Memenuhi Syarat Materi UAS: Rentang ${estPages} halaman parsial hanya memuat ${fullPagesInMaterial} halaman mushaf penuh (dibutuhkan minimal 2 halaman penuh untuk soal wajib full_page).`;
+          reason = `Belum Memenuhi Syarat Materi UAS: Rentang ${estPages} halaman parsial hanya memuat ${fullPagesInMaterial} halaman mushaf penuh (dibutuhkan minimal 2 halaman penuh untuk pilihan wajib penguji).`;
           materiTidakCukup++;
         } else {
-          const fullPageSet = new Set(fullPages);
-          const matched = activeMandatoryBank.filter(q => q.pageNumber && fullPageSet.has(q.pageNumber));
-          mandatoryMatchCount = matched.length;
+          const zones = uasQuestionGenerator.divideIntoZones(path);
+          const minPos = { surahNumber: snap.startSurah, ayahNumber: snap.startAyah, wordPosition: 1, pageNumber: snap.startPage };
+          const maxPos = { surahNumber: snap.endSurah, ayahNumber: snap.endAyah, wordPosition: 999, pageNumber: snap.endPage };
+          const loPos = comparePositions(minPos, maxPos) <= 0 ? minPos : maxPos;
+          const hiPos = comparePositions(minPos, maxPos) <= 0 ? maxPos : minPos;
 
-          if (mandatoryMatchCount < 2) {
+          const missingZones: number[] = [];
+          for (let z = 0; z < zones.length; z++) {
+            const zone = zones[z];
+            const hasCandidate = activeRandomBank.some(bq => {
+              if (comparePositions(bq.promptStart, loPos) < 0 || comparePositions(bq.answerEnd, hiPos) > 0) return false;
+              return zone.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber);
+            });
+            if (hasCandidate) coveredRandomZones++;
+            else missingZones.push(z + 1);
+          }
+
+          if (zones.length !== 7 || missingZones.length > 0) {
             status = 'BANK_SOAL_KURANG';
-            reason = `Materi memiliki ${fullPagesInMaterial} halaman penuh yang sah, namun Bank Soal wajib full_page baru tersedia ${mandatoryMatchCount}/2 di rentang ini.`;
+            reason = `Bank Soal UAS belum mencukupi untuk materi/zona santri ini (zona kosong: ${missingZones.join(', ')}).`;
             bankSoalKurang++;
           } else {
             status = 'SIAP_GENERATE';
-            reason = `Memenuhi syarat (${estPages} hal, ${fullPagesInMaterial} hal penuh, ${mandatoryMatchCount} soal wajib tersedia di Bank Soal).`;
+            reason = `Memenuhi syarat (${estPages} hal, ${fullPagesInMaterial} hal penuh untuk pilihan wajib, 7/7 zona Bank Soal acak tersedia).`;
             siapGenerate++;
           }
         }
@@ -203,7 +223,7 @@ export function evaluateUASEligibility(params: {
       reason,
       estimatedPages: estPages,
       fullPagesInMaterial,
-      mandatoryMatchCount,
+      coveredRandomZones,
       questionSetVersion: qInfo?.version,
       snapshot: snap
     });

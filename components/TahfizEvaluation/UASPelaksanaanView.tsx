@@ -12,6 +12,7 @@ import { UASExamSheet } from './UASExamSheet';
 import { UASAssignExaminerModal } from './UASAssignExaminerModal';
 import { UASReopenModal } from './UASReopenModal';
 import { UASExamReviewModal } from './UASExamReviewModal';
+import { UASManualMandatoryModal } from './UASManualMandatoryModal';
 import { 
   ClipboardCheck, 
   Play, 
@@ -67,11 +68,26 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
   } | null>(null);
 
   const isAdmin = user.role === 'admin';
+  const isSharedExaminer = user.role === 'shared_uas_examiner';
+  const [verifiedExaminer, setVerifiedExaminer] = useState<{ teacherId: string; teacherName: string; verifiedAt: string } | null>(
+    user.verifiedExaminer || null
+  );
+  const [activeTeachersList, setActiveTeachersList] = useState<{ id: string; name: string; username?: string; hasPin?: boolean }[]>([]);
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
+  const [examinerPin, setExaminerPin] = useState('');
+  const [verifyingPin, setVerifyingPin] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [manualMandatoryStudent, setManualMandatoryStudent] = useState<ExaminerStudentItem | null>(null);
 
   // Load available UAS periods
   useEffect(() => {
     loadPeriods();
     loadTeachers();
+    if (isSharedExaminer) {
+      api.getUASActiveTeachers(user).then(res => {
+        if (res.success && res.teachers) setActiveTeachersList(res.teachers);
+      });
+    }
   }, []);
 
   const loadPeriods = async () => {
@@ -104,10 +120,29 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
   // Load students for selected period
   useEffect(() => {
-    if (selectedPeriodId) {
+    if (selectedPeriodId && (!isSharedExaminer || verifiedExaminer)) {
       loadStudents(selectedPeriodId);
     }
-  }, [selectedPeriodId]);
+  }, [selectedPeriodId, verifiedExaminer]);
+
+  const handleVerifyExaminer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTeacherId || !examinerPin.trim()) {
+      setPinError('Pilih nama penguji dan masukkan PIN verifikasi.');
+      return;
+    }
+    setVerifyingPin(true);
+    setPinError(null);
+    const res = await api.verifyUASExaminerIdentity(selectedTeacherId, examinerPin.trim(), user);
+    setVerifyingPin(false);
+    if (res.success && res.verifiedExaminer) {
+      setVerifiedExaminer(res.verifiedExaminer);
+      setExaminerPin('');
+      if (selectedPeriodId) loadStudents(selectedPeriodId);
+    } else {
+      setPinError(res.message || 'Verifikasi identitas penguji gagal.');
+    }
+  };
 
   const loadStudents = async (periodId: string) => {
     setIsLoading(true);
@@ -131,12 +166,26 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
   // Start exam
   const handleStartExam = async (student: ExaminerStudentItem) => {
+    if (isSharedExaminer && !verifiedExaminer) {
+      setErrorMsg('Identitas penguji UAS belum diverifikasi.');
+      return;
+    }
+    if (student.questionSetStatus === 'pending_mandatory') {
+      setManualMandatoryStudent(student);
+      return;
+    }
     setErrorMsg(null);
     try {
+      const effectiveUser = verifiedExaminer ? { ...user, verifiedExaminer } : user;
       const res = await api.startUASAttempt({
         periodId: selectedPeriodId,
         studentId: student.studentId
-      }, user);
+      }, effectiveUser);
+
+      if (res.requiresManualMandatory) {
+        setManualMandatoryStudent(student);
+        return;
+      }
 
       if (res.success && res.attempt && res.questions && res.assessments) {
         setActiveSession({
@@ -261,7 +310,7 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
   if (activeSession) {
     return (
       <UASExamSheet
-        user={user}
+        user={verifiedExaminer ? { ...user, verifiedExaminer } : user}
         periodId={selectedPeriodId}
         studentId={activeSession.student.studentId}
         studentName={activeSession.student.studentName}
@@ -282,8 +331,82 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     );
   }
 
+  if (isSharedExaminer && !verifiedExaminer) {
+    return (
+      <div className="p-6 max-w-xl mx-auto mt-8">
+        <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="px-6 py-5 bg-gradient-to-r from-teal-900 to-emerald-900 text-white">
+            <h2 className="font-black text-lg flex items-center gap-2">
+              <ShieldCheck size={22} className="text-emerald-300" />
+              <span>Pilih &amp; Verifikasi Penguji UAS</span>
+            </h2>
+            <p className="text-xs text-emerald-100 mt-1">
+              Akun Login: <strong>{user.name}</strong>. Penguji wajib memilih identitas diri dan memasukkan PIN pribadi sebelum memulai ujian.
+            </p>
+          </div>
+          <form onSubmit={handleVerifyExaminer} className="p-6 space-y-4">
+            {pinError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0" />
+                <span>{pinError}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nama Penguji (Asatidz Aktif)</label>
+              <select
+                value={selectedTeacherId}
+                onChange={e => setSelectedTeacherId(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-white"
+                required
+              >
+                <option value="">-- Pilih Penguji UAS --</option>
+                {activeTeachersList.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">PIN Verifikasi Penguji</label>
+              <input
+                type="password"
+                value={examinerPin}
+                onChange={e => setExaminerPin(e.target.value)}
+                placeholder="Masukkan PIN pribadi dari Admin"
+                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={verifyingPin || !selectedTeacherId || !examinerPin.trim()}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-md disabled:opacity-50"
+            >
+              {verifyingPin ? 'Memverifikasi Identitas...' : 'Verifikasi & Masuk Pelaksanaan UAS'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+      {isSharedExaminer && verifiedExaminer && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-900">
+          <div>
+            <span>Akun Bersama: <strong>{user.name}</strong></span>
+            <span className="mx-2">•</span>
+            <span>Penguji Terverifikasi: <strong>{verifiedExaminer.teacherName}</strong></span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setVerifiedExaminer(null)}
+            className="px-3 py-1 bg-white border border-emerald-300 rounded-xl font-bold text-emerald-800 hover:bg-emerald-100"
+          >
+            Ganti Penguji
+          </button>
+        </div>
+      )}
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-emerald-800 to-teal-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 w-80 h-80 bg-white/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
@@ -448,13 +571,14 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredStudents.map(student => {
             const hasQuestions = student.questionSetStatus === 'locked';
+            const hasPendingMandatory = student.questionSetStatus === 'pending_mandatory';
             const isStale = student.questionSetStatus === 'stale';
-            const hasAssignment = student.hasAssignment;
+            const hasAssignment = student.hasAssignment || isSharedExaminer;
             const isAssignedToMe = student.examinerId === user.id;
-            const canExamine = isAdmin || isAssignedToMe;
+            const canExamine = isAdmin || (isSharedExaminer && !!verifiedExaminer) || isAssignedToMe;
             const isSubmitted = student.attemptStatus === 'submitted';
             const isInProgress = student.attemptStatus === 'in_progress';
-            const isReady = hasQuestions && hasAssignment && !student.attemptStatus;
+            const isReady = (hasQuestions || hasPendingMandatory) && hasAssignment && !student.attemptStatus;
             const isPassed = (student.totalScore || 0) >= (periodInfo?.kkm || 75);
 
             return (
@@ -574,7 +698,7 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                       }`}
                     >
                       <Play size={14} />
-                      <span>Mulai Ujian UAS</span>
+                      <span>{hasPendingMandatory ? 'Pilih Soal Wajib & Mulai Ujian' : 'Mulai Ujian UAS'}</span>
                     </button>
                   ) : (
                     <div className="text-center py-1.5 text-[11px] text-slate-400">
@@ -589,6 +713,21 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
       )}
 
       {/* Modals */}
+      {manualMandatoryStudent && (
+        <UASManualMandatoryModal
+          isOpen={!!manualMandatoryStudent}
+          onClose={() => setManualMandatoryStudent(null)}
+          user={verifiedExaminer ? { ...user, verifiedExaminer } : user}
+          periodId={selectedPeriodId}
+          student={manualMandatoryStudent}
+          onSuccessStartExam={() => {
+            const st = manualMandatoryStudent;
+            setManualMandatoryStudent(null);
+            handleStartExam({ ...st, questionSetStatus: 'locked' });
+          }}
+        />
+      )}
+
       {assignModalStudent && (
         <UASAssignExaminerModal
           periodId={selectedPeriodId}

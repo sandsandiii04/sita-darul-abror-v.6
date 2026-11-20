@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { materialDetectionService } from '../../services/materialDetectionService';
 import { AcademicTermModal } from './AcademicTermModal';
 import { ExamPeriodModal } from './ExamPeriodModal';
+import { UASSharedAccountModal } from './UASSharedAccountModal';
 import { 
   Calendar, 
   Plus, 
@@ -43,6 +44,7 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
   const [isTermModalOpen, setIsTermModalOpen] = useState(false);
   const [editingTerm, setEditingTerm] = useState<AcademicTerm | null>(null);
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
+  const [isSharedAccountModalOpen, setIsSharedAccountModalOpen] = useState(false);
   const [editingPeriod, setEditingPeriod] = useState<ExamPeriod | null>(null);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [periodToDelete, setPeriodToDelete] = useState<ExamPeriod | null>(null);
@@ -196,7 +198,17 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setIsSharedAccountModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-100 font-semibold text-xs transition-all flex items-center gap-2 backdrop-blur-sm"
+                title="Kelola Akun Bersama UAS dan PIN 16 Penguji"
+              >
+                <Users size={15} />
+                <span>Akun &amp; PIN UAS</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setEditingTerm(null);
@@ -463,13 +475,25 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
                     </button>
 
                     {user.role === 'admin' && (
-                      <button
-                        onClick={() => setPeriodToDelete(period)}
-                        className="p-2 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition-colors"
-                        title="Hapus Periode Ujian"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditingPeriod(period);
+                            setIsPeriodModalOpen(true);
+                          }}
+                          className="px-3 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-colors"
+                          title="Edit Tanggal Cutoff, KKM, atau Jadwal Periode"
+                        >
+                          Edit Periode
+                        </button>
+                        <button
+                          onClick={() => setPeriodToDelete(period)}
+                          className="p-2 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition-colors"
+                          title="Hapus Periode Ujian"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -554,6 +578,11 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
           </div>
         </div>
       )}
+      <UASSharedAccountModal
+        isOpen={isSharedAccountModalOpen}
+        onClose={() => setIsSharedAccountModalOpen(false)}
+        user={user}
+      />
     </div>
   );
 };

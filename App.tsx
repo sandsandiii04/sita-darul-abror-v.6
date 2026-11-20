@@ -400,7 +400,9 @@ const App: React.FC = () => {
         'tahsin_dashboard', 'tahsin_periods', 'tahsin_execution', 'tahsin_remedial', 'tahsin_reports'
       ];
       
-      if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
+      if (user.role === 'shared_uas_examiner' && activeTab !== 'uas_execution') {
+        setActiveTab('uas_execution');
+      } else if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
         setActiveTab('dashboard');
       } else if (user.role === 'teacher' && !teacherTabs.includes(activeTab)) {
         setActiveTab('dashboard');

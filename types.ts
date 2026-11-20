@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'teacher' | 'parent';
+export type Role = 'admin' | 'teacher' | 'parent' | 'shared_uas_examiner';
 
 export enum Grade {
   LANCAR = 'Lancar',
@@ -19,6 +19,7 @@ export interface User {
   avatar?: string;
   childId?: string; // For parents linked to a student
   gender?: 'L' | 'P'; // L for Laki-laki, P for Perempuan
+  verifiedExaminer?: { teacherId: string; teacherName: string; verifiedAt: string };
 }
 
 export interface Student {
@@ -631,6 +632,11 @@ export interface ExamAttempt {
   submittedAt?: string | null;
   totalScore: number; // 0 to 100
   examinerNotes?: string | null;
+  actualExaminerId?: string | null;
+  actualExaminerName?: string | null;
+  loginAccountId?: string | null;
+  loginAccountUsername?: string | null;
+  sessionNumber?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -648,10 +654,17 @@ export interface ExaminerStudentItem {
   hasAssignment: boolean;
   snapshotId?: string;
   snapshotStatus?: string;
-  startSurahName?: string;
+  startSurah?: number;
   startAyah?: number;
-  endSurahName?: string;
+  endSurah?: number;
   endAyah?: number;
+  startPage?: number;
+  endPage?: number;
+  startSurahName?: string;
+  endSurahName?: string;
+  actualExaminerId?: string;
+  actualExaminerName?: string;
+  sessionNumber?: number;
   memorizationDirection?: string;
   questionSetId?: string;
   questionSetStatus?: string;

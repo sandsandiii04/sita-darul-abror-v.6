@@ -536,6 +536,9 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
               <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 Kelas {studentClass}
               </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-white/10 text-teal-100 border border-white/20">
+                Penguji: {attempt.actualExaminerName || user.verifiedExaminer?.teacherName || user.name} (Sesi {attempt.sessionNumber || attempt.attemptNumber || 1})
+              </span>
               <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
                 UAS Tahfiz
               </span>

@@ -4161,7 +4161,7 @@ export const api = {
     userOverride?: User | null
   ): Promise<{ success: boolean; message?: string; period?: any; students?: ExaminerStudentItem[] }> {
     const u = userOverride || getLoggedUser();
-    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
     }
 
@@ -4290,6 +4290,138 @@ export const api = {
     };
   },
 
+  async getUASActiveTeachers(userOverride?: User | null): Promise<{
+    success: boolean;
+    teachers?: { id: string; name: string; username?: string; hasPin?: boolean }[];
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('get_uas_active_teachers', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memuat daftar penguji UAS.' };
+    }
+  },
+
+  async verifyUASExaminerIdentity(
+    teacherId: string,
+    pin: string,
+    userOverride?: User | null
+  ): Promise<{
+    success: boolean;
+    verifiedExaminer?: { teacherId: string; teacherName: string; verifiedAt: string };
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('verify_uas_examiner_identity', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_teacher_id: teacherId,
+        p_pin: pin
+      });
+      if (error) return { success: false, message: error.message };
+      if (data?.success && data?.verifiedExaminer && u) {
+        const updatedUser = { ...u, verifiedExaminer: data.verifiedExaminer };
+        setSessionUser(updatedUser);
+      }
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memverifikasi identitas penguji UAS.' };
+    }
+  },
+
+  async setUASExaminerPin(
+    teacherId: string,
+    pin: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; teacherId?: string; teacherName?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('set_uas_examiner_pin_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_teacher_id: teacherId,
+        p_pin: pin
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal mengatur PIN penguji UAS.' };
+    }
+  },
+
+  async configureSharedUASAccount(
+    params: { accountUsername: string; accountName?: string; newPassword?: string; isActive?: boolean },
+    userOverride?: User | null
+  ): Promise<{ success: boolean; accountId?: string; username?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('configure_shared_uas_account_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_account_username: params.accountUsername,
+        p_account_name: params.accountName || 'Akun Penguji Bersama UAS',
+        p_new_password: params.newPassword || null,
+        p_is_active: params.isActive !== false
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal mengonfigurasi akun bersama UAS.' };
+    }
+  },
+
+  async revokeUASSharedSessions(
+    accountUsername?: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('revoke_uas_shared_sessions_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_account_username: accountUsername || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal mencabut sesi akun bersama UAS.' };
+    }
+  },
+
+  async selectUASMandatoryPages(
+    params: { periodId: string; studentId: string; q1Payload: any; q2Payload: any },
+    userOverride?: User | null
+  ): Promise<{ success: boolean; questionSet?: any; questions?: any[]; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('select_uas_mandatory_pages', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: params.periodId,
+        p_student_id: params.studentId,
+        p_q1_payload: params.q1Payload,
+        p_q2_payload: params.q2Payload
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal menyimpan pilihan 2 soal wajib UAS.' };
+    }
+  },
+
   async startUASAttempt(
     params: {
       periodId: string;
@@ -4298,6 +4430,7 @@ export const api = {
     userOverride?: User | null
   ): Promise<{
     success: boolean;
+    requiresManualMandatory?: boolean;
     message?: string;
     attempt?: ExamAttempt;
     kkm?: number;
@@ -4305,7 +4438,7 @@ export const api = {
     assessments?: ExamQuestionAssessment[];
   }> {
     const u = userOverride || getLoggedUser();
-    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
     }
 
@@ -4466,7 +4599,7 @@ export const api = {
     userOverride?: User | null
   ): Promise<{ success: boolean; savedToServer?: boolean; savedLocally?: boolean; isConflict?: boolean; message?: string; assessment?: any }> {
     const u = userOverride || getLoggedUser();
-    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
     }
 
@@ -4650,7 +4783,7 @@ export const api = {
     userOverride?: User | null
   ): Promise<{ success: boolean; syncedCount: number; remainingCount: number; message?: string }> {
     const u = userOverride || getLoggedUser();
-    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, syncedCount: 0, remainingCount: 0, message: 'Akses ditolak.' };
     }
     const localAsms = this.getLocalQuestionAssessments(attemptId) as any[];
@@ -4699,7 +4832,7 @@ export const api = {
     assessments?: ExamQuestionAssessment[];
   }> {
     const u = userOverride || getLoggedUser();
-    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
     }
 
@@ -4752,7 +4885,7 @@ export const api = {
     submittedAt?: string;
   }> {
     const u = userOverride || getLoggedUser();
-    if (!u || (u.role !== 'admin' && u.role !== 'teacher')) {
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
     }
 

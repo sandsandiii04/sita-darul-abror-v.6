@@ -213,39 +213,37 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
         }
 
         try {
-          const genResult = await uasQuestionGenerator.generateUASQuestionSet({
+          const genResult = await uasQuestionGenerator.generateUASRandomDraftSet({
             period,
             snapshot: item.snapshot,
-            strategy: 'hybrid',
             bankQuestions,
             actorId: user.id
           });
 
-          const mandatoryCount = genResult.questions.filter(q => q.questionRole === 'mandatory').length;
-          const randomZones = new Set(genResult.questions.filter(q => q.questionRole === 'random').map(q => q.zoneNumber));
-          const totalScore = genResult.questions.reduce((acc, q) => acc + q.maxScore, 0);
+          const randomZones = new Set(genResult.questions.filter(q => q.questionRole === 'random' && q.sourceType === 'bank' && q.questionBankId).map(q => q.zoneNumber));
+          const totalDraftScore = genResult.questions.reduce((acc, q) => acc + q.maxScore, 0);
 
-          if (genResult.questions.length !== 9 || mandatoryCount !== 2 || randomZones.size !== 7 || totalScore !== 100) {
-            throw new Error(`Validasi paket 9 soal gagal (total=${genResult.questions.length}, wajib=${mandatoryCount}, zona=${randomZones.size}, skor=${totalScore}).`);
+          if (genResult.questions.length !== 7 || randomZones.size !== 7 || totalDraftScore !== 70) {
+            throw new Error(`Validasi draft 7 soal acak gagal (total=${genResult.questions.length}, zona=${randomZones.size}, skor=${totalDraftScore}).`);
           }
 
           const saveRes = await api.generateUASQuestionSet({
             periodId: period.id,
             studentId: item.studentId,
-            strategy: 'hybrid',
+            strategy: 'bank_only',
             seed: genResult.questionSet?.generationSeed,
             questions: genResult.questions as any
           }, user);
 
           if (!saveRes.success) {
-            throw new Error(saveRes.message || 'Gagal menyimpan paket UAS ke server.');
+            throw new Error(saveRes.message || 'Gagal menyimpan draft 7 soal acak UAS ke server.');
           }
 
           results.push({
             studentId: item.studentId,
             studentName: item.studentName,
             status: 'SUCCESS',
-            message: 'Paket 9 soal UAS berhasil dibuat dan dikunci.'
+            message: 'Draft 7 soal acak dari Bank Soal tersimpan (menunggu pilihan manual 2 soal wajib oleh Penguji).'
           });
         } catch (err: any) {
           results.push({
@@ -298,9 +296,9 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               <Sparkles size={20} className="text-amber-300" />
             </div>
             <div>
-              <h3 className="font-bold text-base">Generate Soal Massal UAS (Paket 9 Soal)</h3>
+              <h3 className="font-bold text-base">Generate Soal Massal UAS (Draft 7 Soal Acak Bank Soal)</h3>
               <p className="text-xs text-emerald-100">
-                {period.name} — Hanya memproses snapshot yang sudah difinalisasi, tanpa menimpa paket aktif.
+                {period.name} — Menyiapkan 7 soal acak dari Bank Soal untuk snapshot finalized; 2 soal wajib dipilih manual oleh Penguji saat ujian.
               </p>
             </div>
           </div>
@@ -323,7 +321,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-emerald-700">SIAP_GENERATE</p>
+                <p className="text-[11px] font-semibold text-emerald-700">SIAP_GENERATE (7 Acak)</p>
                 <p className="text-2xl font-black text-emerald-800">{eligibilitySummary.siapGenerate}</p>
               </div>
               <div className="bg-white p-3 rounded-2xl border border-sky-200 shadow-sm">
@@ -507,7 +505,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50"
             >
               <Play size={14} />
-              <span>Generate Paket UAS ({readyItems.length} Santri Siap)</span>
+              <span>Generate Draft 7 Acak ({readyItems.length} Santri Siap)</span>
             </button>
           </div>
         </div>

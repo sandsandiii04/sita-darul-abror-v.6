@@ -63,14 +63,17 @@ export class MaterialDetectionService {
     startDate: string,
     cutoffDate: string
   ): TahfidzRecord[] {
+    const startNorm = String(startDate || '').slice(0, 10);
+    const cutoffNorm = String(cutoffDate || '').slice(0, 10);
     return records.filter(r => {
       if (r.studentId !== studentId) return false;
       // Only hafalan baru (sabaq / ziyadah)
       if (r.type !== 'sabaq' && r.type !== 'ziyadah') return false;
       if (!r.date) return false;
-      // Strict date window: from academic_term.start_date to exam_period.material_cutoff_date
-      if (r.date < startDate) return false;
-      if (r.date > cutoffDate) return false;
+      const recDate = String(r.date).slice(0, 10);
+      // Strict date window (Asia/Jakarta YYYY-MM-DD): academic_term.start_date <= recDate <= exam_period.material_cutoff_date
+      if (startNorm && recDate < startNorm) return false;
+      if (cutoffNorm && recDate > cutoffNorm) return false;
       return true;
     }).sort((a, b) => {
       const comp = a.date.localeCompare(b.date);

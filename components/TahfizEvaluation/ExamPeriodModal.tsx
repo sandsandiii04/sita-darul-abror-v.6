@@ -88,6 +88,19 @@ export const ExamPeriodModal: React.FC<ExamPeriodModalProps> = ({
     const semLabel = term ? (term.semester === 'ganjil' ? 'Ganjil' : 'Genap') : 'Ganjil';
     const yearLabel = term ? term.academicYear : '2026/2027';
     setName(`${type.toUpperCase()} Tahfiz Semester ${semLabel} ${yearLabel}`);
+    if (!period) {
+      if (type === 'uas') {
+        setMaterialCutoffDate('2026-11-24');
+        setExamStartDate('2026-11-25');
+        setExamEndDate('2026-12-05');
+        setKkm(75);
+      } else {
+        setMaterialCutoffDate('2026-09-22');
+        setExamStartDate('2026-09-23');
+        setExamEndDate('2026-09-24');
+        setKkm(70);
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
