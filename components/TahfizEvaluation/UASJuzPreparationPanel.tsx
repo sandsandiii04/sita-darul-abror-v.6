@@ -15,7 +15,8 @@ import { api } from '../../api';
 import { analyzeStudentJuzPartsAndSessions } from '../../services/uasJuzSegmentationService';
 import { evaluateUASSessionEligibility } from '../../services/uasBulkEligibilityService';
 import { UASAdminApprovalPanel } from './UASAdminApprovalPanel';
-import { BookOpen, RefreshCw, ShieldCheck, Layers, Ban, Plus, Send, RotateCcw, Trash2, Edit3, AlertTriangle } from 'lucide-react';
+import { UASManualPrepModal } from './UASManualPrepModal';
+import { BookOpen, RefreshCw, ShieldCheck, Layers, Ban, Plus, Send, RotateCcw, Trash2, Edit3, AlertTriangle, Sliders } from 'lucide-react';
 
 interface UASJuzPreparationPanelProps {
   user: User;
@@ -43,6 +44,8 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [busyPartId, setBusyPartId] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'multi_session' | 'needs_review' | 'needs_decision' | 'bank_short'>('all');
+  const [teacherStatusFilter, setTeacherStatusFilter] = useState<'all' | 'unverified' | 'draft' | 'verified' | 'pending_admin' | 'approved'>('all');
+  const [fullManualStudentId, setFullManualStudentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSyncPreview, setShowSyncPreview] = useState(false);
   const [isBulkFinalizing, setIsBulkFinalizing] = useState(false);
@@ -316,9 +319,19 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
       if (filterMode === 'needs_review') return r.analysis.hasUnverifiedGaps || r.analysis.anomalies.length > 0;
       if (filterMode === 'needs_decision') return r.analysis.needsAdminDecision;
       if (filterMode === 'bank_short') return r.sessionEligibilities.some(e => e.status === 'BANK_SOAL_KURANG');
+      if (teacherStatusFilter !== 'all') {
+        const subSt = r.submission?.status;
+        const hasVerified = r.analysis.parts.length > 0 && r.analysis.parts.every(p => Boolean(p.verifiedAt) || p.teacherStatus === 'teacher_verified' || p.teacherStatus === 'admin_approved');
+        const hasManualDraft = r.analysis.parts.some(p => p.teacherStatus === 'draft_manual');
+        if (teacherStatusFilter === 'approved') return subSt === 'admin_approved';
+        if (teacherStatusFilter === 'pending_admin') return subSt === 'pending_admin_approval' || subSt === 'exception_pending';
+        if (teacherStatusFilter === 'verified') return hasVerified && subSt !== 'admin_approved' && subSt !== 'pending_admin_approval';
+        if (teacherStatusFilter === 'draft') return (hasManualDraft || subSt === 'draft' || subSt === 'needs_correction' || subSt === 'rejected') && !hasVerified;
+        if (teacherStatusFilter === 'unverified') return !hasVerified && subSt !== 'admin_approved' && subSt !== 'pending_admin_approval';
+      }
       return true;
     });
-  }, [studentRows, filterMode, searchQuery]);
+  }, [studentRows, filterMode, teacherStatusFilter, searchQuery]);
 
   const isPartFinalizable = (pt: ExamMaterialPart): { ok: boolean; reason?: string } => {
     if (pt.status === 'finalized') return { ok: false, reason: 'Sudah difinalisasi.' };
@@ -609,19 +622,8 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
               className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50"
             >
               <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-              <span>{isSyncing ? 'Menyinkronkan...' : 'Sinkronkan Materi Per Juz & Sesi'}</span>
+              <span>{isSyncing ? 'Menyinkronkan...' : 'Muat Sugesti dari Setoran'}</span>
             </button>
-            {isAdmin && (
-              <button
-                onClick={handleBulkFinalizeReady}
-                disabled={isBulkFinalizing || summary.readyPartsCount === 0}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-40"
-                title="Hanya memfinalisasi bagian juz yang sudah valid/terverifikasi (ready). Bagian needs_review & needs_admin_decision dilewati."
-              >
-                <ShieldCheck size={14} />
-                <span>{isBulkFinalizing ? 'Memfinalisasi...' : `Finalisasi Semua yang Siap (${summary.readyPartsCount})`}</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -721,6 +723,30 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
               : `${summary.emptyZonesInChecked} zona kosong pada ${summary.checkedCount} sesi diperiksa`}
           </div>
         </button>
+      </div>
+
+      {/* Simplified Teacher Status Tabs (Section E) */}
+      <div className="flex flex-wrap gap-1.5 text-[11px]">
+        {[
+          { id: 'all', label: 'Semua' },
+          { id: 'unverified', label: 'Belum Diperiksa' },
+          { id: 'draft', label: 'Draft Materi' },
+          { id: 'verified', label: 'Sudah Diverifikasi' },
+          { id: 'pending_admin', label: 'Menunggu Admin' },
+          { id: 'approved', label: 'Disetujui' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setTeacherStatusFilter(tab.id as any)}
+            className={`px-3 py-1.5 rounded-xl font-bold border transition-colors ${
+              teacherStatusFilter === tab.id
+                ? 'bg-teal-700 text-white border-teal-700'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Search Bar */}
@@ -901,6 +927,12 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                       {row.submission?.status !== 'admin_approved' ? (
                         <>
                           <button
+                            onClick={() => setFullManualStudentId(row.participant.studentId)}
+                            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold inline-flex items-center gap-1"
+                          >
+                            <Sliders size={11} /> Atur Materi & Sesi Manual
+                          </button>
+                          <button
                             onClick={() => openManualSessionModal(row)}
                             className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-bold inline-flex items-center gap-1"
                           >
@@ -1010,6 +1042,34 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           </div>
         </div>
       )}
+      {fullManualStudentId && (() => {
+        const targetRow = studentRows.find(r => r.participant.studentId === fullManualStudentId);
+        if (!targetRow) return null;
+        return (
+          <UASManualPrepModal
+            isOpen={true}
+            onClose={() => setFullManualStudentId(null)}
+            period={period}
+            term={term}
+            studentId={targetRow.participant.studentId}
+            studentName={targetRow.participant.studentName}
+            studentClass={targetRow.participant.class}
+            halaqah={targetRow.participant.halaqah || '-'}
+            teacherName={user.name}
+            records={records}
+            serverParts={serverParts.filter(p => p.studentId === targetRow.participant.studentId)}
+            suggestedParts={targetRow.analysis.parts}
+            sessions={targetRow.sessions}
+            submissionStatus={targetRow.submission?.status}
+            user={user}
+            onSaved={async (msgText) => {
+              await loadRemote();
+              onSessionsUpdated?.();
+              if (msgText) setMsg({ type: 'success', text: msgText });
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

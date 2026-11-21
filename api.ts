@@ -5098,6 +5098,31 @@ export const api = {
     }
   },
 
+  async upsertUASManualPart(
+    periodId: string,
+    studentId: string,
+    part: Record<string, any> & { juzNumber: number },
+    reason?: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; partId?: string; status?: string; teacherStatus?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) return { success: false, message: 'Akses ditolak.' };
+    try {
+      const { data, error } = await supabase.rpc('upsert_uas_manual_part_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_student_id: studentId,
+        p_part: part,
+        p_reason: reason || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal menyimpan materi manual.' };
+    }
+  },
+
   async deleteUASManualSession(
     sessionId: string,
     reason: string,

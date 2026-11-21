@@ -432,6 +432,7 @@ export interface UASMaterialSegment {
 
 export type UASTeacherPrepStatus =
   | 'draft_auto'
+  | 'draft_manual'
   | 'needs_teacher_review'
   | 'teacher_verified'
   | 'pending_admin_approval'

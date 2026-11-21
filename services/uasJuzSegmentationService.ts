@@ -501,3 +501,87 @@ export function analyzeStudentJuzPartsAndSessions(params: {
     summaryReason
   };
 }
+
+/**
+ * Menghitung cakupan Mushaf Madinah secara presisi untuk input manual Guru Halaqah
+ * berdasarkan batas surah/ayat utama dan segmen tambahan opsional.
+ */
+export function computeManualJuzPartCoverage(params: {
+  juzNumber: number;
+  ranges: Array<{ startSurah: number; startAyah: number; endSurah: number; endAyah: number }>;
+}): {
+  startSurah: number;
+  startAyah: number;
+  endSurah: number;
+  endAyah: number;
+  startPage: number;
+  endPage: number;
+  coveredPages: number[];
+  coveredPagesCount: number;
+  juzTotalPages: number;
+  coverageRatio: number;
+  partType: UASMaterialPartType;
+  segments: UASMaterialSegment[];
+  hasGap: boolean;
+} {
+  const { juzNumber, ranges } = params;
+  const juzAyahs = getJuzAyahList(juzNumber);
+  const juzTotalWeight = juzAyahs.reduce((sum, a) => sum + a.pageWeight, 0) || 1;
+  const juzPageRange = JUZ_PAGE_RANGES[juzNumber] || { startPage: 1, endPage: 20, totalPages: 20 };
+
+  const inRange = (s: number, a: number, r: { startSurah: number; startAyah: number; endSurah: number; endAyah: number }) => {
+    const pos = s * 1000 + a;
+    const lo = r.startSurah * 1000 + r.startAyah;
+    const hi = r.endSurah * 1000 + r.endAyah;
+    return pos >= lo && pos <= hi;
+  };
+
+  const matched = juzAyahs.filter(ay => ranges.some(r => inRange(ay.surah, ay.ayah, r)));
+  if (matched.length === 0) {
+    return {
+      startSurah: ranges[0]?.startSurah || 1,
+      startAyah: ranges[0]?.startAyah || 1,
+      endSurah: ranges[0]?.endSurah || 1,
+      endAyah: ranges[0]?.endAyah || 1,
+      startPage: juzPageRange.startPage,
+      endPage: juzPageRange.startPage,
+      coveredPages: [],
+      coveredPagesCount: 0,
+      juzTotalPages: juzPageRange.totalPages,
+      coverageRatio: 0,
+      partType: 'minor_addition',
+      segments: [],
+      hasGap: false
+    };
+  }
+
+  const coveredWeight = matched.reduce((sum, a) => sum + a.pageWeight, 0);
+  const coverageRatio = Math.min(1, Number((coveredWeight / juzTotalWeight).toFixed(4)));
+  const isFull = matched.length === juzAyahs.length;
+  const coveredPages = Array.from(new Set(matched.map(m => m.page))).sort((a, b) => a - b);
+  const segments = buildSegmentsFromPages(coveredPages);
+  const hasGap = segments.length > 1;
+  const partType: UASMaterialPartType = isFull
+    ? 'full_juz'
+    : coverageRatio >= 0.5
+      ? 'partial_half'
+      : 'minor_addition';
+
+  const first = matched[0];
+  const last = matched[matched.length - 1];
+  return {
+    startSurah: first.surah,
+    startAyah: first.ayah,
+    endSurah: last.surah,
+    endAyah: last.ayah,
+    startPage: first.page,
+    endPage: last.page,
+    coveredPages,
+    coveredPagesCount: coveredPages.length,
+    juzTotalPages: juzPageRange.totalPages,
+    coverageRatio,
+    partType,
+    segments,
+    hasGap
+  };
+}

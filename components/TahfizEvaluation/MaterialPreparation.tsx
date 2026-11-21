@@ -309,10 +309,9 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
       const bankQuestions = bankRes?.data || [];
 
       if (isUAS) {
-        const result = await uasQuestionGenerator.generateUASQuestionSet({
+        const result = await uasQuestionGenerator.generateUASRandomDraftSet({
           period: currentPeriod,
           snapshot,
-          strategy: 'hybrid',
           bankQuestions,
           actorId: user.id
         });
@@ -320,13 +319,13 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         const saveRes = await api.generateUASQuestionSet({
           periodId: currentPeriod.id,
           studentId: student.id,
-          strategy: 'hybrid',
+          strategy: 'bank_only',
           questions: result.questions as any,
           seed: result.questionSet.generationSeed
         }, user);
 
         if (saveRes.success && saveRes.questionSet && saveRes.questions) {
-          setStatusMessage({ type: 'success', text: `9 Soal UAS untuk ${student.name} berhasil dibuat dan dikunci.` });
+          setStatusMessage({ type: 'success', text: `Draft 7 soal acak UAS untuk ${student.name} berhasil dibuat (2 soal wajib dipilih manual penguji saat ujian).` });
           await loadQuestionSets(currentPeriod.id);
           setActiveQuestionPreview({
             student,
@@ -417,10 +416,9 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
     const bankQuestions = bankRes?.data || [];
 
     if (isUAS) {
-      const result = await uasQuestionGenerator.generateUASQuestionSet({
+      const result = await uasQuestionGenerator.generateUASRandomDraftSet({
         period: currentPeriod,
         snapshot,
-        strategy: 'hybrid',
         bankQuestions,
         actorId: user.id
       });
@@ -428,7 +426,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
       const regenRes = await api.regenerateUASQuestionSet({
         periodId: currentPeriod.id,
         studentId: student.id,
-        strategy: 'hybrid',
+        strategy: 'bank_only',
         questions: result.questions as any,
         seed: result.questionSet.generationSeed,
         reason
@@ -647,14 +645,16 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
                 <span>Deteksi Ulang</span>
               </button>
 
-              <button
-                onClick={handleBulkFinalize}
-                disabled={metrics.ready === 0}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <Lock size={14} />
-                <span>Finalisasi Semua yang Siap ({metrics.ready})</span>
-              </button>
+              {currentPeriod?.examType === 'uts' && (
+                <button
+                  onClick={handleBulkFinalize}
+                  disabled={metrics.ready === 0}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Lock size={14} />
+                  <span>Finalisasi Semua yang Siap ({metrics.ready})</span>
+                </button>
+              )}
 
               {(currentPeriod?.examType === 'uts' || currentPeriod?.examType === 'uas') && (
                 <button

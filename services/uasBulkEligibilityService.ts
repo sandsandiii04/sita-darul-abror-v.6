@@ -59,14 +59,14 @@ export function evaluateUASSessionEligibility(params: {
     };
   }
 
-  if (primaryPart && primaryPart.status !== 'finalized') {
+  if (primaryPart && primaryPart.status !== 'finalized' && session.approvalStatus !== 'admin_approved') {
     return {
       sessionId: session.id,
       sessionNumber: session.sessionNumber,
       sessionType: session.sessionType,
       juzNumber: session.juzNumber,
-      status: 'MATERI_BELUM_FINAL',
-      reason: `Bagian Juz ${session.juzNumber} belum difinalisasi Admin.`,
+      status: 'MENUNGGU_PERSETUJUAN_ADMIN',
+      reason: `Menunggu Persetujuan Admin (Juz ${session.juzNumber}).`,
       requiredZones,
       coveredZones: 0,
       missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
@@ -156,7 +156,7 @@ export function evaluateUASSessionEligibility(params: {
       sessionType: session.sessionType,
       juzNumber: session.juzNumber,
       status: 'BANK_SOAL_KURANG',
-      reason: `Bank Soal Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) kurang pada zona: ${missingZones.join(', ')}.`,
+      reason: `Sesi ${session.sessionNumber} (Juz ${session.juzNumber}): butuh ${requiredZones} soal acak, tersedia ${coveredZones}, zona kurang: ${missingZones.join(', ')}.`,
       requiredZones,
       coveredZones,
       missingZones,
@@ -181,6 +181,7 @@ export function evaluateUASSessionEligibility(params: {
 export type UASEligibilityStatus =
   | 'SIAP_GENERATE'
   | 'SUDAH_ADA'
+  | 'MENUNGGU_PERSETUJUAN_ADMIN'
   | 'MATERI_BELUM_FINAL'
   | 'MATERI_PERLU_REVIEW'
   | 'MATERI_TIDAK_CUKUP'
@@ -200,6 +201,7 @@ export interface UASEligibilityItem {
   coveredRandomZones: number;
   questionSetVersion?: number;
   snapshot?: ExamMaterialSnapshot;
+  sessionEligibilities?: UASSessionEligibilityResult[];
 }
 
 export interface UASEligibilitySummary {
@@ -217,6 +219,7 @@ export interface UASEligibilitySummary {
 export const UAS_ELIGIBILITY_LABELS: Record<UASEligibilityStatus, string> = {
   SIAP_GENERATE: 'SIAP_GENERATE',
   SUDAH_ADA: 'SUDAH_ADA',
+  MENUNGGU_PERSETUJUAN_ADMIN: 'MENUNGGU_PERSETUJUAN_ADMIN',
   MATERI_BELUM_FINAL: 'MATERI_BELUM_FINAL',
   MATERI_PERLU_REVIEW: 'MATERI_PERLU_REVIEW',
   MATERI_TIDAK_CUKUP: 'MATERI_TIDAK_CUKUP',
@@ -349,10 +352,6 @@ export function evaluateUASEligibility(params: {
           status = 'MATERI_TIDAK_CUKUP';
           reason = `Belum Memenuhi Syarat Materi UAS: Cakupan terlalu sempit (${pathPages.length} halaman, ${path.nodes.length} ayat) untuk 7 zona acak.`;
           materiTidakCukup++;
-        } else if (fullPagesInMaterial < 2) {
-          status = 'MATERI_TIDAK_CUKUP';
-          reason = `Belum Memenuhi Syarat Materi UAS: Rentang ${estPages} halaman parsial hanya memuat ${fullPagesInMaterial} halaman mushaf penuh (dibutuhkan minimal 2 halaman penuh untuk pilihan wajib penguji).`;
-          materiTidakCukup++;
         } else {
           const zones = uasQuestionGenerator.divideIntoZones(path);
           const minPos = { surahNumber: snap.startSurah, ayahNumber: snap.startAyah, wordPosition: 1, pageNumber: snap.startPage };
@@ -401,6 +400,164 @@ export function evaluateUASEligibility(params: {
       coveredRandomZones,
       questionSetVersion: qInfo?.version,
       snapshot: snap
+    });
+  }
+
+  return {
+    total: filteredParticipants.length,
+    siapGenerate,
+    sudahAda,
+    materiBelumFinal,
+    materiPerluReview,
+    materiTidakCukup,
+    bankSoalKurang,
+    stale,
+    items
+  };
+}
+
+/**
+ * Evaluasi kelayakan generate soal UAS berbasis Sesi Per-Juz & Persetujuan Admin.
+ * - Sesi Full Juz: 7 soal acak Bank Soal (10 poin) + 2 wajib manual oleh penguji saat ujian (15 poin).
+ * - Sesi Parsial: 4 soal acak Bank Soal (25 poin), tanpa soal wajib.
+ * - Sesi/materi yang belum disetujui Admin berstatus MENUNGGU_PERSETUJUAN_ADMIN.
+ */
+export function evaluateUASMultiSessionEligibility(params: {
+  participants: ExamParticipant[];
+  parts: ExamMaterialPart[];
+  sessions: ExamUASSession[];
+  submissions: Array<{ studentId: string; status: string }>;
+  snapshots: ExamMaterialSnapshot[];
+  bankQuestions: QuestionBankItem[];
+  classFilter?: string;
+  halaqahFilter?: string;
+}): UASEligibilitySummary {
+  const {
+    participants,
+    parts,
+    sessions,
+    submissions,
+    snapshots,
+    bankQuestions,
+    classFilter = 'all',
+    halaqahFilter = 'all'
+  } = params;
+
+  const filteredParticipants = participants.filter(p => {
+    if (classFilter !== 'all' && p.class !== classFilter) return false;
+    if (halaqahFilter !== 'all' && p.halaqah !== halaqahFilter) return false;
+    return true;
+  });
+
+  const snapMap = new Map<string, ExamMaterialSnapshot>();
+  snapshots.forEach(s => snapMap.set(s.studentId, s));
+
+  const subMap = new Map<string, string>();
+  submissions.forEach(s => subMap.set(s.studentId, s.status));
+
+  const partsByStudent = new Map<string, ExamMaterialPart[]>();
+  parts.forEach(pt => {
+    const arr = partsByStudent.get(pt.studentId) || [];
+    arr.push(pt);
+    partsByStudent.set(pt.studentId, arr);
+  });
+
+  const sessionsByStudent = new Map<string, ExamUASSession[]>();
+  sessions.forEach(s => {
+    const arr = sessionsByStudent.get(s.studentId) || [];
+    arr.push(s);
+    sessionsByStudent.set(s.studentId, arr);
+  });
+
+  const items: UASEligibilityItem[] = [];
+  let siapGenerate = 0;
+  let sudahAda = 0;
+  let materiBelumFinal = 0;
+  let materiPerluReview = 0;
+  let materiTidakCukup = 0;
+  let bankSoalKurang = 0;
+  let stale = 0;
+
+  for (const p of filteredParticipants) {
+    const snap = snapMap.get(p.studentId);
+    const subStatus = subMap.get(p.studentId);
+    const stParts = partsByStudent.get(p.studentId) || [];
+    const stSessions = (sessionsByStudent.get(p.studentId) || []).sort((a, b) => a.sessionNumber - b.sessionNumber);
+    const estPages = stParts.reduce((acc, pt) => acc + (pt.coveredPagesCount || 0), 0) || snap?.estimatedPages || 0;
+
+    let status: UASEligibilityStatus;
+    let reason: string;
+    let coveredRandomZones = 0;
+    let sessionEligibilities: UASSessionEligibilityResult[] = [];
+
+    if (subStatus !== 'admin_approved') {
+      status = 'MENUNGGU_PERSETUJUAN_ADMIN';
+      reason = subStatus === 'pending_admin_approval'
+        ? 'Menunggu Persetujuan Admin'
+        : subStatus === 'needs_correction' || subStatus === 'rejected'
+          ? 'Perlu Koreksi Guru sebelum Persetujuan Admin'
+          : subStatus === 'stale'
+            ? 'Materi berubah (STALE) — Menunggu pengajuan ulang & Persetujuan Admin'
+            : 'Menunggu Persetujuan Admin (Guru Halaqah belum mengirim/disetujui)';
+      materiBelumFinal++;
+    } else if (stSessions.length === 0) {
+      status = 'MATERI_TIDAK_CUKUP';
+      reason = 'Belum ada sesi UAS yang disusun untuk santri ini.';
+      materiTidakCukup++;
+    } else {
+      sessionEligibilities = stSessions.map(sess => {
+        const primaryPart = stParts.find(pt => pt.id === sess.primaryPartId) || null;
+        return evaluateUASSessionEligibility({ session: sess, primaryPart, bankQuestions });
+      });
+
+      coveredRandomZones = sessionEligibilities.reduce((acc, se) => acc + se.coveredZones, 0);
+
+      const hasStale = sessionEligibilities.some(se => se.status === 'STALE');
+      const hasBankKurang = sessionEligibilities.filter(se => se.status === 'BANK_SOAL_KURANG');
+      const hasUnready = sessionEligibilities.filter(se => se.status !== 'SIAP_GENERATE' && se.status !== 'SUDAH_ADA');
+      const allDone = sessionEligibilities.every(se => se.status === 'SUDAH_ADA');
+      const anyReady = sessionEligibilities.some(se => se.status === 'SIAP_GENERATE');
+
+      if (allDone) {
+        status = 'SUDAH_ADA';
+        reason = `Seluruh ${stSessions.length} sesi UAS sudah memiliki paket soal.`;
+        sudahAda++;
+      } else if (hasStale) {
+        status = 'STALE';
+        reason = 'Ada sesi dengan paket STALE yang perlu ditinjau.';
+        stale++;
+      } else if (hasBankKurang.length > 0) {
+        status = 'BANK_SOAL_KURANG';
+        reason = `${p.studentName}: ${hasBankKurang.map(b => b.reason).join(' | ')}`;
+        bankSoalKurang++;
+      } else if (anyReady) {
+        status = 'SIAP_GENERATE';
+        const readyList = sessionEligibilities.filter(se => se.status === 'SIAP_GENERATE');
+        reason = `Siap generate ${readyList.length} sesi: ${readyList.map(se => `Sesi ${se.sessionNumber} Juz ${se.juzNumber} (${se.sessionType === 'partial_half' ? '4 soal acak' : '7 soal acak + 2 wajib manual'})`).join(', ')}.`;
+        siapGenerate++;
+      } else {
+        const first = hasUnready[0];
+        status = first?.status || 'MATERI_BELUM_FINAL';
+        reason = first?.reason || 'Menunggu Persetujuan Admin';
+        if (status === 'MATERI_PERLU_REVIEW') materiPerluReview++;
+        else if (status === 'MATERI_TIDAK_CUKUP') materiTidakCukup++;
+        else materiBelumFinal++;
+      }
+    }
+
+    items.push({
+      studentId: p.studentId,
+      studentName: p.studentName,
+      studentClass: p.class,
+      halaqah: p.halaqah || '-',
+      status,
+      statusLabel: UAS_ELIGIBILITY_LABELS[status],
+      reason,
+      estimatedPages: estPages,
+      fullPagesInMaterial: estPages,
+      coveredRandomZones,
+      snapshot: snap,
+      sessionEligibilities
     });
   }
 

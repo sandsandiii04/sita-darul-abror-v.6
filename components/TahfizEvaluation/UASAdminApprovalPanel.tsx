@@ -96,7 +96,17 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
     return submissions.filter(s => {
       if (halaqahFilter !== 'all' && s.halaqah !== halaqahFilter) return false;
       if (teacherFilter !== 'all' && s.teacherName !== teacherFilter) return false;
-      if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+      if (statusFilter === 'eligible') {
+        if (!isEligibleForBulkApprove(s)) return false;
+      } else if (statusFilter === 'needs_fix') {
+        if (!['needs_correction', 'rejected', 'stale', 'exception_pending'].includes(s.status)) return false;
+      } else if (statusFilter === 'ready_generate') {
+        if (s.status !== 'admin_approved') return false;
+        const stSessions = sessions.filter(sess => sess.studentId === s.studentId);
+        if (stSessions.length === 0 || stSessions.every(sess => Boolean(sess.questionSetId))) return false;
+      } else if (statusFilter !== 'all' && s.status !== statusFilter) {
+        return false;
+      }
       if (q) {
         const hit =
           (s.studentName || '').toLowerCase().includes(q) ||
@@ -270,6 +280,30 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
           <div className="text-[10px]">Sudah Disetujui</div>
           <div className="text-lg font-black">{kpi.approved}</div>
         </div>
+      </div>
+
+      {/* Simplified Admin Status Tabs (Section E) */}
+      <div className="flex flex-wrap gap-1.5 text-[11px]">
+        {[
+          { id: 'all', label: 'Semua' },
+          { id: 'pending_admin_approval', label: 'Menunggu Persetujuan' },
+          { id: 'eligible', label: 'Layak Disetujui' },
+          { id: 'needs_fix', label: 'Perlu Koreksi' },
+          { id: 'admin_approved', label: 'Disetujui' },
+          { id: 'ready_generate', label: 'Siap Generate' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => { setStatusFilter(tab.id); setPage(1); }}
+            className={`px-3 py-1.5 rounded-xl font-bold border transition-colors ${
+              statusFilter === tab.id
+                ? 'bg-teal-700 text-white border-teal-700'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Filter & Search Bar */}

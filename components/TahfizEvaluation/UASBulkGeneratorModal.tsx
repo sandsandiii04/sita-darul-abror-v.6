@@ -9,7 +9,7 @@ import {
 import { api } from '../../api';
 import { uasQuestionGenerator } from '../../services/uasQuestionGenerator';
 import {
-  evaluateUASEligibility,
+  evaluateUASMultiSessionEligibility,
   UASEligibilityItem,
   UASEligibilityStatus
 } from '../../services/uasBulkEligibilityService';
@@ -64,6 +64,9 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const [bankQuestions, setBankQuestions] = useState<QuestionBankItem[]>([]);
+  const [juzParts, setJuzParts] = useState<any[]>([]);
+  const [juzSessions, setJuzSessions] = useState<any[]>([]);
+  const [juzSubmissions, setJuzSubmissions] = useState<any[]>([]);
   const [juzSessionsByStudent, setJuzSessionsByStudent] = useState<Map<string, any[]>>(new Map());
   const [loadingBank, setLoadingBank] = useState(false);
 
@@ -92,12 +95,30 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
       .then(([res, juzRes]) => {
         if (!cancelled) {
           setBankQuestions(res?.data || []);
+          const mappedParts = (juzRes?.parts || []).map((pt: any) => ({
+            id: pt.id,
+            examPeriodId: pt.exam_period_id || pt.examPeriodId,
+            studentId: pt.student_id || pt.studentId,
+            juzNumber: pt.juz_number || pt.juzNumber,
+            partType: pt.part_type || pt.partType,
+            coveredPages: pt.covered_pages || pt.coveredPages || [],
+            coveredPagesCount: pt.covered_pages_count ?? pt.coveredPagesCount ?? 0,
+            coverageRatio: Number(pt.coverage_ratio ?? pt.coverageRatio ?? 0),
+            hasGap: Boolean(pt.has_gap ?? pt.hasGap),
+            status: pt.status,
+            reviewReason: pt.review_reason || pt.reviewReason
+          }));
+          setJuzParts(mappedParts);
+          setJuzSubmissions((juzRes?.submissions || []).map((sb: any) => ({
+            studentId: sb.student_id || sb.studentId,
+            status: sb.status
+          })));
           const map = new Map<string, any[]>();
+          const allSess: any[] = [];
           if (juzRes?.success && Array.isArray(juzRes.sessions)) {
             juzRes.sessions.forEach((s: any) => {
               const sid = s.student_id || s.studentId;
-              const arr = map.get(sid) || [];
-              arr.push({
+              const obj = {
                 id: s.id,
                 examPeriodId: s.exam_period_id || s.examPeriodId,
                 studentId: sid,
@@ -114,11 +135,16 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                 startPage: s.start_page || s.startPage,
                 endPage: s.end_page || s.endPage,
                 questionSetId: s.question_set_id || s.questionSetId,
+                approvalStatus: s.approval_status || s.approvalStatus,
                 status: s.status
-              });
+              };
+              allSess.push(obj);
+              const arr = map.get(sid) || [];
+              arr.push(obj);
               map.set(sid, arr);
             });
           }
+          setJuzSessions(allSess);
           setJuzSessionsByStudent(map);
         }
       })
@@ -150,15 +176,17 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   }, [participants]);
 
   const eligibilitySummary = useMemo(() => {
-    return evaluateUASEligibility({
+    return evaluateUASMultiSessionEligibility({
       participants,
+      parts: juzParts,
+      sessions: juzSessions,
+      submissions: juzSubmissions,
       snapshots,
-      questionSetMap,
       bankQuestions,
       classFilter: selectedClass,
       halaqahFilter: selectedHalaqah
     });
-  }, [participants, snapshots, questionSetMap, bankQuestions, selectedClass, selectedHalaqah]);
+  }, [participants, juzParts, juzSessions, juzSubmissions, snapshots, bankQuestions, selectedClass, selectedHalaqah]);
 
   const displayedItems = useMemo(() => {
     return eligibilitySummary.items.filter(item => {
@@ -236,83 +264,48 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
           continue;
         }
 
-        if (!item.snapshot || item.snapshot.status !== 'finalized') {
+        const studentSessions = juzSessionsByStudent.get(item.studentId) || [];
+        if (studentSessions.length === 0) {
           results.push({
             studentId: item.studentId,
             studentName: item.studentName,
             status: 'FAILED',
-            message: 'Snapshot materi belum difinalisasi.'
+            message: 'Menunggu Persetujuan Admin / belum ada sesi UAS yang disetujui.'
           });
           setProcessedCount(i + 1);
           continue;
         }
 
         try {
-          const studentSessions = juzSessionsByStudent.get(item.studentId) || [];
-          if (studentSessions.length > 0) {
-            let genSessions = 0;
-            for (const sess of studentSessions) {
-              if (sess.questionSetId) continue;
-              const sessRes = await uasQuestionGenerator.generateUASSessionRandomDraft({
-                period,
-                session: sess,
-                snapshotId: item.snapshot.id,
-                bankQuestions,
-                actorId: user.id
-              });
-              const saveSessRes = await api.saveUASSessionQuestionSet(
-                sess.id,
-                sessRes.questionSet,
-                sessRes.questions,
-                user
-              );
-              if (!saveSessRes.success) {
-                throw new Error(saveSessRes.message || `Gagal menyimpan paket Sesi ${sess.sessionNumber}.`);
-              }
-              genSessions++;
-            }
-            results.push({
-              studentId: item.studentId,
-              studentName: item.studentName,
-              status: genSessions > 0 ? 'SUCCESS' : 'SKIPPED',
-              message: genSessions > 0
-                ? `${genSessions} sesi UAS per juz berhasil di-generate sesuai jenis sesi (Penuh 7 draft + 2 wajib / Setengah Juz 4 soal).`
-                : 'Seluruh sesi UAS santri ini sudah memiliki paket soal.'
-            });
-          } else {
-            const genResult = await uasQuestionGenerator.generateUASRandomDraftSet({
+          let genSessions = 0;
+          for (const sess of studentSessions) {
+            if (sess.questionSetId) continue;
+            const sessRes = await uasQuestionGenerator.generateUASSessionRandomDraft({
               period,
-              snapshot: item.snapshot,
+              session: sess,
+              snapshotId: item.snapshot?.id || '',
               bankQuestions,
               actorId: user.id
             });
-
-            const randomZones = new Set(genResult.questions.filter(q => q.questionRole === 'random' && q.sourceType === 'bank' && q.questionBankId).map(q => q.zoneNumber));
-            const totalDraftScore = genResult.questions.reduce((acc, q) => acc + q.maxScore, 0);
-
-            if (genResult.questions.length !== 7 || randomZones.size !== 7 || totalDraftScore !== 70) {
-              throw new Error(`Validasi draft 7 soal acak gagal (total=${genResult.questions.length}, zona=${randomZones.size}, skor=${totalDraftScore}).`);
+            const saveSessRes = await api.saveUASSessionQuestionSet(
+              sess.id,
+              sessRes.questionSet,
+              sessRes.questions,
+              user
+            );
+            if (!saveSessRes.success) {
+              throw new Error(saveSessRes.message || `Gagal menyimpan paket Sesi ${sess.sessionNumber}.`);
             }
-
-            const saveRes = await api.generateUASQuestionSet({
-              periodId: period.id,
-              studentId: item.studentId,
-              strategy: 'bank_only',
-              seed: genResult.questionSet?.generationSeed,
-              questions: genResult.questions as any
-            }, user);
-
-            if (!saveRes.success) {
-              throw new Error(saveRes.message || 'Gagal menyimpan draft 7 soal acak UAS ke server.');
-            }
-
-            results.push({
-              studentId: item.studentId,
-              studentName: item.studentName,
-              status: 'SUCCESS',
-              message: 'Draft 7 soal acak dari Bank Soal tersimpan (menunggu pilihan manual 2 soal wajib oleh Penguji).'
-            });
+            genSessions++;
           }
+          results.push({
+            studentId: item.studentId,
+            studentName: item.studentName,
+            status: genSessions > 0 ? 'SUCCESS' : 'SKIPPED',
+            message: genSessions > 0
+              ? `${genSessions} sesi UAS berhasil di-generate (Juz Penuh: 7 acak + 2 wajib manual penguji / Parsial: 4 acak).`
+              : 'Seluruh sesi UAS santri ini sudah memiliki paket soal.'
+          });
         } catch (err: any) {
           results.push({
             studentId: item.studentId,
@@ -341,6 +334,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
         return 'bg-emerald-100 text-emerald-800 border-emerald-200';
       case 'SUDAH_ADA':
         return 'bg-teal-100 text-teal-800 border-teal-200';
+      case 'MENUNGGU_PERSETUJUAN_ADMIN':
       case 'MATERI_BELUM_FINAL':
         return 'bg-sky-100 text-sky-800 border-sky-200';
       case 'MATERI_PERLU_REVIEW':
@@ -364,9 +358,9 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               <Sparkles size={20} className="text-amber-300" />
             </div>
             <div>
-              <h3 className="font-bold text-base">Generate Soal Massal UAS (Draft 7 Soal Acak Bank Soal)</h3>
+              <h3 className="font-bold text-base">Generate Soal Massal UAS (Per-Sesi Bank Soal)</h3>
               <p className="text-xs text-emerald-100">
-                {period.name} — Menyiapkan 7 soal acak dari Bank Soal untuk snapshot finalized; 2 soal wajib dipilih manual oleh Penguji saat ujian.
+                {period.name} — Juz Penuh: 7 soal acak Bank Soal (+ 2 wajib manual saat ujian). Parsial: 4 soal acak Bank Soal.
               </p>
             </div>
           </div>
@@ -384,16 +378,16 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
           {loadingBank ? (
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <RefreshCw size={14} className="animate-spin text-teal-600" />
-              <span>Memeriksa ketersediaan soal wajib full_page di Bank Soal...</span>
+              <span>Memeriksa kelayakan sesi disetujui Admin & zona acak Bank Soal...</span>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-emerald-700">SIAP_GENERATE (7 Acak)</p>
+                <p className="text-[11px] font-semibold text-emerald-700">SIAP_GENERATE (7 / 4 Acak)</p>
                 <p className="text-2xl font-black text-emerald-800">{eligibilitySummary.siapGenerate}</p>
               </div>
               <div className="bg-white p-3 rounded-2xl border border-sky-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-sky-700">MATERI_BELUM_FINAL</p>
+                <p className="text-[11px] font-semibold text-sky-700">MENUNGGU PERSETUJUAN ADMIN</p>
                 <p className="text-2xl font-black text-sky-800">{eligibilitySummary.materiBelumFinal}</p>
               </div>
               <div className="bg-white p-3 rounded-2xl border border-amber-200 shadow-sm">
@@ -450,7 +444,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               <option value="all">Semua Status ({eligibilitySummary.total})</option>
               <option value="SIAP_GENERATE">SIAP_GENERATE ({eligibilitySummary.siapGenerate})</option>
               <option value="SUDAH_ADA">SUDAH_ADA ({eligibilitySummary.sudahAda})</option>
-              <option value="MATERI_BELUM_FINAL">MATERI_BELUM_FINAL ({eligibilitySummary.materiBelumFinal})</option>
+              <option value="MENUNGGU_PERSETUJUAN_ADMIN">Menunggu Persetujuan Admin ({eligibilitySummary.materiBelumFinal})</option>
               <option value="MATERI_PERLU_REVIEW">MATERI_PERLU_REVIEW ({eligibilitySummary.materiPerluReview})</option>
               <option value="MATERI_TIDAK_CUKUP">MATERI_TIDAK_CUKUP ({eligibilitySummary.materiTidakCukup})</option>
               <option value="BANK_SOAL_KURANG">BANK_SOAL_KURANG ({eligibilitySummary.bankSoalKurang})</option>
@@ -573,7 +567,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50"
             >
               <Play size={14} />
-              <span>Generate Draft 7 Acak ({readyItems.length} Santri Siap)</span>
+              <span>Generate Soal UAS ({readyItems.length} Santri Siap)</span>
             </button>
           </div>
         </div>
