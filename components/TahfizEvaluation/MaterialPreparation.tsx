@@ -739,7 +739,9 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         </div>
       )}
 
-      {/* Metrics Cards */}
+      {/* Metrics Cards & Progress Bar (hidden for Teacher on UAS to keep view simple) */}
+      {!(isTeacher && currentPeriod?.examType === 'uas') && (
+        <>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Peserta</span>
@@ -810,6 +812,8 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
           title={`Perlu Verifikasi: ${metrics.needsReview}`}
         />
       </div>
+        </>
+      )}
 
       {/* Per-Juz & Multi-Session UAS Panel */}
       {currentPeriod?.examType === 'uas' && currentTerm && (
@@ -826,7 +830,8 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         />
       )}
 
-      {/* Table Section */}
+      {/* Table Section (hidden for Teacher on UAS) */}
+      {!(isTeacher && currentPeriod?.examType === 'uas') && (
       <MaterialTable
         user={user}
         participants={participants}
@@ -840,6 +845,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         onOpenQuestionPreview={handleOpenQuestionPreview}
         onGenerateQuestions={handleGenerateQuestions}
       />
+      )}
 
       {/* UAS Bulk Question Generator Modal */}
       {showBulkGenModal && currentPeriod && currentPeriod.examType === 'uas' && (

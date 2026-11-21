@@ -46,6 +46,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const [filterMode, setFilterMode] = useState<'all' | 'multi_session' | 'needs_review' | 'needs_decision' | 'bank_short'>('all');
   const [teacherStatusFilter, setTeacherStatusFilter] = useState<'all' | 'unverified' | 'draft' | 'verified' | 'pending_admin' | 'approved'>('all');
   const [fullManualStudentId, setFullManualStudentId] = useState<string | null>(null);
+  const [teacherDetailStudentId, setTeacherDetailStudentId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSyncPreview, setShowSyncPreview] = useState(false);
   const [isBulkFinalizing, setIsBulkFinalizing] = useState(false);
@@ -607,10 +608,15 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <Layers size={18} className="text-teal-700" />
-            <h2 className="text-base font-extrabold text-slate-900">Persiapan Materi Per Juz &amp; Multi-Sesi UAS</h2>
+            <h2 className="text-base font-extrabold text-slate-900">
+              {isTeacher ? 'Persiapan Materi UAS — Guru Halaqah' : 'Persiapan Materi Per Juz & Multi-Sesi UAS'}
+            </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Cutoff materi: <strong>{period.materialCutoffDate}</strong> • 1 Juz Penuh = 9 soal (7 Bank Soal + 2 wajib manual) • Setengah Juz = 4 soal Bank Soal (4×25 = 100 poin).
+            {isTeacher
+              ? `Cutoff: ${period.materialCutoffDate} • Atur materi juz, susun sesi, verifikasi setoran, lalu kirim ke Admin.`
+              : <>Cutoff materi: <strong>{period.materialCutoffDate}</strong> • 1 Juz Penuh = 9 soal (7 Bank Soal + 2 wajib manual) • Setengah Juz = 4 soal Bank Soal (4×25 = 100 poin).</>
+            }
           </p>
         </div>
 
@@ -619,10 +625,14 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             <button
               onClick={() => setShowSyncPreview(prev => !prev)}
               disabled={isSyncing}
-              className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 ${
+                isTeacher
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                  : 'bg-teal-700 hover:bg-teal-800 text-white shadow-sm'
+              } disabled:opacity-50`}
             >
               <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-              <span>{isSyncing ? 'Menyinkronkan...' : 'Muat Sugesti dari Setoran'}</span>
+              <span>{isSyncing ? 'Menyinkronkan...' : (isTeacher ? 'Muat Sugesti Setoran' : 'Muat Sugesti dari Setoran')}</span>
             </button>
           </div>
         )}
@@ -685,7 +695,8 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         </div>
       )}
 
-      {/* Summary Chips */}
+      {/* Summary Chips (Admin only — Guru Halaqah uses simple status tabs below) */}
+      {!isTeacher && (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
         <button onClick={() => setFilterMode('all')} className={`p-3 rounded-2xl border text-left ${filterMode === 'all' ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 border-slate-200'}`}>
           <div className="text-[10px] opacity-75">Total Sesi Direncanakan</div>
@@ -724,6 +735,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           </div>
         </button>
       </div>
+      )}
 
       {/* Simplified Teacher Status Tabs (Section E) */}
       <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -763,7 +775,158 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         </div>
       </div>
 
-      {/* Per-Student Juz Parts Table */}
+      {/* Simplified Mobile-Friendly Cards for Guru Halaqah */}
+      {isTeacher ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {filteredRows.slice(0, 60).map(row => {
+            const subSt = row.submission?.status;
+            const hasParts = row.analysis.parts.length > 0;
+            const allVerified = hasParts && row.analysis.parts.every(p => Boolean(p.verifiedAt) || p.teacherStatus === 'teacher_verified' || p.teacherStatus === 'admin_approved');
+            const firstUnverifiedValidPart = row.analysis.parts.find(p => {
+              const hasBad = /(melebihi batas|terbalik|anomali|tidak valid|tidak dikenali)/i.test(p.reviewReason || '');
+              return !p.verifiedAt && p.status !== 'excluded' && !hasBad;
+            });
+            const hasIssue =
+              row.analysis.anomalies.length > 0 ||
+              row.analysis.hasUnverifiedGaps ||
+              row.analysis.needsAdminDecision ||
+              Boolean(row.submission?.rejectedReason);
+
+            const statusBadge =
+              subSt === 'admin_approved'
+                ? { label: 'Disetujui Admin', cls: 'bg-emerald-100 text-emerald-800' }
+                : subSt === 'pending_admin_approval' || subSt === 'exception_pending'
+                  ? { label: 'Menunggu Admin', cls: 'bg-sky-100 text-sky-800' }
+                  : subSt === 'rejected' || subSt === 'needs_correction'
+                    ? { label: 'Perlu Revisi', cls: 'bg-rose-100 text-rose-800' }
+                    : allVerified
+                      ? { label: 'Sudah Diverifikasi', cls: 'bg-teal-100 text-teal-800' }
+                      : row.analysis.parts.some(p => p.teacherStatus === 'draft_manual')
+                        ? { label: 'Draft Materi', cls: 'bg-indigo-100 text-indigo-800' }
+                        : { label: 'Belum Diperiksa', cls: 'bg-amber-100 text-amber-800' };
+
+            return (
+              <div key={row.participant.studentId} className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-sm text-slate-900">{row.participant.studentName}</div>
+                      <div className="text-xs text-slate-500">{row.participant.class} • {row.participant.halaqah}</div>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${statusBadge.cls}`}>
+                      {statusBadge.label}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700 pt-1">
+                    <span className="font-semibold text-slate-500">Materi:</span>
+                    {!hasParts ? (
+                      <span className="text-slate-400 italic">Belum diatur</span>
+                    ) : (
+                      row.analysis.parts.map(pt => (
+                        <span key={pt.id} className="px-2 py-0.5 rounded-lg bg-slate-100 font-bold text-slate-800">
+                          Juz {pt.juzNumber} ({pt.partType === 'full_juz' ? 'Penuh' : pt.partType === 'partial_half' ? 'Parsial' : '<½ Juz'})
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="text-xs text-slate-700">
+                    <span className="font-semibold text-slate-500">Jumlah Sesi: </span>
+                    <span className="font-bold text-teal-700">{row.sessions.length} Sesi</span>
+                    {row.sessions.length > 0 && (
+                      <span className="text-slate-500 ml-1.5">
+                        ({row.sessions.map(s => `S${s.sessionNumber}: Juz ${s.juzNumber}`).join(', ')})
+                      </span>
+                    )}
+                  </div>
+
+                  {hasIssue && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
+                      <span className="inline-flex items-center gap-1.5 font-semibold">
+                        <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                        {row.submission?.rejectedReason
+                          ? 'Pengajuan perlu diperbaiki.'
+                          : row.analysis.anomalies.length > 0
+                            ? 'Perlu periksa data setoran.'
+                            : 'Ada catatan materi yang perlu dicek.'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setTeacherDetailStudentId(row.participant.studentId)}
+                        className="px-2 py-1 rounded-lg bg-white border border-amber-300 text-amber-900 font-bold text-[11px] shrink-0 hover:bg-amber-100"
+                      >
+                        Lihat Detail
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
+                  {subSt !== 'admin_approved' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setFullManualStudentId(row.participant.studentId)}
+                        className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <Sliders size={13} /> Atur Materi
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openManualSessionModal(row)}
+                        className="px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <Plus size={13} /> Tambah Sesi
+                      </button>
+                      {firstUnverifiedValidPart && (
+                        <button
+                          type="button"
+                          onClick={() => handlePartAction(firstUnverifiedValidPart, 'verify', row)}
+                          disabled={busyPartId === firstUnverifiedValidPart.id}
+                          className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold disabled:opacity-40"
+                        >
+                          Verifikasi
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleSubmitForApproval(row, false)}
+                        className="px-3 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <Send size={13} /> Kirim ke Admin
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleReopenRevision(row)}
+                        className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <RotateCcw size={13} /> Ajukan Revisi Baru
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTeacherDetailStudentId(row.participant.studentId)}
+                        className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold"
+                      >
+                        Lihat Detail
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {filteredRows.length === 0 && (
+            <div className="col-span-full py-8 text-center text-xs text-slate-400">
+              Tidak ada santri yang sesuai dengan filter.
+            </div>
+          )}
+        </div>
+      ) : (
+      /* Per-Student Juz Parts Table (Admin full view) */
       <div className="overflow-x-auto border border-slate-200 rounded-2xl">
         <table className="w-full text-xs text-left">
           <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
@@ -976,6 +1139,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           </tbody>
         </table>
       </div>
+      )}
     </div>
       )}
 
@@ -1068,6 +1232,60 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
               if (msgText) setMsg({ type: 'success', text: msgText });
             }}
           />
+        );
+      })()}
+      {teacherDetailStudentId && (() => {
+        const detailRow = studentRows.find(r => r.participant.studentId === teacherDetailStudentId);
+        if (!detailRow) return null;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-lg p-5 space-y-3 text-xs">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900">Detail Materi — {detailRow.participant.studentName}</h4>
+                  <p className="text-[11px] text-slate-500">{detailRow.participant.class} • {detailRow.participant.halaqah}</p>
+                </div>
+                <button onClick={() => setTeacherDetailStudentId(null)} className="px-2.5 py-1 rounded-lg bg-slate-100 font-bold text-slate-700">Tutup</button>
+              </div>
+              {detailRow.submission?.rejectedReason && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold">
+                  Catatan Revisi Admin: {detailRow.submission.rejectedReason}
+                </div>
+              )}
+              {detailRow.analysis.anomalies.length > 0 && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 space-y-1">
+                  <div className="font-bold">Anomali Data Setoran:</div>
+                  {detailRow.analysis.anomalies.map((a, idx) => <div key={idx}>• {a}</div>)}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <div className="font-bold text-slate-700">Rincian Bagian Juz:</div>
+                {detailRow.analysis.parts.length === 0 ? (
+                  <p className="text-slate-400 italic">Belum ada bagian materi.</p>
+                ) : (
+                  detailRow.analysis.parts.map(pt => (
+                    <div key={pt.id} className="p-2 rounded-xl border border-slate-200 bg-slate-50">
+                      <div className="font-bold text-slate-800">
+                        Juz {pt.juzNumber}: {pt.startSurahName}:{pt.startAyah} s.d. {pt.endSurahName}:{pt.endAyah} ({pt.coveredPagesCount}/{pt.juzTotalPages} hal)
+                      </div>
+                      {pt.reviewReason && <div className="text-[11px] text-amber-800 mt-0.5">{pt.reviewReason}</div>}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setTeacherDetailStudentId(null);
+                    setFullManualStudentId(detailRow.participant.studentId);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-teal-700 text-white font-bold"
+                >
+                  Atur Materi &amp; Sesi Manual
+                </button>
+              </div>
+            </div>
+          </div>
         );
       })()}
     </div>
