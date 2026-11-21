@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AcademicTerm,
   ExamMaterialPart,
@@ -31,6 +31,11 @@ interface UASManualPrepModalProps {
   user: User;
   onSaved: (msgText?: string) => Promise<void>;
 }
+
+const DEFAULT_MANUAL_REASON = 'Pengaturan materi manual Guru Halaqah';
+const DEFAULT_VERIFY_REASON = 'Diverifikasi oleh Guru Halaqah';
+const DEFAULT_SESSION_REASON = 'Sesi diatur oleh Guru Halaqah';
+const DEFAULT_DELETE_REASON = 'Sesi draft dihapus Guru Halaqah';
 
 export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   isOpen,
@@ -70,12 +75,21 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     initialPart?.partType === 'full_juz' ? 'full_juz' : 'partial_half'
   );
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [sessionNumber, setSessionNumber] = useState<number>(sessions.length + 1);
-  const [notes, setNotes] = useState<string>(initialPart?.verificationNotes || initialPart?.reviewReason || '');
+  const [sessionNumber, setSessionNumber] = useState<number>(() => {
+    const maxNum = sessions.reduce((m, s) => Math.max(m, s.sessionNumber || 0), 0);
+    return maxNum + 1;
+  });
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editingSessionId) {
+      const maxNum = sessions.reduce((m, s) => Math.max(m, s.sessionNumber || 0), 0);
+      setSessionNumber(maxNum + 1);
+    }
+  }, [sessions, editingSessionId]);
 
   const relevantRecords = useMemo(() => {
     return materialDetectionService.filterRelevantRecords(
@@ -125,13 +139,13 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     setEndSurah(part.endSurah);
     setEndAyah(part.endAyah);
     setSessionType(part.partType === 'full_juz' ? 'full_juz' : 'partial_half');
-    setLocalSuccess(`Sugesti Juz ${part.juzNumber} dimuat ke form. Silakan periksa & simpan manual.`);
+    setLocalSuccess(`Data Juz ${part.juzNumber} dimuat ke form.`);
     setLocalError(null);
   };
 
   const buildPartPayload = () => ({
     id: existingServerPart?.id || currentPartId,
-    partOrder: serverParts.length + 1,
+    partOrder: existingServerPart?.partOrder || serverParts.length + 1,
     juzNumber,
     partType: liveCoverage.partType,
     startSurah: liveCoverage.startSurah,
@@ -149,29 +163,34 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     referencedRecordIds: selectedRecordIds
   });
 
-  const handleSaveDraft = async (): Promise<string | null> => {
-    setLocalError(null);
-    setLocalSuccess(null);
+  const savePartInternal = async (): Promise<string | null> => {
     if (liveCoverage.coveredPagesCount === 0) {
-      setLocalError('Rentang surah/ayat tidak menghasilkan cakupan halaman pada Juz ini.');
+      setLocalError('Rentang surah/ayat tidak sesuai dengan Juz yang dipilih.');
       return null;
     }
+    const res = await api.upsertUASManualPart(
+      period.id,
+      studentId,
+      buildPartPayload(),
+      DEFAULT_MANUAL_REASON,
+      user
+    );
+    if (!res.success) {
+      setLocalError(res.message || 'Gagal menyimpan materi.');
+      return null;
+    }
+    return res.partId || existingServerPart?.id || currentPartId;
+  };
+
+  const handleSaveDraft = async () => {
+    setLocalError(null);
+    setLocalSuccess(null);
     setBusy(true);
     try {
-      const res = await api.upsertUASManualPart(
-        period.id,
-        studentId,
-        buildPartPayload(),
-        notes.trim() || 'Pengaturan materi manual Guru Halaqah',
-        user
-      );
-      if (!res.success) {
-        setLocalError(res.message || 'Gagal menyimpan draft materi manual.');
-        return null;
-      }
+      const partId = await savePartInternal();
+      if (!partId) return;
       setLocalSuccess(`Draft materi Juz ${juzNumber} berhasil disimpan.`);
       await onSaved();
-      return res.partId || currentPartId;
     } finally {
       setBusy(false);
     }
@@ -180,15 +199,10 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   const handleSaveSession = async () => {
     setLocalError(null);
     setLocalSuccess(null);
-    if (notes.trim().length < 5) {
-      setLocalError('Catatan Guru Halaqah wajib diisi minimal 5 karakter sebelum menambah/mengubah sesi.');
-      return;
-    }
-    const partId = existingServerPart?.id || (await handleSaveDraft());
-    if (!partId) return;
-
     setBusy(true);
     try {
+      const partId = existingServerPart?.id || (await savePartInternal());
+      if (!partId) return;
       const res = await api.upsertUASManualSession(
         period.id,
         studentId,
@@ -206,16 +220,16 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
           startPage: liveCoverage.startPage,
           endPage: liveCoverage.endPage
         },
-        notes.trim(),
+        DEFAULT_SESSION_REASON,
         user
       );
       if (!res.success) {
-        setLocalError(res.message || 'Gagal menyimpan sesi manual.');
+        setLocalError(res.message || 'Gagal menyimpan sesi.');
         return;
       }
+      const savedNum = sessionNumber;
       setEditingSessionId(null);
-      setSessionNumber(sessions.length + 2);
-      setLocalSuccess(`Sesi ${sessionNumber} (Juz ${juzNumber}) berhasil disimpan.`);
+      setLocalSuccess(`Sesi ${savedNum} (Juz ${juzNumber}) berhasil disimpan.`);
       await onSaved();
     } finally {
       setBusy(false);
@@ -225,21 +239,18 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   const handleVerifyMaterial = async () => {
     setLocalError(null);
     setLocalSuccess(null);
-    if (notes.trim().length < 5) {
-      setLocalError('Catatan pemeriksaan Guru Halaqah wajib diisi minimal 5 karakter untuk verifikasi.');
-      return;
-    }
-    const partId = existingServerPart?.id || (await handleSaveDraft());
-    if (!partId) return;
-
     setBusy(true);
     try {
-      const res = await api.verifyOrFinalizeUASMaterialPart(partId, 'verify', notes.trim(), user);
+      // Pastikan perubahan materi pada form tersimpan terlebih dahulu sebelum verifikasi
+      const partId = await savePartInternal();
+      if (!partId) return;
+
+      const res = await api.verifyOrFinalizeUASMaterialPart(partId, 'verify', DEFAULT_VERIFY_REASON, user);
       if (!res.success) {
         setLocalError(res.message || 'Verifikasi materi gagal.');
         return;
       }
-      setLocalSuccess(`Materi Juz ${juzNumber} berhasil diverifikasi Guru Halaqah.`);
+      setLocalSuccess(`Materi Juz ${juzNumber} berhasil diverifikasi.`);
       await onSaved();
     } finally {
       setBusy(false);
@@ -248,14 +259,16 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
 
   const handleDeleteSession = async (sessId: string) => {
     setLocalError(null);
+    setLocalSuccess(null);
     setBusy(true);
     try {
-      const res = await api.deleteUASManualSession(sessId, notes.trim() || 'Hapus sesi draft manual', user);
+      const res = await api.deleteUASManualSession(sessId, DEFAULT_DELETE_REASON, user);
       if (!res.success) {
         setLocalError(res.message || 'Gagal menghapus sesi.');
         return;
       }
-      setLocalSuccess('Sesi draft berhasil dihapus.');
+      if (editingSessionId === sessId) setEditingSessionId(null);
+      setLocalSuccess('Sesi berhasil dihapus.');
       await onSaved();
     } finally {
       setBusy(false);
@@ -264,6 +277,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
 
   const handleSubmitAdmin = async () => {
     setLocalError(null);
+    setLocalSuccess(null);
     setBusy(true);
     try {
       const res = await api.submitUASPrepForApproval(period.id, studentId, false, undefined, user);
@@ -278,37 +292,30 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     }
   };
 
-  const pct = (liveCoverage.coverageRatio * 100).toFixed(1);
+  const pct = Math.round(liveCoverage.coverageRatio * 100);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[94vh] flex flex-col overflow-hidden">
         <div className="px-4 sm:px-6 py-4 bg-gradient-to-r from-teal-900 to-emerald-900 text-white flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-sm sm:text-base">Atur Materi & Sesi Manual</h3>
+            <h3 className="font-bold text-sm sm:text-base">Atur Materi &amp; Sesi</h3>
             <p className="text-[11px] sm:text-xs text-emerald-100">
               {studentName} ({studentClass}) • {halaqah} • Guru: {teacherName}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/10">
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/10" aria-label="Tutup">
             <X size={18} />
           </button>
         </div>
 
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
-          {localError && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold">{localError}</div>
-          )}
-          {localSuccess && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">{localSuccess}</div>
-          )}
-
-          {/* Riwayat Setoran Semester Berjalan (Bukti Sah) */}
+          {/* Riwayat Setoran Semester Ini */}
           <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-bold text-slate-800 inline-flex items-center gap-1.5">
                 <BookOpen size={14} className="text-teal-700" />
-                Riwayat Setoran Sabaq/Ziyadah Semester Berjalan ({relevantRecords.length} catatan)
+                Riwayat Setoran Semester Ini ({relevantRecords.length})
               </span>
               {suggestedParts.length > 0 && (
                 <div className="flex flex-wrap gap-1">
@@ -319,7 +326,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                       onClick={() => applySuggestion(sp)}
                       className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-bold text-[10px] inline-flex items-center gap-1"
                     >
-                      <Sparkles size={10} /> Sugesti Juz {sp.juzNumber}
+                      <Sparkles size={10} /> Isi Juz {sp.juzNumber}
                     </button>
                   ))}
                 </div>
@@ -327,7 +334,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
             </div>
             <div className="max-h-28 overflow-y-auto divide-y divide-slate-200/70 bg-white rounded-xl border border-slate-200 px-2.5 py-1">
               {relevantRecords.length === 0 ? (
-                <p className="py-2 text-rose-600 font-semibold">Belum ada setoran sabaq/ziyadah sampai cutoff ({period.materialCutoffDate || '-'}).</p>
+                <p className="py-2 text-rose-600 font-semibold">Belum ada setoran hafalan baru pada semester ini.</p>
               ) : (
                 relevantRecords.map(rec => {
                   const sNum = materialDetectionService.getSurahNumber(rec.surah || '');
@@ -347,10 +354,10 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                           }
                         />
                         <span className="font-semibold text-slate-800">{rec.date}</span>
-                        <span className="text-slate-600">{rec.surah} {rec.ayahStart}-{rec.ayahEnd} ({rec.type})</span>
+                        <span className="text-slate-600">{rec.surah} {rec.ayahStart}-{rec.ayahEnd}</span>
                       </span>
                       {isBad ? (
-                        <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">Ayat Invalid</span>
+                        <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">Perlu Diperbaiki</span>
                       ) : (
                         <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">Sah</span>
                       )}
@@ -361,10 +368,10 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
             </div>
           </div>
 
-          {/* Form Input Batas Materi Manual */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Form Input Batas Materi */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Juz yang Akan Diuji</label>
+              <label className="font-bold text-slate-700 block mb-1">Juz yang Diuji</label>
               <select
                 value={juzNumber}
                 onChange={e => handleJuzChange(Number(e.target.value))}
@@ -377,18 +384,31 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
               </select>
             </div>
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Jenis Sesi</label>
+              <label className="font-bold text-slate-700 block mb-1">Jenis Ujian</label>
               <select
                 value={sessionType}
                 onChange={e => setSessionType(e.target.value as 'full_juz' | 'partial_half')}
                 disabled={isLockedByAdmin}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold"
               >
-                <option value="full_juz">Juz Penuh (7 Acak + 2 Wajib Manual)</option>
-                <option value="partial_half">Parsial &ge; 50% (4 Acak)</option>
+                <option value="full_juz">1 Juz Penuh (9 Soal)</option>
+                <option value="partial_half">Setengah Juz / Parsial (4 Soal)</option>
               </select>
             </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Nomor Sesi</label>
+              <input
+                type="number"
+                min={1}
+                value={sessionNumber}
+                onChange={e => setSessionNumber(Math.max(1, Number(e.target.value) || 1))}
+                disabled={isLockedByAdmin}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold"
+              />
+            </div>
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
                 <label className="font-bold text-slate-700 block mb-1">Surah Awal</label>
@@ -446,11 +466,11 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
             </div>
           </div>
 
-          {/* Segmen Tambahan Opsional */}
+          {/* Rentang Kedua Opsional */}
           <div className="space-y-2">
             <label className="inline-flex items-center gap-2 font-bold text-slate-700 cursor-pointer">
               <input type="checkbox" checked={hasExtraSeg} onChange={e => setHasExtraSeg(e.target.checked)} />
-              Tambahkan Segmen Tambahan (jika hafalan dalam Juz {juzNumber} tidak kontinu)
+              Tambah Rentang Ayat Kedua (opsional)
             </label>
             {hasExtraSeg && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
@@ -478,52 +498,27 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
             )}
           </div>
 
-          {/* Cakupan Panjang Mushaf */}
+          {/* Cakupan */}
           <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <span className="font-bold text-teal-900">Cakupan Panjang Mushaf: </span>
-              <span className="font-black text-teal-800">{liveCoverage.coveredPagesCount}/{liveCoverage.juzTotalPages} hal ({pct}%)</span>
-              <span className="ml-2 text-teal-700">• Hal {liveCoverage.startPage}–{liveCoverage.endPage}</span>
+              <span className="font-bold text-teal-900">Cakupan: </span>
+              <span className="font-black text-teal-800">{liveCoverage.coveredPagesCount}/{liveCoverage.juzTotalPages} halaman ({pct}%)</span>
             </div>
             <span className="px-2 py-0.5 rounded-lg bg-white border border-teal-200 font-bold text-teal-800">
-              {liveCoverage.partType === 'full_juz' ? 'Juz Penuh (100%)' : liveCoverage.partType === 'partial_half' ? 'Parsial (>=50%)' : 'Kurang dari 50%'}
+              {liveCoverage.partType === 'full_juz' ? '1 Juz Penuh' : liveCoverage.partType === 'partial_half' ? 'Setengah Juz' : 'Kurang dari ½ Juz'}
             </span>
-          </div>
-
-          {/* Catatan Guru & Nomor Sesi */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="sm:col-span-3">
-              <label className="font-bold text-slate-700 block mb-1">Catatan Guru Halaqah (Wajib min. 5 karakter untuk Verifikasi/Sesi)</label>
-              <textarea
-                rows={2}
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Contoh: Setoran Juz 30 lengkap dan kontinu telah diperiksa..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Nomor Sesi</label>
-              <input
-                type="number"
-                min={1}
-                value={sessionNumber}
-                onChange={e => setSessionNumber(Math.max(1, Number(e.target.value) || 1))}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold"
-              />
-            </div>
           </div>
 
           {/* Daftar Sesi Santri Saat Ini */}
           {sessions.length > 0 && (
             <div className="space-y-1.5">
-              <p className="font-bold text-slate-700">Daftar Sesi Santri ({sessions.length}):</p>
+              <p className="font-bold text-slate-700">Daftar Sesi ({sessions.length}):</p>
               <div className="space-y-1.5">
                 {sessions.map(s => (
                   <div key={s.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
                     <div>
                       <span className="font-bold text-slate-800">Sesi {s.sessionNumber} • Juz {s.juzNumber}</span>
-                      <span className="ml-2 text-slate-500">({s.sessionType === 'full_juz' ? 'Juz Penuh' : 'Parsial'} • {s.source})</span>
+                      <span className="ml-2 text-slate-500">({s.sessionType === 'full_juz' ? '1 Juz Penuh' : 'Setengah Juz'})</span>
                     </div>
                     {!isLockedByAdmin && !s.attemptId && !s.questionSetId && (
                       <div className="flex items-center gap-1.5">
@@ -545,7 +540,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                             onClick={() => handleDeleteSession(s.id)}
                             className="px-2 py-1 rounded-lg bg-rose-50 border border-rose-200 font-bold text-rose-700 inline-flex items-center gap-1"
                           >
-                            <Trash2 size={11} /> Hapus Sesi Draft
+                            <Trash2 size={11} /> Hapus
                           </button>
                         )}
                       </div>
@@ -557,8 +552,30 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
           )}
         </div>
 
+        {/* Sticky Feedback Banner (always visible above buttons) */}
+        {(localError || localSuccess) && (
+          <div className="px-4 sm:px-6 py-2.5 border-t border-slate-100 bg-white text-xs">
+            {localError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold">{localError}</div>
+            )}
+            {localSuccess && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">{localSuccess}</div>
+            )}
+          </div>
+        )}
+
         {/* Footer Buttons */}
         <div className="px-4 sm:px-6 py-3 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-end gap-2">
+          {editingSessionId && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setEditingSessionId(null)}
+              className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-600 font-bold text-xs"
+            >
+              Batal Edit
+            </button>
+          )}
           <button
             type="button"
             disabled={busy || isLockedByAdmin}

@@ -60,6 +60,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
     sessionType: 'full_juz' | 'partial_half';
     sessionNumber: number;
     reason: string;
+    error?: string | null;
   } | null>(null);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -406,18 +407,9 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const handlePartAction = async (part: ExamMaterialPart, action: 'verify' | 'finalize' | 'exclude', row: (typeof studentRows)[number]) => {
     if (!canEditPrep) return;
     if (action === 'finalize' && !isAdmin) return;
-    let reasonText: string | undefined;
-    if (action === 'verify') {
-      const entered = window.prompt(
-        `Masukkan catatan pemeriksaan ${isAdmin ? 'Admin' : 'Guru'} untuk Juz ${part.juzNumber} (${row.participant.studentName}):`,
-        part.reviewReason || 'Cakupan segmen valid sudah diperiksa'
-      );
-      if (entered === null || entered.trim().length < 5) {
-        if (entered !== null) setMsg({ type: 'error', text: 'Catatan verifikasi minimal 5 karakter.' });
-        return;
-      }
-      reasonText = entered.trim();
-    }
+    const reasonText = action === 'verify'
+      ? (isAdmin ? 'Diverifikasi oleh Admin' : 'Diverifikasi oleh Guru Halaqah')
+      : undefined;
     setBusyPartId(part.id);
     setMsg(null);
     try {
@@ -465,10 +457,9 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
 
   const handleSaveManualSession = async () => {
     if (!manualModal) return;
-    if (manualModal.reason.trim().length < 5) {
-      setMsg({ type: 'error', text: 'Alasan perubahan manual wajib diisi minimal 5 karakter.' });
-      return;
-    }
+    const effectiveReason = manualModal.reason.trim().length >= 5
+      ? manualModal.reason.trim()
+      : (isAdmin ? 'Sesi diatur oleh Admin' : 'Sesi diatur oleh Guru Halaqah');
     const row = studentRows.find(r => r.participant.studentId === manualModal.studentId);
     if (!row) return;
     // Pastikan part sudah tersimpan di server terlebih dahulu
@@ -498,29 +489,27 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         startPage: part?.startPage,
         endPage: part?.endPage
       },
-      manualModal.reason.trim(),
+      effectiveReason,
       user
     );
     if (res.success) {
       setManualModal(null);
       await loadRemote();
       onSessionsUpdated?.();
-      setMsg({ type: 'success', text: `Sesi manual ${manualModal.studentName} berhasil disimpan.` });
+      setMsg({ type: 'success', text: `Sesi ${manualModal.studentName} berhasil disimpan.` });
     } else {
-      setMsg({ type: 'error', text: res.message || 'Gagal menyimpan sesi manual.' });
+      setManualModal(m => m ? { ...m, error: res.message || 'Gagal menyimpan sesi.' } : null);
     }
   };
 
   const handleDeleteManualSession = async (sessionId: string, studentName: string) => {
-    const reason = window.prompt(`Alasan membatalkan sesi manual draft (${studentName}):`, 'Dibatalkan oleh guru halaqah');
-    if (reason === null) return;
-    const res = await api.deleteUASManualSession(sessionId, reason, user);
+    const res = await api.deleteUASManualSession(sessionId, 'Sesi draft dihapus Guru Halaqah', user);
     if (res.success) {
       await loadRemote();
       onSessionsUpdated?.();
-      setMsg({ type: 'success', text: 'Sesi manual draft berhasil dibatalkan.' });
+      setMsg({ type: 'success', text: `Sesi draft ${studentName} berhasil dihapus.` });
     } else {
-      setMsg({ type: 'error', text: res.message || 'Gagal menghapus sesi manual.' });
+      setMsg({ type: 'error', text: res.message || 'Gagal menghapus sesi.' });
     }
   };
 
@@ -825,7 +814,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                     ) : (
                       row.analysis.parts.map(pt => (
                         <span key={pt.id} className="px-2 py-0.5 rounded-lg bg-slate-100 font-bold text-slate-800">
-                          Juz {pt.juzNumber} ({pt.partType === 'full_juz' ? 'Penuh' : pt.partType === 'partial_half' ? 'Parsial' : '<½ Juz'})
+                          Juz {pt.juzNumber} ({pt.partType === 'full_juz' ? '1 Juz Penuh' : pt.partType === 'partial_half' ? 'Setengah Juz' : '< ½ Juz'})
                         </span>
                       ))
                     )}
@@ -1148,32 +1137,37 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-5 space-y-3 shadow-xl text-xs">
             <div className="font-extrabold text-base text-slate-900">
-              {manualModal.existingSession ? 'Edit Sesi Manual' : '+ Tambah Sesi Manual'} — {manualModal.studentName}
+              {manualModal.existingSession ? 'Edit Sesi Ujian' : 'Tambah Sesi Ujian'} — {manualModal.studentName}
             </div>
+            {manualModal.error && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold text-xs">
+                {manualModal.error}
+              </div>
+            )}
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Bagian Materi Juz</label>
+              <label className="block font-bold text-slate-700 mb-1">Materi Juz</label>
               <select
                 value={manualModal.primaryPartId}
-                onChange={e => setManualModal(m => m ? { ...m, primaryPartId: e.target.value } : null)}
+                onChange={e => setManualModal(m => m ? { ...m, primaryPartId: e.target.value, error: null } : null)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white"
               >
                 {manualModal.parts.map(pt => (
                   <option key={pt.id} value={pt.id}>
-                    Juz {pt.juzNumber} ({pt.partType} • {(pt.coverageRatio * 100).toFixed(1)}% • {pt.status})
+                    Juz {pt.juzNumber} — {pt.partType === 'full_juz' ? '1 Juz Penuh' : pt.partType === 'partial_half' ? 'Setengah Juz' : 'Kurang dari ½ Juz'} ({Math.round(pt.coverageRatio * 100)}%)
                   </option>
                 ))}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Jenis Sesi</label>
+                <label className="block font-bold text-slate-700 mb-1">Jenis Ujian</label>
                 <select
                   value={manualModal.sessionType}
-                  onChange={e => setManualModal(m => m ? { ...m, sessionType: e.target.value as 'full_juz' | 'partial_half' } : null)}
+                  onChange={e => setManualModal(m => m ? { ...m, sessionType: e.target.value as 'full_juz' | 'partial_half', error: null } : null)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white"
                 >
-                  <option value="full_juz">full_juz (9 Soal)</option>
-                  <option value="partial_half">partial_half (4 Soal)</option>
+                  <option value="full_juz">1 Juz Penuh (9 Soal)</option>
+                  <option value="partial_half">Setengah Juz / Parsial (4 Soal)</option>
                 </select>
               </div>
               <div>
@@ -1182,25 +1176,15 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                   type="number"
                   min={1}
                   value={manualModal.sessionNumber}
-                  onChange={e => setManualModal(m => m ? { ...m, sessionNumber: Number(e.target.value) || 1 } : null)}
+                  onChange={e => setManualModal(m => m ? { ...m, sessionNumber: Number(e.target.value) || 1, error: null } : null)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200"
                 />
               </div>
             </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Catatan Alasan Perubahan (Wajib)</label>
-              <textarea
-                rows={2}
-                value={manualModal.reason}
-                onChange={e => setManualModal(m => m ? { ...m, reason: e.target.value } : null)}
-                placeholder="Contoh: Pembagian sesi ujian per juz untuk santri halaqah..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200"
-              />
-            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setManualModal(null)} className="px-3 py-2 rounded-xl border border-slate-300 font-bold">Batal</button>
               <button onClick={handleSaveManualSession} className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold">
-                Simpan Sesi Manual
+                Simpan Sesi
               </button>
             </div>
           </div>
@@ -1268,7 +1252,9 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                       <div className="font-bold text-slate-800">
                         Juz {pt.juzNumber}: {pt.startSurahName}:{pt.startAyah} s.d. {pt.endSurahName}:{pt.endAyah} ({pt.coveredPagesCount}/{pt.juzTotalPages} hal)
                       </div>
-                      {pt.reviewReason && <div className="text-[11px] text-amber-800 mt-0.5">{pt.reviewReason}</div>}
+                      {pt.reviewReason && !/^(Pengaturan materi manual|Diverifikasi oleh)/i.test(pt.reviewReason) && (
+                        <div className="text-[11px] text-amber-800 mt-0.5">{pt.reviewReason}</div>
+                      )}
                     </div>
                   ))
                 )}
