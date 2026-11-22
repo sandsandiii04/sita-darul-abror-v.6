@@ -4467,16 +4467,20 @@ export const api = {
     }
   },
 
-  // Sanitize technical PostgreSQL/PostgREST errors before showing to teachers/examiners
+  // Sanitize technical PostgreSQL/PostgREST errors before showing to teachers/examiners,
+  // while attaching a safe diagnostic reference ID & error code (never logging PIN/password/token).
   formatFriendlyUASRpcError(
     rawMessage: string | undefined,
-    stage: 'start' | 'mandatory' | 'save' | 'submit'
+    stage: 'start' | 'mandatory' | 'save' | 'submit',
+    meta?: { rpcName?: string; code?: string }
   ): string {
+    const refId = `UAS-${Date.now().toString(36).toUpperCase().slice(-5)}`;
+    const codeSuffix = meta?.code ? ` (Kode: ${meta.code} • Ref: ${refId})` : ` (Ref: ${refId})`;
     const fallbackByStage: Record<typeof stage, string> = {
-      start: 'Ujian belum dapat dimulai karena ada masalah teknis pada data soal. Silakan hubungi Admin.',
-      mandatory: 'Pilihan 2 soal wajib belum dapat disimpan karena kendala teknis. Silakan hubungi Admin.',
-      save: 'Penilaian belum dapat tersimpan ke server karena kendala teknis. Silakan coba lagi atau hubungi Admin.',
-      submit: 'Pengesahan nilai ujian belum dapat diproses karena kendala teknis. Silakan coba lagi atau hubungi Admin.'
+      start: `Ujian belum dapat dimulai karena ada masalah teknis pada data soal${codeSuffix}. Silakan hubungi Admin.`,
+      mandatory: `Pilihan 2 soal wajib belum dapat disimpan karena kendala teknis${codeSuffix}. Silakan hubungi Admin.`,
+      save: `Penilaian belum dapat tersimpan ke server karena kendala teknis${codeSuffix}. Silakan coba lagi atau hubungi Admin.`,
+      submit: `Pengesahan nilai ujian belum dapat diproses karena kendala teknis${codeSuffix}. Silakan coba lagi atau hubungi Admin.`
     };
     if (!rawMessage) return fallbackByStage[stage];
     const isTechnical =
@@ -4484,7 +4488,14 @@ export const api = {
         rawMessage
       );
     if (isTechnical) {
-      console.error('[UAS_DIAG]', { stage, detail: rawMessage });
+      console.error('[UAS_DIAG]', {
+        refId,
+        rpcName: meta?.rpcName || stage,
+        stage,
+        code: meta?.code || 'UNKNOWN',
+        at: new Date().toISOString(),
+        detail: rawMessage
+      });
       return fallbackByStage[stage];
     }
     return rawMessage;
@@ -4506,13 +4517,13 @@ export const api = {
         p_q2_payload: params.q2Payload,
         p_uas_session_id: params.uasSessionId || null
       });
-      if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'mandatory') };
+      if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'mandatory', { rpcName: 'select_uas_mandatory_pages', code: (error as any).code }) };
       if (data && !data.success && data.message) {
-        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'mandatory') };
+        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'mandatory', { rpcName: 'select_uas_mandatory_pages' }) };
       }
       return data;
     } catch (e: any) {
-      return { success: false, message: this.formatFriendlyUASRpcError(e?.message, 'mandatory') };
+      return { success: false, message: this.formatFriendlyUASRpcError(e?.message, 'mandatory', { rpcName: 'select_uas_mandatory_pages' }) };
     }
   },
 
@@ -5382,13 +5393,13 @@ export const api = {
         p_student_id: studentId,
         p_uas_session_id: uasSessionId
       });
-      if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'start') };
+      if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'start', { rpcName: 'start_uas_session_attempt', code: (error as any).code }) };
       if (data && !data.success && data.message) {
-        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'start') };
+        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'start', { rpcName: 'start_uas_session_attempt' }) };
       }
       return data;
     } catch (e: any) {
-      return { success: false, message: this.formatFriendlyUASRpcError(e?.message, 'start') };
+      return { success: false, message: this.formatFriendlyUASRpcError(e?.message, 'start', { rpcName: 'start_uas_session_attempt' }) };
     }
   },
 
