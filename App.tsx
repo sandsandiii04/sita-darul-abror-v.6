@@ -1183,7 +1183,10 @@ const App: React.FC = () => {
           return <Dashboard user={user!} students={students} records={records} exams={exams} connectionError={connectionError} onNavigate={setActiveTab} />;
         }
         return (
-          <UASPelaksanaanView user={user!} />
+          <UASPelaksanaanView
+            user={user!}
+            onNavigateToPeriods={user!.role === 'admin' ? () => setActiveTab('evaluation_periods') : undefined}
+          />
         );
       case 'semester_recap':
         if (user!.role !== 'admin') {

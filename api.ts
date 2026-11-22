@@ -2392,6 +2392,73 @@ export const api = {
     return { success: true, data: local };
   },
 
+  async getExamPeriodActivationSummary(
+    periodId: string,
+    userOverride?: User | null
+  ): Promise<{
+    success: boolean;
+    period?: any;
+    summary?: {
+      participantsCount: number;
+      totalSessions: number;
+      approvedSessions: number;
+      readyPacketSessions: number;
+      notReadySessions: number;
+    };
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak melihat ringkasan aktivasi periode.' };
+    }
+    if (!supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('get_exam_period_activation_summary_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId
+      });
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memuat ringkasan kesiapan periode.' };
+    }
+  },
+
+  async setExamPeriodStatus(
+    periodId: string,
+    newStatus: 'preparation' | 'active' | 'completed',
+    note?: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; period?: any; oldStatus?: string; newStatus?: string; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin') {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak mengubah status periode ujian.' };
+    }
+    if (!supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
+    try {
+      const { data, error } = await supabase.rpc('set_exam_period_status_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_period_id: periodId,
+        p_new_status: newStatus,
+        p_note: note || null
+      });
+      if (error) return { success: false, message: error.message };
+      if (data?.success) {
+        const localPeriods = this.getLocalExamPeriods();
+        const idx = localPeriods.findIndex(p => p.id === periodId);
+        if (idx >= 0) {
+          localPeriods[idx] = { ...localPeriods[idx], status: newStatus, updatedAt: new Date().toISOString() };
+          this.saveLocalExamPeriods(localPeriods);
+        }
+      }
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal mengubah status periode ujian.' };
+    }
+  },
+
   async createExamPeriodWithParticipants(
     period: Partial<ExamPeriod>,
     studentIds: string[],

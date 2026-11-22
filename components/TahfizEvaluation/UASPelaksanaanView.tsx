@@ -35,9 +35,10 @@ import {
 
 interface UASPelaksanaanViewProps {
   user: User;
+  onNavigateToPeriods?: () => void;
 }
 
-export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(({ user }) => {
+export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(({ user, onNavigateToPeriods }) => {
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [students, setStudents] = useState<ExaminerStudentItem[]>([]);
@@ -569,9 +570,23 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
           {/* Period Selector */}
           <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20 min-w-[240px]">
-            <label className="text-[11px] font-bold text-teal-200 uppercase tracking-wider block mb-1">
-              Pilih Periode UAS Aktif
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-bold text-teal-200 uppercase tracking-wider">
+                Pilih Periode UAS Aktif
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  loadPeriods();
+                  if (selectedPeriodId) loadStudents(selectedPeriodId);
+                }}
+                className="text-[10px] font-bold text-emerald-200 hover:text-white flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+                title="Segarkan status periode & daftar santri"
+              >
+                <RefreshCcw size={11} className={isLoading ? 'animate-spin' : ''} />
+                <span>Segarkan</span>
+              </button>
+            </div>
             <select
               value={selectedPeriodId}
               onChange={(e) => {
@@ -623,16 +638,27 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
       {/* Period Not Active Banner */}
       {periodInfo && !isPeriodActive && (
-        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3 text-xs text-amber-950 shadow-sm">
-          <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-bold text-amber-950">
-              UAS belum dibuka oleh Admin. Paket soal sudah dapat disiapkan, tetapi ujian baru dapat dimulai setelah periode diaktifkan.
-            </p>
-            <p className="text-[11px] text-amber-800">
-              Status periode <strong>{periodInfo.name}</strong> saat ini: <strong>{periodInfo.status === 'preparation' ? 'Persiapan (preparation)' : periodInfo.status}</strong>. Keterangan: <strong>Paket Soal Siap</strong> berarti soal sudah tersedia namun belum boleh diuji; status akan berubah menjadi <strong>Siap Diuji</strong> setelah periode diaktifkan Admin dan PIN penguji terverifikasi.
-            </p>
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-amber-950">
+                UAS belum dibuka oleh Admin. Paket soal sudah dapat disiapkan, tetapi ujian baru dapat dimulai setelah periode diaktifkan.
+              </p>
+              <p className="text-[11px] text-amber-800">
+                Status periode <strong>{periodInfo.name}</strong> saat ini: <strong>{periodInfo.status === 'preparation' ? 'Persiapan (preparation)' : periodInfo.status}</strong>. Keterangan: <strong>Paket Soal Siap</strong> berarti soal sudah tersedia namun belum boleh diuji; status akan berubah menjadi <strong>Siap Diuji</strong> setelah periode diaktifkan Admin dan PIN penguji terverifikasi.
+              </p>
+            </div>
           </div>
+          {isAdmin && onNavigateToPeriods && (
+            <button
+              type="button"
+              onClick={onNavigateToPeriods}
+              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0 shadow-sm transition-colors self-start sm:self-center"
+            >
+              Kelola Periode UAS
+            </button>
+          )}
         </div>
       )}
 

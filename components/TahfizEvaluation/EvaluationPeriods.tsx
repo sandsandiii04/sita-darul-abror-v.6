@@ -19,7 +19,9 @@ import {
   Award,
   Trash2,
   AlertTriangle,
-  X
+  X,
+  Play,
+  ShieldCheck
 } from 'lucide-react';
 
 interface EvaluationPeriodsProps {
@@ -49,6 +51,74 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   const [periodToDelete, setPeriodToDelete] = useState<ExamPeriod | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Explicit UAS Activation Confirmation Modal state
+  const [periodToActivate, setPeriodToActivate] = useState<ExamPeriod | null>(null);
+  const [activationSummary, setActivationSummary] = useState<{
+    participantsCount: number;
+    totalSessions: number;
+    approvedSessions: number;
+    readyPacketSessions: number;
+    notReadySessions: number;
+  } | null>(null);
+  const [loadingActivationSummary, setLoadingActivationSummary] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
+  const [confirmEarlyOpen, setConfirmEarlyOpen] = useState(false);
+
+  const isOpeningBeforeSchedule = (period: ExamPeriod | null): boolean => {
+    if (!period?.examStartDate) return false;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return todayIso < period.examStartDate;
+  };
+
+  const openActivateDialog = async (period: ExamPeriod) => {
+    if (user.role !== 'admin') return;
+    setPeriodToActivate(period);
+    setActivationSummary(null);
+    setConfirmEarlyOpen(false);
+    setLoadingActivationSummary(true);
+    try {
+      const res = await api.getExamPeriodActivationSummary(period.id, user);
+      if (res.success && res.summary) {
+        setActivationSummary(res.summary);
+      } else {
+        setStatusMessage({ type: 'error', text: res.message || 'Gagal memuat ringkasan kesiapan periode.' });
+      }
+    } catch (e: any) {
+      setStatusMessage({ type: 'error', text: e?.message || 'Gagal memuat ringkasan kesiapan periode.' });
+    } finally {
+      setLoadingActivationSummary(false);
+    }
+  };
+
+  const handleConfirmActivateUAS = async () => {
+    if (!periodToActivate || user.role !== 'admin' || isActivating) return;
+    setIsActivating(true);
+    setStatusMessage({ type: 'info', text: `Mengaktifkan ${periodToActivate.name}...` });
+    try {
+      const res = await api.setExamPeriodStatus(
+        periodToActivate.id,
+        'active',
+        'Aktivasi resmi periode UAS oleh Admin',
+        user
+      );
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: res.message || `${periodToActivate.name} berhasil diaktifkan.`
+        });
+        setPeriodToActivate(null);
+        setActivationSummary(null);
+        await loadData();
+      } else {
+        setStatusMessage({ type: 'error', text: res.message || 'Gagal mengaktifkan periode UAS.' });
+      }
+    } catch (e: any) {
+      setStatusMessage({ type: 'error', text: e?.message || 'Terjadi kesalahan saat mengaktifkan periode.' });
+    } finally {
+      setIsActivating(false);
+    }
+  };
 
   const loadData = async () => {
     setIsLoading(true);
@@ -465,6 +535,17 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
                       <span>{isGenThis ? 'Menganalisis...' : 'Deteksi Otomatis'}</span>
                     </button>
 
+                    {user.role === 'admin' && period.examType === 'uas' && period.status === 'preparation' && (
+                      <button
+                        onClick={() => openActivateDialog(period)}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-md shadow-indigo-600/25 transition-all flex items-center gap-1.5"
+                        title="Buka dan aktifkan periode UAS agar penguji dapat memulai ujian"
+                      >
+                        <Play size={14} />
+                        <span>Buka UAS</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => onNavigateToPreparation(period.id)}
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5"
@@ -522,6 +603,144 @@ export const EvaluationPeriods: React.FC<EvaluationPeriodsProps> = ({
           onClose={() => setIsPeriodModalOpen(false)}
           onSaved={handleSavePeriod}
         />
+      )}
+
+      {/* Explicit Activation Confirmation Modal (Admin Only) */}
+      {periodToActivate && user.role === 'admin' && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200 my-auto">
+            <div className="bg-gradient-to-r from-indigo-700 to-teal-700 px-5 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/15 rounded-xl">
+                  <ShieldCheck size={20} className="text-emerald-200" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base">Konfirmasi Aktivasi Periode UAS</h3>
+                  <p className="text-[11px] text-indigo-100">Periksa kesiapan periode sebelum membuka pelaksanaan ujian.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isActivating}
+                onClick={() => setPeriodToActivate(null)}
+                className="p-1.5 rounded-xl hover:bg-white/10"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                <div className="font-extrabold text-slate-900 text-sm">{periodToActivate.name}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-600 pt-1">
+                  <div>
+                    <span className="text-slate-400">Tanggal Ujian: </span>
+                    <strong className="text-slate-800">
+                      {periodToActivate.examStartDate || '-'} s/d {periodToActivate.examEndDate || '-'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Cutoff Materi: </span>
+                    <strong className="text-slate-800">{periodToActivate.materialCutoffDate}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {loadingActivationSummary ? (
+                <div className="p-6 text-center text-slate-500 flex flex-col items-center gap-2">
+                  <RefreshCw size={20} className="animate-spin text-indigo-600" />
+                  <span>Memuat ringkasan kesiapan peserta &amp; paket soal...</span>
+                </div>
+              ) : activationSummary ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Jumlah Peserta</span>
+                    <span className="text-lg font-black text-slate-900">{activationSummary.participantsCount}</span>
+                    <span className="text-[10px] text-slate-500 block">Santri terdaftar</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-blue-50 border border-blue-200">
+                    <span className="text-[10px] font-bold uppercase text-blue-700 block">Sesi Disetujui Admin</span>
+                    <span className="text-lg font-black text-blue-900">{activationSummary.approvedSessions}</span>
+                    <span className="text-[10px] text-blue-600 block">Dari {activationSummary.totalSessions} sesi aktif</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <span className="text-[10px] font-bold uppercase text-emerald-700 block">Sudah Punya Paket Soal</span>
+                    <span className="text-lg font-black text-emerald-900">{activationSummary.readyPacketSessions}</span>
+                    <span className="text-[10px] text-emerald-600 block">Langsung siap diuji</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                    <span className="text-[10px] font-bold uppercase text-amber-700 block">Sesi Belum Siap</span>
+                    <span className="text-lg font-black text-amber-900">{activationSummary.notReadySessions}</span>
+                    <span className="text-[10px] text-amber-700 block">Tetap terkunci sampai siap</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800">
+                  Ringkasan sesi tidak dapat dimuat. Pastikan koneksi stabil sebelum mengaktifkan.
+                </div>
+              )}
+
+              {isOpeningBeforeSchedule(periodToActivate) && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-[11px] text-amber-950 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      <strong>Peringatan Jadwal:</strong> Tanggal hari ini lebih awal dari jadwal mulai ujian (<strong>{periodToActivate.examStartDate}</strong>). Aktivasi lebih awal hanya boleh dilakukan atas keputusan resmi Admin.
+                    </p>
+                  </div>
+                  <label className="flex items-start gap-2 cursor-pointer font-semibold text-amber-950 pt-1">
+                    <input
+                      type="checkbox"
+                      checked={confirmEarlyOpen}
+                      onChange={(e) => setConfirmEarlyOpen(e.target.checked)}
+                      className="mt-0.5 rounded border-amber-400 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Saya menyetujui pembukaan periode UAS lebih awal dari jadwal ({periodToActivate.examStartDate}).</span>
+                  </label>
+                </div>
+              )}
+
+              {activationSummary && (activationSummary.notReadySessions > 0 || activationSummary.readyPacketSessions < activationSummary.participantsCount) && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-700 leading-relaxed">
+                  <strong>Catatan Kesiapan:</strong> Saat ini baru <strong>{activationSummary.readyPacketSessions} sesi</strong> yang memiliki paket soal siap diuji, sedangkan <strong>{activationSummary.notReadySessions} sesi</strong> belum siap dari total <strong>{activationSummary.participantsCount} peserta</strong>. Sesi yang belum siap tetap terkunci hingga disetujui &amp; disiapkan paket soalnya.
+                </div>
+              )}
+
+              <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl text-[11px] text-indigo-900 leading-relaxed">
+                Mengaktifkan periode ini hanya mengubah status <strong>{periodToActivate.name}</strong> dari <em>Persiapan</em> menjadi <strong>Aktif</strong>. Aktivasi tidak mengubah nilai, setoran, maupun menjalankan generate soal otomatis.
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  disabled={isActivating}
+                  onClick={() => setPeriodToActivate(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isActivating || loadingActivationSummary || (isOpeningBeforeSchedule(periodToActivate) && !confirmEarlyOpen)}
+                  onClick={handleConfirmActivateUAS}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isActivating ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Mengaktifkan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play size={14} />
+                      <span>Ya, Buka UAS Sekarang</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Modal */}
