@@ -13,7 +13,8 @@ import { materialDetectionService } from '../../services/materialDetectionServic
 import {
   analyzeStudentJuzPartsAndSessions,
   computeManualJuzPartCoverage,
-  JUZ_AYAH_BOUNDARIES
+  JUZ_AYAH_BOUNDARIES,
+  JUZ_PAGE_RANGES
 } from '../../services/uasJuzSegmentationService';
 import {
   AlertTriangle,
@@ -121,15 +122,44 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   const isAdmin = user.role === 'admin';
   const isLockedByAdmin = submissionStatus === 'admin_approved' && !isAdmin;
 
-  const resolveValidSessionType = (
-    requested: 'full_juz' | 'partial_half',
-    part?: ExamMaterialPart | null
-  ): { type: 'full_juz' | 'partial_half'; mismatch: boolean } => {
-    const canBeFull = Boolean(part && part.partType === 'full_juz' && part.coverageRatio >= 1 && !part.hasGap);
-    if (requested === 'full_juz' && !canBeFull) {
-      return { type: 'partial_half', mismatch: true };
-    }
-    return { type: requested, mismatch: false };
+  const buildFullJuzPart = (juzNum: number, prevId?: string, order = 1): ExamMaterialPart => {
+    const b = JUZ_AYAH_BOUNDARIES[juzNum] || { startSurah: 78, startAyah: 1, endSurah: 114, endAyah: 6 };
+    const pr = JUZ_PAGE_RANGES[juzNum] || { startPage: 582, endPage: 604, totalPages: 23 };
+    const pages = Array.from({ length: pr.totalPages }, (_, i) => pr.startPage + i);
+    return {
+      id: prevId || `emp_${period.id}_${studentId}_j${juzNum}`,
+      examPeriodId: period.id,
+      studentId,
+      snapshotId: null,
+      partOrder: order,
+      juzNumber: juzNum,
+      partType: 'full_juz',
+      startSurah: b.startSurah,
+      startAyah: b.startAyah,
+      endSurah: b.endSurah,
+      endAyah: b.endAyah,
+      startSurahName: quranService.getSurah(b.startSurah)?.name || `Surah ${b.startSurah}`,
+      endSurahName: quranService.getSurah(b.endSurah)?.name || `Surah ${b.endSurah}`,
+      startPage: pr.startPage,
+      endPage: pr.endPage,
+      coveredPages: pages,
+      coveredPagesCount: pr.totalPages,
+      juzTotalPages: pr.totalPages,
+      coverageRatio: 1,
+      segments: [{
+        startSurah: b.startSurah,
+        startAyah: b.startAyah,
+        endSurah: b.endSurah,
+        endAyah: b.endAyah,
+        startPage: pr.startPage,
+        endPage: pr.endPage,
+        pages
+      }],
+      hasGap: false,
+      status: 'ready',
+      teacherStatus: 'draft_manual',
+      manualConfirmation: true
+    };
   };
 
   // Filter relevant semester records (sabaq/ziyadah <= cutoff)
@@ -180,9 +210,20 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   // Track deleted server session IDs (only manual unlocked draft sessions)
   const [deletedServerSessionIds, setDeletedServerSessionIds] = useState<string[]>([]);
 
-  // Advanced editor ("Ubah Detail") for a specific session
+  // Advanced editor ("Ubah Detail") & manual add-session picker
   const [editingLocalId, setEditingLocalId] = useState<string | null>(null);
   const [addingSessionPicker, setAddingSessionPicker] = useState<boolean>(false);
+  const [newJuzNum, setNewJuzNum] = useState<number>(30);
+  const [newSessionType, setNewSessionType] = useState<'full_juz' | 'partial_half'>('full_juz');
+
+  // Guru Halaqah manual confirmation when declared material differs from app records
+  const [manualConfirmation, setManualConfirmation] = useState<boolean>(() =>
+    serverParts.some(p => Boolean(p.manualConfirmation))
+  );
+  const [verificationNotes, setVerificationNotes] = useState<string>(
+    () => serverParts.find(p => p.verificationNotes)?.verificationNotes || ''
+  );
+  const [showDiffDetail, setShowDiffDetail] = useState<boolean>(false);
 
   // Dirty tracking & in-flight lock
   const [isDirty, setIsDirty] = useState(false);
@@ -207,55 +248,81 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     });
   }, [studentId, period, term, selectedRecords, serverParts]);
 
-  // Build effective Juz parts map (merges computed parts + any server parts + customPart overrides)
+  // App records evidence map (strictly from valid app records — reference only, never blocks Guru!)
+  const appEvidenceByJuz = useMemo(() => {
+    const map = new Map<number, ExamMaterialPart>();
+    computedAnalysis.parts.forEach(p => map.set(p.juzNumber, p));
+    return map;
+  }, [computedAnalysis.parts]);
+
+  // Build effective Juz parts map (merges computed parts + server parts + Guru/Admin manual session overrides)
   const effectivePartsByJuz = useMemo(() => {
     const map = new Map<number, ExamMaterialPart>();
     serverParts.forEach(p => {
       if (p.status !== 'excluded') map.set(p.juzNumber, p);
     });
     computedAnalysis.parts.forEach(p => {
+      const existing = map.get(p.juzNumber);
+      // Respect prior manual_confirmation part instead of overwriting with auto detection!
+      if (existing?.manualConfirmation) return;
       map.set(p.juzNumber, p);
     });
-    // Apply any custom manual range overrides from draftSessions
+    // Apply Guru/Admin manual session declarations (full_juz or custom range or manual Juz)
     draftSessions.forEach(ds => {
-      if (!ds.customPart) return;
-      const cp = ds.customPart;
-      const ranges = [{ startSurah: cp.startSurah, startAyah: cp.startAyah, endSurah: cp.endSurah, endAyah: cp.endAyah }];
-      if (cp.hasExtraSeg) {
-        ranges.push({
-          startSurah: cp.extraStartSurah,
-          startAyah: cp.extraStartAyah,
-          endSurah: cp.extraEndSurah,
-          endAyah: cp.extraEndAyah
+      const prev = map.get(ds.juzNumber);
+      if (ds.sessionType === 'full_juz' && !ds.customPart) {
+        map.set(ds.juzNumber, buildFullJuzPart(ds.juzNumber, prev?.id, prev?.partOrder || map.size + 1));
+        return;
+      }
+      if (ds.customPart) {
+        const cp = ds.customPart;
+        const ranges = [{ startSurah: cp.startSurah, startAyah: cp.startAyah, endSurah: cp.endSurah, endAyah: cp.endAyah }];
+        if (cp.hasExtraSeg) {
+          ranges.push({
+            startSurah: cp.extraStartSurah,
+            startAyah: cp.extraStartAyah,
+            endSurah: cp.extraEndSurah,
+            endAyah: cp.extraEndAyah
+          });
+        }
+        const cov = computeManualJuzPartCoverage({ juzNumber: ds.juzNumber, ranges });
+        map.set(ds.juzNumber, {
+          id: prev?.id || `emp_${period.id}_${studentId}_j${ds.juzNumber}`,
+          examPeriodId: period.id,
+          studentId,
+          snapshotId: prev?.snapshotId || null,
+          partOrder: prev?.partOrder || map.size + 1,
+          juzNumber: ds.juzNumber,
+          partType: ds.sessionType === 'full_juz' ? 'full_juz' : cov.partType,
+          startSurah: cov.startSurah,
+          startAyah: cov.startAyah,
+          endSurah: cov.endSurah,
+          endAyah: cov.endAyah,
+          startSurahName: quranService.getSurah(cov.startSurah)?.name || `Surah ${cov.startSurah}`,
+          endSurahName: quranService.getSurah(cov.endSurah)?.name || `Surah ${cov.endSurah}`,
+          startPage: cov.startPage,
+          endPage: cov.endPage,
+          coveredPages: cov.coveredPages,
+          coveredPagesCount: cov.coveredPagesCount,
+          juzTotalPages: cov.juzTotalPages,
+          coverageRatio: ds.sessionType === 'full_juz' ? 1 : cov.coverageRatio,
+          segments: cov.segments,
+          hasGap: ds.sessionType === 'full_juz' ? false : cov.hasGap,
+          status: 'ready',
+          teacherStatus: 'draft_manual',
+          manualConfirmation: prev?.manualConfirmation
+        });
+        return;
+      }
+      if (!prev) {
+        // Manually added Juz with partial_half default (half Juz Mushaf boundaries)
+        const full = buildFullJuzPart(ds.juzNumber, undefined, map.size + 1);
+        map.set(ds.juzNumber, {
+          ...full,
+          partType: ds.sessionType === 'full_juz' ? 'full_juz' : 'partial_half',
+          coverageRatio: ds.sessionType === 'full_juz' ? 1 : 0.5
         });
       }
-      const cov = computeManualJuzPartCoverage({ juzNumber: ds.juzNumber, ranges });
-      const prev = map.get(ds.juzNumber);
-      map.set(ds.juzNumber, {
-        id: prev?.id || `emp_${period.id}_${studentId}_j${ds.juzNumber}`,
-        examPeriodId: period.id,
-        studentId,
-        snapshotId: prev?.snapshotId || null,
-        partOrder: prev?.partOrder || map.size + 1,
-        juzNumber: ds.juzNumber,
-        partType: cov.partType,
-        startSurah: cov.startSurah,
-        startAyah: cov.startAyah,
-        endSurah: cov.endSurah,
-        endAyah: cov.endAyah,
-        startSurahName: quranService.getSurah(cov.startSurah)?.name || `Surah ${cov.startSurah}`,
-        endSurahName: quranService.getSurah(cov.endSurah)?.name || `Surah ${cov.endSurah}`,
-        startPage: cov.startPage,
-        endPage: cov.endPage,
-        coveredPages: cov.coveredPages,
-        coveredPagesCount: cov.coveredPagesCount,
-        juzTotalPages: cov.juzTotalPages,
-        coverageRatio: cov.coverageRatio,
-        segments: cov.segments,
-        hasGap: cov.hasGap,
-        status: cov.hasGap ? 'needs_review' : cov.coverageRatio >= 0.5 ? 'ready' : 'needs_admin_decision',
-        teacherStatus: 'draft_manual'
-      });
     });
     return map;
   }, [serverParts, computedAnalysis.parts, draftSessions, period.id, studentId]);
@@ -265,7 +332,36 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     [effectivePartsByJuz]
   );
 
-  // Juzes eligible for a NEW session (coverage >= 50% AND not already allocated to an existing session!)
+  // Compute differences between app deposit records and Guru's declared sessions
+  const materialDifferences = useMemo(() => {
+    const diffs: Array<{ juzNumber: number; appLabel: string; teacherLabel: string }> = [];
+    const seen = new Set<number>();
+    draftSessions.forEach(ds => {
+      if (seen.has(ds.juzNumber)) return;
+      seen.add(ds.juzNumber);
+      const appPt = appEvidenceByJuz.get(ds.juzNumber);
+      const appPct = appPt ? Math.round(appPt.coverageRatio * 100) : 0;
+      const appIsFull = Boolean(appPt && appPt.partType === 'full_juz' && appPt.coverageRatio >= 1 && !appPt.hasGap);
+      if (ds.sessionType === 'full_juz' && (!appIsFull || invalidRecords.length > 0)) {
+        diffs.push({
+          juzNumber: ds.juzNumber,
+          appLabel: appPt ? `${appPct}% (${formatEffectivePages(appPt.coverageRatio, appPt.juzTotalPages)}/${appPt.juzTotalPages} hal)` : 'Belum tercatat di setoran aplikasi',
+          teacherLabel: '1 Juz Penuh — 9 Soal'
+        });
+      } else if (ds.sessionType === 'partial_half' && (!appPt || appPt.coverageRatio < 0.5)) {
+        diffs.push({
+          juzNumber: ds.juzNumber,
+          appLabel: appPt ? `${appPct}%` : 'Belum tercatat di setoran aplikasi',
+          teacherLabel: 'Parsial — 4 Soal'
+        });
+      }
+    });
+    return diffs;
+  }, [draftSessions, appEvidenceByJuz, invalidRecords.length]);
+
+  const hasDifference = materialDifferences.length > 0 || invalidRecords.length > 0;
+
+  // Unallocated Juzes detected from records (quick suggestions in + Tambah Sesi)
   const allocatedJuzSet = useMemo(() => new Set(draftSessions.map(s => s.juzNumber)), [draftSessions]);
   const unallocatedEligibleParts = useMemo(
     () => effectivePartsList.filter(p => p.coverageRatio >= 0.5 && !allocatedJuzSet.has(p.juzNumber)),
@@ -304,13 +400,9 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     setFeedback(null);
   };
 
-  // Auto-populate initial sessions when moving from Step 1 -> Step 2 if no sessions exist yet
+  // Move from Step 1 -> Step 2 (always allowed so Guru/Admin can add manual sessions even if records are empty!)
   const goToStep2 = () => {
     setFeedback(null);
-    if (selectedRecordIds.length === 0 && effectivePartsList.length === 0) {
-      setFeedback({ type: 'error', text: 'Pilih minimal satu setoran hafalan yang sah terlebih dahulu.' });
-      return;
-    }
     if (draftSessions.length === 0) {
       const autoEligible = effectivePartsList.filter(p => p.coverageRatio >= 0.5);
       if (autoEligible.length > 0) {
@@ -328,32 +420,55 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     setStep(2);
   };
 
-  const addSessionForJuz = (juzNum: number) => {
-    // Anti-duplication guard: if already exists, open Edit instead of duplicating!
+  const addSessionForJuz = (juzNum: number, chosenType?: 'full_juz' | 'partial_half') => {
     const existing = draftSessions.find(s => s.juzNumber === juzNum);
-    if (existing) {
-      setAddingSessionPicker(false);
-      setEditingLocalId(existing.localId);
-      setFeedback({ type: 'error', text: `Juz ${juzNum} sudah ada di daftar sesi. Dialihkan ke mode Ubah Detail.` });
-      return;
-    }
     const part = effectivePartsByJuz.get(juzNum);
-    if (!part || part.coverageRatio < 0.5) {
-      setFeedback({ type: 'error', text: `Cakupan Juz ${juzNum} kurang dari 50%, belum bisa dibuat sesi tersendiri.` });
+    const b = JUZ_AYAH_BOUNDARIES[juzNum] || { startSurah: 78, startAyah: 1, endSurah: 114, endAyah: 6 };
+    const finalType: 'full_juz' | 'partial_half' =
+      chosenType || (part && part.partType === 'full_juz' && !part.hasGap ? 'full_juz' : 'partial_half');
+    const newId = `new_j${juzNum}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+    if (existing) {
+      // Allow splitting one Juz into >1 session with a distinct editable range!
+      setDraftSessions(prev => [
+        ...prev,
+        {
+          localId: newId,
+          juzNumber: juzNum,
+          sessionType: 'partial_half',
+          source: 'manual',
+          customPart: {
+            startSurah: b.startSurah,
+            startAyah: b.startAyah,
+            endSurah: b.endSurah,
+            endAyah: b.endAyah,
+            hasExtraSeg: false,
+            extraStartSurah: b.startSurah,
+            extraStartAyah: 1,
+            extraEndSurah: b.startSurah,
+            extraEndAyah: 10
+          }
+        }
+      ]);
+      setAddingSessionPicker(false);
+      setEditingLocalId(newId);
+      setIsDirty(true);
+      setFeedback({ type: 'success', text: `Sesi tambahan Juz ${juzNum} dibuat. Atur rentang surah/ayat yang berbeda dari sesi sebelumnya.` });
       return;
     }
+
     setDraftSessions(prev => [
       ...prev,
       {
-        localId: `new_j${juzNum}_${Date.now()}`,
+        localId: newId,
         juzNumber: juzNum,
-        sessionType: part.partType === 'full_juz' && !part.hasGap ? 'full_juz' : 'partial_half',
+        sessionType: finalType,
         source: 'manual'
       }
     ]);
     setAddingSessionPicker(false);
     setIsDirty(true);
-    setFeedback({ type: 'success', text: `Sesi baru untuk Juz ${juzNum} ditambahkan.` });
+    setFeedback({ type: 'success', text: `Sesi baru Juz ${juzNum} (${finalType === 'full_juz' ? '1 Juz Penuh' : 'Parsial'}) ditambahkan.` });
   };
 
   const removeSession = (item: DraftSessionItem, displayIndex: number) => {
@@ -414,10 +529,18 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
    */
   const persistAllChanges = async (verifyBeforeSessions = false): Promise<string[]> => {
     if (effectivePartsList.length === 0) {
-      throw new Error('Belum ada materi hafalan sah yang dipilih.');
+      throw new Error('Belum ada materi hafalan yang ditetapkan.');
+    }
+    if (hasDifference) {
+      if (!manualConfirmation) {
+        throw new Error('Catatan setoran aplikasi berbeda dengan materi yang ditetapkan. Centang "Tetapkan Sesuai Pemeriksaan Guru" terlebih dahulu.');
+      }
+      if (verificationNotes.trim().length < 5) {
+        throw new Error('Isi catatan singkat perbedaan materi minimal 5 karakter.');
+      }
     }
 
-    // 1. Delete removed manual draft sessions first (frees session_number / primary_part_id)
+    // 1. Delete removed draft sessions first (frees session_number)
     for (const delId of deletedServerSessionIds) {
       const delRes = await api.deleteUASManualSession(delId, DEFAULT_DELETE_REASON, user);
       if (!delRes.success) {
@@ -425,8 +548,9 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       }
     }
 
-    // 2. Upsert every active Juz part
+    // 2. Upsert every active Juz part (with explicit manual_confirmation & verification_notes)
     const savedPartIdByJuz = new Map<number, string>();
+    const activeNotes = verificationNotes.trim() || (isAdmin ? 'Penetapan materi oleh Admin' : DEFAULT_MANUAL_REASON);
     for (let idx = 0; idx < effectivePartsList.length; idx++) {
       const pt = effectivePartsList[idx];
       const res = await api.upsertUASManualPart(
@@ -448,10 +572,12 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
           juzTotalPages: pt.juzTotalPages,
           coverageRatio: pt.coverageRatio,
           segments: pt.segments,
-          hasGap: pt.hasGap,
+          hasGap: manualConfirmation ? false : pt.hasGap,
+          manualConfirmation: Boolean(manualConfirmation || hasDifference),
+          verificationNotes: activeNotes,
           referencedRecordIds: selectedRecordIds
         },
-        DEFAULT_MANUAL_REASON,
+        activeNotes,
         user
       );
       if (!res.success) {
@@ -460,8 +586,8 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       savedPartIdByJuz.set(pt.juzNumber, res.partId || pt.id);
     }
 
-    // 3. If submitting, verify all saved parts BEFORE upserting sessions
-    if (verifyBeforeSessions) {
+    // 3. If submitting & not already verified via manual_confirmation, verify parts
+    if (verifyBeforeSessions && !manualConfirmation) {
       for (const partId of savedPartIdByJuz.values()) {
         const vRes = await api.verifyOrFinalizeUASMaterialPart(partId, 'verify', DEFAULT_VERIFY_REASON, user);
         if (!vRes.success) {
@@ -485,13 +611,9 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       return chosen;
     };
 
-    const seenJuz = new Set<number>();
+    const seenRangeKeys = new Set<string>();
     for (let i = 0; i < draftSessions.length; i++) {
       const ds = draftSessions[i];
-      if (seenJuz.has(ds.juzNumber)) {
-        throw new Error(`Terdeteksi duplikasi sesi pada Juz ${ds.juzNumber}.`);
-      }
-      seenJuz.add(ds.juzNumber);
       if (ds.hasAttempt || ds.hasQuestionSet || ds.isLocked) continue;
 
       const assignedNum = allocSessionNumber();
@@ -500,25 +622,55 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       if (!part || !partId) {
         throw new Error(`Materi Juz ${ds.juzNumber} tidak ditemukan untuk Sesi ${assignedNum}.`);
       }
-      const { type: safeSessionType } = resolveValidSessionType(ds.sessionType, part);
+
+      // Support distinct split ranges within the same Juz
+      let sStartSurah = part.startSurah;
+      let sStartAyah = part.startAyah;
+      let sEndSurah = part.endSurah;
+      let sEndAyah = part.endAyah;
+      let sStartPage = part.startPage;
+      let sEndPage = part.endPage;
+      let sCoveredPages = part.coveredPages;
+
+      if (ds.customPart) {
+        const cp = ds.customPart;
+        const cov = computeManualJuzPartCoverage({
+          juzNumber: ds.juzNumber,
+          ranges: [{ startSurah: cp.startSurah, startAyah: cp.startAyah, endSurah: cp.endSurah, endAyah: cp.endAyah }]
+        });
+        sStartSurah = cov.startSurah;
+        sStartAyah = cov.startAyah;
+        sEndSurah = cov.endSurah;
+        sEndAyah = cov.endAyah;
+        sStartPage = cov.startPage;
+        sEndPage = cov.endPage;
+        sCoveredPages = cov.coveredPages;
+      }
+
+      const rangeKey = `${ds.juzNumber}:${sStartSurah}:${sStartAyah}:${sEndSurah}:${sEndAyah}`;
+      if (seenRangeKeys.has(rangeKey)) {
+        throw new Error(`Terdeteksi dua sesi dengan cakupan yang sama persis pada Juz ${ds.juzNumber}. Ubah rentang salah satu sesi jika ingin membagi juz.`);
+      }
+      seenRangeKeys.add(rangeKey);
+
       const sessRes = await api.upsertUASManualSession(
         period.id,
         studentId,
         {
           id: ds.serverId || undefined,
           sessionNumber: assignedNum,
-          sessionType: safeSessionType,
+          sessionType: ds.sessionType,
           primaryPartId: partId,
           juzNumber: ds.juzNumber,
-          coveredPages: part.coveredPages,
-          startSurah: part.startSurah,
-          startAyah: part.startAyah,
-          endSurah: part.endSurah,
-          endAyah: part.endAyah,
-          startPage: part.startPage,
-          endPage: part.endPage
+          coveredPages: sCoveredPages,
+          startSurah: sStartSurah,
+          startAyah: sStartAyah,
+          endSurah: sEndSurah,
+          endAyah: sEndAyah,
+          startPage: sStartPage,
+          endPage: sEndPage
         },
-        isAdmin ? 'Sesi disesuaikan oleh Admin' : DEFAULT_SESSION_REASON,
+        isAdmin ? 'Sesi disesuaikan oleh Admin' : activeNotes,
         user
       );
       if (!sessRes.success) {
@@ -659,7 +811,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
           {[
             { num: 1 as const, label: '1. Pilih Hafalan' },
             { num: 2 as const, label: '2. Atur Sesi' },
-            { num: 3 as const, label: '3. Periksa & Kirim' }
+            { num: 3 as const, label: isAdmin ? '3. Periksa & Setujui' : '3. Periksa & Kirim' }
           ].map(s => (
             <button
               key={s.num}
@@ -807,22 +959,25 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
             <div className="space-y-4">
               <div>
                 <h4 className="font-extrabold text-sm text-slate-900">Susunan Sesi Ujian</h4>
-                <p className="text-[11px] text-slate-500">Nomor sesi dan jumlah soal diatur otomatis oleh sistem.</p>
+                <p className="text-[11px] text-slate-500">Tambah, ubah, atau hapus sesi sesuai hafalan santri. Nomor sesi diatur otomatis.</p>
               </div>
 
               {draftSessions.length === 0 ? (
                 <div className="p-5 rounded-2xl border border-dashed border-slate-300 text-center space-y-2">
                   <p className="font-semibold text-slate-600">Belum ada sesi ujian yang ditambahkan.</p>
-                  <p className="text-[11px] text-slate-500">Pastikan santri memiliki minimal ½ juz (50%) pada Langkah 1.</p>
+                  <p className="text-[11px] text-slate-500">Tekan tombol <strong>+ Tambah Sesi</strong> di bawah untuk menyusun sesi ujian.</p>
                 </div>
               ) : (
                 <div className="space-y-2.5">
                   {draftSessions.map((sess, idx) => {
                     const part = effectivePartsByJuz.get(sess.juzNumber);
-                    const pct = part ? Math.round(part.coverageRatio * 100) : 0;
-                    const effPages = part ? formatEffectivePages(part.coverageRatio, part.juzTotalPages) : '0';
-                    const resolved = resolveValidSessionType(sess.sessionType, part);
                     const locked = Boolean(sess.hasAttempt || sess.hasQuestionSet || sess.isLocked || isLockedByAdmin);
+                    const startName = sess.customPart
+                      ? `${quranService.getSurah(sess.customPart.startSurah)?.name || `Surah ${sess.customPart.startSurah}`}:${sess.customPart.startAyah}`
+                      : part ? `${part.startSurahName}:${part.startAyah}` : '';
+                    const endName = sess.customPart
+                      ? `${quranService.getSurah(sess.customPart.endSurah)?.name || `Surah ${sess.customPart.endSurah}`}:${sess.customPart.endAyah}`
+                      : part ? `${part.endSurahName}:${part.endAyah}` : '';
                     return (
                       <div key={sess.localId} className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -831,12 +986,11 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                               Sesi {idx + 1} — Juz {sess.juzNumber}
                             </div>
                             <div className="text-xs font-semibold text-slate-600 mt-0.5">
-                              {resolved.type === 'full_juz' ? '1 Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
-                              {part && <span className="text-slate-400"> • {pct}% ({effPages}/{part.juzTotalPages} hal)</span>}
+                              {sess.sessionType === 'full_juz' ? '1 Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
                             </div>
-                            {resolved.mismatch && (
-                              <div className="mt-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg inline-block">
-                                Cakupan &lt; 100% — otomatis disesuaikan ke Parsial (4 Soal) saat disimpan.
+                            {startName && endName && (
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                {startName} s.d. {endName}
                               </div>
                             )}
                           </div>
@@ -865,47 +1019,81 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                 </div>
               )}
 
-              {/* Add Session Control (only shows unallocated eligible Juzes — prevents duplication!) */}
+              {/* ALWAYS-VISIBLE Add Session Control (supports any Juz 1-30 & manual session creation!) */}
               {!isLockedByAdmin && (
                 <div>
-                  {unallocatedEligibleParts.length > 0 ? (
-                    !addingSessionPicker ? (
-                      <button
-                        type="button"
-                        onClick={() => setAddingSessionPicker(true)}
-                        className="w-full py-3 rounded-2xl border-2 border-dashed border-teal-300 bg-teal-50/40 hover:bg-teal-50 text-teal-800 font-bold text-xs inline-flex items-center justify-center gap-1.5"
-                      >
-                        <Plus size={15} /> Tambah Sesi ({unallocatedEligibleParts.length} Juz Tersedia)
-                      </button>
-                    ) : (
-                      <div className="p-3.5 rounded-2xl border border-teal-300 bg-teal-50/50 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-teal-950">Pilih Juz untuk Sesi Baru:</span>
-                          <button type="button" onClick={() => setAddingSessionPicker(false)} className="text-slate-500 font-bold">Batal</button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {unallocatedEligibleParts.map(p => (
-                            <button
-                              key={p.juzNumber}
-                              type="button"
-                              onClick={() => addSessionForJuz(p.juzNumber)}
-                              className="px-3 py-2 rounded-xl bg-white hover:bg-teal-700 hover:text-white border border-teal-300 font-bold text-teal-900 transition-colors"
-                            >
-                              + Juz {p.juzNumber} ({Math.round(p.coverageRatio * 100)}%)
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )
+                  {!addingSessionPicker ? (
+                    <button
+                      type="button"
+                      onClick={() => setAddingSessionPicker(true)}
+                      className="w-full py-3 rounded-2xl border-2 border-dashed border-teal-400 bg-teal-50/50 hover:bg-teal-50 text-teal-900 font-extrabold text-xs inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Plus size={16} /> Tambah Sesi
+                    </button>
                   ) : (
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 text-center">
-                      Semua juz yang memenuhi syarat sudah memiliki sesi. Gunakan tombol <strong>Ubah Detail</strong> untuk menyesuaikan sesi yang ada.
+                    <div className="p-4 rounded-2xl border-2 border-teal-300 bg-teal-50/40 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-teal-950">Tambah Sesi Ujian Baru</span>
+                        <button type="button" onClick={() => setAddingSessionPicker(false)} className="text-slate-500 font-bold">Batal</button>
+                      </div>
+
+                      {unallocatedEligibleParts.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-slate-600">Pilihan Cepat dari Catatan Setoran:</div>
+                          <div className="flex flex-wrap gap-2">
+                            {unallocatedEligibleParts.map(p => (
+                              <button
+                                key={p.juzNumber}
+                                type="button"
+                                onClick={() => addSessionForJuz(p.juzNumber)}
+                                className="px-3 py-2 rounded-xl bg-white hover:bg-teal-700 hover:text-white border border-teal-300 font-bold text-teal-900 transition-colors"
+                              >
+                                + Juz {p.juzNumber}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-teal-200/70 space-y-2.5">
+                        <div className="text-[11px] font-bold text-slate-700">Atau Pilih Juz Secara Manual (Juz 1–30):</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <select
+                            aria-label="Pilih Juz Manual"
+                            value={newJuzNum}
+                            onChange={e => setNewJuzNum(Number(e.target.value))}
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-slate-800"
+                          >
+                            {Array.from({ length: 30 }, (_, i) => 30 - i).map(j => (
+                              <option key={j} value={j}>
+                                Juz {j}{allocatedJuzSet.has(j) ? ' (Bagi rentang baru)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            aria-label="Pilih Jenis Sesi Manual"
+                            value={newSessionType}
+                            onChange={e => setNewSessionType(e.target.value as 'full_juz' | 'partial_half')}
+                            className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-slate-800"
+                          >
+                            <option value="full_juz">1 Juz Penuh — 9 Soal</option>
+                            <option value="partial_half">Parsial — 4 Soal</option>
+                          </select>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addSessionForJuz(newJuzNum, newSessionType)}
+                          className="w-full py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5"
+                        >
+                          <Plus size={14} /> Tambahkan Sesi Juz {newJuzNum}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Advanced Manual Range Editor ("Ubah Detail") */}
+              {/* Manual Session Editor ("Ubah") */}
               {editingSession && editingSession.customPart && (
                 <div className="p-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 space-y-3">
                   <div className="flex items-center justify-between">
@@ -919,6 +1107,29 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                     >
                       Selesai
                     </button>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Jenis Ujian</label>
+                    <select
+                      aria-label="Jenis Ujian Sesi"
+                      value={editingSession.sessionType}
+                      onChange={e => {
+                        const nextType = e.target.value as 'full_juz' | 'partial_half';
+                        const b = JUZ_AYAH_BOUNDARIES[editingSession.juzNumber] || { startSurah: 78, startAyah: 1, endSurah: 114, endAyah: 6 };
+                        updateEditingSession(s => ({
+                          ...s,
+                          sessionType: nextType,
+                          customPart: nextType === 'full_juz'
+                            ? { ...s.customPart!, startSurah: b.startSurah, startAyah: b.startAyah, endSurah: b.endSurah, endAyah: b.endAyah, hasExtraSeg: false }
+                            : s.customPart
+                        }));
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold"
+                    >
+                      <option value="full_juz">1 Juz Penuh — 9 Soal</option>
+                      <option value="partial_half">Setengah Juz / Parsial — 4 Soal</option>
+                    </select>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -974,31 +1185,19 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                       </div>
                     </div>
                   </div>
-
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">Jenis Ujian</label>
-                    <select
-                      value={editingSession.sessionType}
-                      onChange={e => updateEditingSession(s => ({ ...s, sessionType: e.target.value as 'full_juz' | 'partial_half' }))}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold"
-                    >
-                      <option value="full_juz" disabled={!editingPart || editingPart.partType !== 'full_juz' || editingPart.hasGap}>
-                        1 Juz Penuh — 9 Soal {(!editingPart || editingPart.partType !== 'full_juz' || editingPart.hasGap) ? '(Wajib 100%)' : ''}
-                      </option>
-                      <option value="partial_half">Setengah Juz / Parsial — 4 Soal</option>
-                    </select>
-                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* === LANGKAH 3: PERIKSA & KIRIM === */}
+          {/* === LANGKAH 3: PERIKSA & KIRIM / SETUJUI === */}
           {step === 3 && (
             <div className="space-y-4">
               <div>
                 <h4 className="font-extrabold text-sm text-slate-900">Ringkasan Pengajuan UAS</h4>
-                <p className="text-[11px] text-slate-500">Periksa kembali sebelum mengirim ke Admin untuk persetujuan.</p>
+                <p className="text-[11px] text-slate-500">
+                  {isAdmin ? 'Periksa materi dan sesi santri sebelum menyetujui atau mengembalikan ke guru.' : 'Periksa kembali sebelum mengirim ke Admin untuk persetujuan.'}
+                </p>
               </div>
 
               <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
@@ -1019,21 +1218,18 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                   ) : (
                     draftSessions.map((s, idx) => {
                       const pt = effectivePartsByJuz.get(s.juzNumber);
-                      const pct = pt ? Math.round(pt.coverageRatio * 100) : 0;
-                      const effPages = pt ? formatEffectivePages(pt.coverageRatio, pt.juzTotalPages) : '0';
-                      const resolved = resolveValidSessionType(s.sessionType, pt);
                       return (
                         <div key={s.localId} className="p-3 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-2">
                           <div>
                             <div className="font-bold text-slate-900">Sesi {idx + 1} • Juz {s.juzNumber}</div>
                             {pt && (
                               <div className="text-[11px] text-slate-500">
-                                {pt.startSurahName}:{pt.startAyah} – {pt.endSurahName}:{pt.endAyah} ({pct}% • {effPages}/{pt.juzTotalPages} hal)
+                                {pt.startSurahName}:{pt.startAyah} s.d. {pt.endSurahName}:{pt.endAyah}
                               </div>
                             )}
                           </div>
                           <span className="px-2 py-1 rounded-lg bg-teal-50 text-teal-800 font-bold text-[11px] shrink-0">
-                            {resolved.type === 'full_juz' ? '1 Juz Penuh (9 Soal)' : 'Parsial (4 Soal)'}
+                            {s.sessionType === 'full_juz' ? '1 Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
                           </span>
                         </div>
                       );
@@ -1042,9 +1238,74 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                 </div>
               </div>
 
-              {invalidRecords.length > 0 && (
-                <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 font-semibold">
-                  Perhatian: Masih ada {invalidRecords.length} catatan setoran dengan ayat tidak valid di data santri. Perbaiki di menu Ziyadah sebelum mengirim ke Admin.
+              {/* Clean Difference Notice + Guru Manual Confirmation (NEVER blocks Guru!) */}
+              {hasDifference && (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-amber-950 inline-flex items-center gap-1.5">
+                      <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                      Catatan setoran aplikasi berbeda dengan materi yang ditetapkan guru.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowDiffDetail(v => !v)}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 font-bold text-[11px] text-amber-900"
+                    >
+                      {showDiffDetail ? 'Tutup Perbedaan' : 'Lihat Perbedaan'}
+                    </button>
+                  </div>
+
+                  {showDiffDetail && (
+                    <div className="p-3 rounded-xl bg-white border border-amber-200 space-y-1.5 text-[11px]">
+                      {materialDifferences.map(d => (
+                        <div key={d.juzNumber} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-b border-slate-100 last:border-0 pb-1 last:pb-0">
+                          <span className="font-bold text-slate-800">Juz {d.juzNumber}</span>
+                          <span className="text-slate-500">Catatan aplikasi: <strong>{d.appLabel}</strong></span>
+                          <span className="text-teal-800">Penetapan guru: <strong>{d.teacherLabel}</strong></span>
+                        </div>
+                      ))}
+                      {invalidRecords.length > 0 && (
+                        <div className="text-amber-800 pt-1">
+                          • Terdapat {invalidRecords.length} catatan setoran aplikasi dengan format ayat belum rapi (tidak menghalangi penetapan manual guru).
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!isLockedByAdmin && (
+                    <div className="space-y-2.5 pt-1">
+                      <label className="flex items-start gap-2.5 cursor-pointer bg-white p-3 rounded-xl border border-amber-200">
+                        <input
+                          type="checkbox"
+                          checked={manualConfirmation}
+                          onChange={e => {
+                            setManualConfirmation(e.target.checked);
+                            setIsDirty(true);
+                          }}
+                          className="w-4 h-4 mt-0.5 accent-teal-700 rounded shrink-0"
+                        />
+                        <span className="text-xs text-slate-800">
+                          <strong className="block text-teal-950">Tetapkan Sesuai Pemeriksaan Guru</strong>
+                          <span className="text-[11px] text-slate-500">
+                            Saya menyatakan materi dan sesi di atas sudah diperiksa dan sesuai hafalan santri yang sebenarnya.
+                          </span>
+                        </span>
+                      </label>
+                      <div>
+                        <label className="font-bold text-amber-950 block mb-1">Catatan Singkat (Wajib min. 5 karakter)</label>
+                        <input
+                          type="text"
+                          value={verificationNotes}
+                          onChange={e => {
+                            setVerificationNotes(e.target.value);
+                            setIsDirty(true);
+                          }}
+                          placeholder="Contoh: Santri sudah menyelesaikan setoran Juz 30 penuh di halaqah"
+                          className="w-full px-3 py-2.5 rounded-xl border border-amber-300 bg-white text-xs text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

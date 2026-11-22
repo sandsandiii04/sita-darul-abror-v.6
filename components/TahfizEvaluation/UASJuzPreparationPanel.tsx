@@ -98,7 +98,11 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           status: p.status,
           teacherStatus: p.teacher_status,
           approvalStatus: p.approval_status,
+          manualConfirmation: !!p.manual_confirmation,
           verificationNotes: p.verification_notes,
+          evidenceRatio: p.evidence_ratio !== null && p.evidence_ratio !== undefined ? Number(p.evidence_ratio) : null,
+          evidenceDiffers: !!p.evidence_differs,
+          source: p.source || 'auto',
           rejectedReason: p.rejected_reason,
           revisionNumber: p.revision_number,
           reviewReason: p.review_reason,
@@ -163,6 +167,10 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           partialJuzCount: sub.partial_juz_count || 0,
           manualSessionCount: sub.manual_session_count || 0,
           totalSessionCount: sub.total_session_count || 0,
+          hasManualOverride: !!sub.has_manual_override,
+          manualConfirmation: !!sub.manual_confirmation,
+          verificationNotes: sub.verification_notes,
+          evidenceSummary: Array.isArray(sub.evidence_summary) ? sub.evidence_summary : [],
           submittedAt: sub.submitted_at,
           approvedBy: sub.approved_by,
           approvedByName: sub.approved_by_name,
@@ -777,6 +785,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             const allGenerated = row.sessions.length > 0 && row.sessions.every(s => Boolean(s.questionSetId));
             const hasSessionCoverageMismatch = row.sessions.some(s => {
               const pt = row.analysis.parts.find(p => p.id === s.primaryPartId || p.juzNumber === s.juzNumber);
+              if (pt?.manualConfirmation || row.submission?.manualConfirmation) return false;
               return s.sessionType === 'full_juz' && (!pt || pt.coverageRatio < 1 || pt.hasGap || pt.partType !== 'full_juz');
             });
             const hasIssue =
@@ -812,9 +821,16 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                         {isAdmin && row.submission?.teacherName ? ` • Guru: ${row.submission.teacherName}` : ''}
                       </div>
                     </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${statusBadge.cls}`}>
-                      {statusBadge.label}
-                    </span>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${statusBadge.cls}`}>
+                        {statusBadge.label}
+                      </span>
+                      {row.submission?.hasManualOverride && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                          Penetapan Manual Guru
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700 pt-1">

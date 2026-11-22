@@ -53,7 +53,9 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
     targetIds: string[];
     totalSessions: number;
     excludedCount: number;
+    manualOverrideCount: number;
   } | null>(null);
+  const [confirmManualReviewed, setConfirmManualReviewed] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [report, setReport] = useState<{
     approvedCount: number;
@@ -160,7 +162,11 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
       .filter(s => targetIds.includes(s.studentId))
       .reduce((acc, s) => acc + (s.totalSessionCount || 0), 0);
 
-    setPreviewModal({ mode, targetIds, totalSessions, excludedCount });
+    const manualOverrideCount = submissions
+      .filter(s => targetIds.includes(s.studentId) && Boolean(s.hasManualOverride))
+      .length;
+    setConfirmManualReviewed(false);
+    setPreviewModal({ mode, targetIds, totalSessions, excludedCount, manualOverrideCount });
   };
 
   const executeBulkApprove = async () => {
@@ -469,6 +475,16 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                                   ? 'Perlu Cek Ulang'
                                   : 'Belum Diperiksa'}
                       </span>
+                      {sub.hasManualOverride && (
+                        <div>
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                            Penetapan Manual Guru
+                          </span>
+                          {sub.verificationNotes && (
+                            <div className="text-[10px] text-amber-800 mt-0.5 line-clamp-2">{sub.verificationNotes}</div>
+                          )}
+                        </div>
+                      )}
                       <div className="text-[10px] text-slate-500">
                         {eligible ? 'Layak persetujuan massal' : sub.isException ? 'Pengecualian (tinjau manual)' : 'Tidak masuk massal otomatis'}
                       </div>
@@ -521,6 +537,24 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
             <div className="space-y-1.5 text-slate-700">
               <div>• Santri layak yang akan disetujui: <strong>{previewModal.targetIds.length} santri</strong></div>
               <div>• Total sesi yang akan dikunci: <strong>{previewModal.totalSessions} sesi</strong></div>
+              {previewModal.manualOverrideCount > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 space-y-2 mt-2">
+                  <div className="font-bold">
+                    • Termasuk {previewModal.manualOverrideCount} santri dengan Penetapan Manual Guru (berbeda dari catatan setoran aplikasi).
+                  </div>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={confirmManualReviewed}
+                      onChange={e => setConfirmManualReviewed(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 accent-teal-700 rounded shrink-0"
+                    />
+                    <span className="text-[11px]">
+                      Saya telah meninjau keterangan penetapan manual Guru Halaqah dan menyetujuinya.
+                    </span>
+                  </label>
+                </div>
+              )}
               {previewModal.excludedCount > 0 && (
                 <div className="text-amber-700 font-semibold">
                   • {previewModal.excludedCount} santri dilewati otomatis karena berstatus pengecualian / perlu koreksi / belum siap.
@@ -531,7 +565,7 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
               <button onClick={() => setPreviewModal(null)} className="px-3 py-2 rounded-xl border border-slate-300 font-bold">Batal</button>
               <button
                 onClick={executeBulkApprove}
-                disabled={isProcessing || previewModal.targetIds.length === 0}
+                disabled={isProcessing || previewModal.targetIds.length === 0 || (previewModal.manualOverrideCount > 0 && !confirmManualReviewed)}
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold disabled:opacity-40"
               >
                 {isProcessing ? 'Memproses...' : `Setujui ${previewModal.targetIds.length} Santri`}
@@ -556,6 +590,26 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
             {detailSub.isException && (
               <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900">
                 <strong>Pengajuan Pengecualian Khusus:</strong> {detailSub.exceptionReason}
+              </div>
+            )}
+
+            {detailSub.hasManualOverride && (
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 space-y-1.5">
+                <div className="font-bold">Penetapan Manual Guru Halaqah (Berbeda dari Catatan Aplikasi)</div>
+                <div className="text-[11px]">
+                  <strong>Catatan Guru ({detailSub.teacherName}):</strong> {detailSub.verificationNotes || '-'}
+                </div>
+                {detailSub.evidenceSummary && detailSub.evidenceSummary.length > 0 && (
+                  <div className="pt-1 space-y-1 text-[11px]">
+                    {detailSub.evidenceSummary.map((ev, i) => (
+                      <div key={i} className="bg-white px-2.5 py-1.5 rounded-lg border border-amber-200 flex flex-wrap justify-between gap-1">
+                        <span className="font-bold">Sesi {ev.sessionNumber || i + 1} • Juz {ev.juzNumber}</span>
+                        <span>Aplikasi: <strong>{Math.round((ev.evidenceRatio || 0) * 100)}%</strong></span>
+                        <span className="text-teal-800">Guru: <strong>{ev.sessionType === 'full_juz' ? '1 Juz Penuh (9 Soal)' : 'Parsial (4 Soal)'}</strong></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

@@ -467,7 +467,11 @@ export interface ExamMaterialPart {
   status: UASMaterialPartStatus;
   teacherStatus?: UASTeacherPrepStatus;
   approvalStatus?: string;
+  manualConfirmation?: boolean;
   verificationNotes?: string | null;
+  evidenceRatio?: number | null;
+  evidenceDiffers?: boolean;
+  source?: 'auto' | 'manual_teacher' | 'manual_admin';
   rejectedReason?: string | null;
   revisionNumber?: number;
   reviewReason?: string | null;
@@ -533,6 +537,20 @@ export interface ExamUASPrepSubmission {
   partialJuzCount: number;
   manualSessionCount: number;
   totalSessionCount: number;
+  hasManualOverride?: boolean;
+  manualConfirmation?: boolean;
+  verificationNotes?: string | null;
+  evidenceSummary?: Array<{
+    sessionNumber?: number;
+    juzNumber: number;
+    sessionType: 'full_juz' | 'partial_half';
+    evidenceRatio: number;
+    coveredAyahs?: number;
+    totalAyahs?: number;
+    hasAnomaly?: boolean;
+    manualConfirmation?: boolean;
+    verificationNotes?: string | null;
+  }>;
   submittedAt?: string | null;
   approvedBy?: string | null;
   approvedByName?: string | null;
