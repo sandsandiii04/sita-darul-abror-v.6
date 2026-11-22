@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   ExamPeriod,
   ExamParticipant,
@@ -40,11 +40,32 @@ interface UASBulkGeneratorModalProps {
   targetStudentId?: string | null;
 }
 
+interface SessionOutcomeItem {
+  sessionId: string;
+  sessionNumber: number;
+  juzNumber: number;
+  status: 'READY' | 'FAILED' | 'SKIPPED';
+  message: string;
+}
+
 interface ExecutionResultItem {
   studentId: string;
   studentName: string;
-  status: 'SUCCESS' | 'SKIPPED' | 'FAILED';
+  status: 'SUCCESS' | 'PARTIAL' | 'SKIPPED' | 'FAILED';
   message: string;
+  sessionOutcomes?: SessionOutcomeItem[];
+}
+
+function formatFriendlyGenError(raw?: string): string {
+  const txt = (raw || '').trim();
+  if (!txt) return 'Gagal menyiapkan paket soal sesi. Silakan coba ulang.';
+  if (/duplicate key|unique constraint|uq_exam_question_set/i.test(txt)) {
+    return 'Ditemukan bentrok versi paket soal lama pada sesi ini. Silakan tekan Coba Ulang untuk memulihkan versi paket yang aman.';
+  }
+  if (/network|fetch|timeout|failed to fetch/i.test(txt)) {
+    return 'Koneksi ke server terputus saat menyimpan paket. Silakan tekan Coba Ulang untuk memeriksa dan melengkapi sesi yang belum tersimpan.';
+  }
+  return txt;
 }
 
 export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
@@ -73,6 +94,8 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   const [loadingBank, setLoadingBank] = useState(false);
 
   const [isExecuting, setIsExecuting] = useState(false);
+  const inFlightRef = useRef(false);
+  const [reloadTick, setReloadTick] = useState(0);
   const [processedCount, setProcessedCount] = useState(0);
   const [totalToProcess, setTotalToProcess] = useState(0);
   const [currentStudentName, setCurrentStudentName] = useState<string | null>(null);
@@ -166,7 +189,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, reloadTick]);
 
   const distinctClasses = useMemo(() => {
     const set = new Set<string>();
@@ -250,15 +273,19 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
     eligibilitySummary.bankSoalKurang +
     eligibilitySummary.stale;
 
-  const executeBulkGeneration = async (targetItems: UASEligibilityItem[]) => {
+  const executeBulkGeneration = async (targetItems: UASEligibilityItem[], skipConfirm = false) => {
+    if (inFlightRef.current) return;
     if (targetItems.length === 0) {
       alert('Tidak ada santri berstatus Siap Dibuat.');
       return;
     }
 
-    const confirmMsg = `Generate paket 9 soal UAS untuk ${targetItems.length} santri yang siap?\n\nPaket yang sudah ada dan terkunci tidak akan ditimpa.`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!skipConfirm) {
+      const confirmMsg = `Siapkan paket soal UAS untuk ${targetItems.length} santri yang siap?\n\nPaket sesi yang sudah valid tidak akan dibuat ulang atau ditimpa.`;
+      if (!window.confirm(confirmMsg)) return;
+    }
 
+    inFlightRef.current = true;
     setIsExecuting(true);
     setTotalToProcess(targetItems.length);
     setProcessedCount(0);
@@ -302,11 +329,19 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
         // Per-session isolated generation: if 1 session fails, other sessions stay safely saved!
         let genSessions = 0;
         let skippedSessions = 0;
+        const sessionOutcomes: SessionOutcomeItem[] = [];
         const failedMsgs: string[] = [];
 
         for (const sess of studentSessions) {
           if (sess.questionSetId || sess.attemptId) {
             skippedSessions++;
+            sessionOutcomes.push({
+              sessionId: sess.id,
+              sessionNumber: sess.sessionNumber,
+              juzNumber: sess.juzNumber,
+              status: 'SKIPPED',
+              message: 'Paket Soal Siap'
+            });
             continue;
           }
           try {
@@ -324,27 +359,44 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               user
             );
             if (!saveSessRes.success) {
-              throw new Error(saveSessRes.message || `Gagal menyimpan paket Sesi ${sess.sessionNumber}.`);
+              throw new Error(formatFriendlyGenError(saveSessRes.message));
             }
             genSessions++;
+            sessionOutcomes.push({
+              sessionId: sess.id,
+              sessionNumber: sess.sessionNumber,
+              juzNumber: sess.juzNumber,
+              status: 'READY',
+              message: 'Paket Soal Siap'
+            });
           } catch (sessErr: any) {
-            failedMsgs.push(`Sesi ${sess.sessionNumber} (Juz ${sess.juzNumber}): ${sessErr?.message || 'Gagal generate'}`);
+            const friendly = formatFriendlyGenError(sessErr?.message);
+            failedMsgs.push(`Sesi ${sess.sessionNumber} (Juz ${sess.juzNumber}): ${friendly}`);
+            sessionOutcomes.push({
+              sessionId: sess.id,
+              sessionNumber: sess.sessionNumber,
+              juzNumber: sess.juzNumber,
+              status: 'FAILED',
+              message: `Perlu Perbaikan Paket Soal — ${friendly}`
+            });
           }
         }
 
-        if (failedMsgs.length > 0 && genSessions === 0) {
+        if (failedMsgs.length > 0 && genSessions === 0 && skippedSessions === 0) {
           results.push({
             studentId: item.studentId,
             studentName: item.studentName,
             status: 'FAILED',
-            message: failedMsgs.join(' • ')
+            message: failedMsgs.join(' • '),
+            sessionOutcomes
           });
-        } else if (failedMsgs.length > 0 && genSessions > 0) {
+        } else if (failedMsgs.length > 0) {
           results.push({
             studentId: item.studentId,
             studentName: item.studentName,
-            status: 'FAILED',
-            message: `${genSessions} sesi berhasil disiapkan; gagal: ${failedMsgs.join(' • ')}`
+            status: 'PARTIAL',
+            message: `${genSessions + skippedSessions} sesi siap, ${failedMsgs.length} sesi perlu perbaikan.`,
+            sessionOutcomes
           });
         } else {
           results.push({
@@ -353,7 +405,8 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
             status: genSessions > 0 ? 'SUCCESS' : 'SKIPPED',
             message: genSessions > 0
               ? `${genSessions} paket sesi UAS berhasil disiapkan${skippedSessions > 0 ? ` (${skippedSessions} sudah ada)` : ''}.`
-              : 'Seluruh sesi UAS santri ini sudah memiliki paket soal.'
+              : 'Seluruh sesi UAS santri ini sudah memiliki paket soal.',
+            sessionOutcomes
           });
         }
 
@@ -363,8 +416,10 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
       }
 
       setExecutionResults(results);
+      setReloadTick(t => t + 1);
       await onSuccess();
     } finally {
+      inFlightRef.current = false;
       setIsExecuting(false);
       setCurrentStudentName(null);
     }
@@ -529,25 +584,65 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               </div>
               <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden">
                 {executionResults.map(res => (
-                  <div key={res.studentId} className="px-4 py-2.5 flex items-center justify-between text-xs bg-white">
-                    <div>
-                      <span className="font-bold text-slate-800">{res.studentName}</span>
-                      <p className="text-slate-500">{res.message}</p>
-                    </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                        res.status === 'SUCCESS'
-                          ? 'bg-emerald-100 text-emerald-800'
+                  <div key={res.studentId} className="px-4 py-3 space-y-2 text-xs bg-white">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-slate-900">{res.studentName}</span>
+                        <p className="text-slate-500">{res.message}</p>
+                      </div>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] shrink-0 ${
+                          res.status === 'SUCCESS'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : res.status === 'PARTIAL'
+                            ? 'bg-amber-100 text-amber-900'
+                            : res.status === 'SKIPPED'
+                            ? 'bg-slate-100 text-slate-700'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {res.status === 'SUCCESS'
+                          ? 'Berhasil'
+                          : res.status === 'PARTIAL'
+                          ? 'Sebagian Berhasil'
                           : res.status === 'SKIPPED'
-                          ? 'bg-slate-100 text-slate-700'
-                          : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {res.status}
-                    </span>
+                          ? 'Sudah Siap'
+                          : 'Perlu Perbaikan'}
+                      </span>
+                    </div>
+                    {res.sessionOutcomes && res.sessionOutcomes.length > 0 && (
+                      <div className="space-y-1 pl-2 border-l-2 border-slate-200">
+                        {res.sessionOutcomes.map(so => (
+                          <div key={so.sessionId} className="flex flex-wrap items-center justify-between gap-1 text-[11px]">
+                            <span className="font-bold text-slate-800">Sesi {so.sessionNumber} — Juz {so.juzNumber}</span>
+                            <span className={so.status === 'FAILED' ? 'text-rose-700 font-semibold' : 'text-emerald-700 font-semibold'}>
+                              {so.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
+              {executionResults.some(r => r.status === 'FAILED' || r.status === 'PARTIAL') && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={isExecuting || loadingBank}
+                    onClick={() => {
+                      const failedIds = new Set(
+                        executionResults.filter(r => r.status === 'FAILED' || r.status === 'PARTIAL').map(r => r.studentId)
+                      );
+                      const retryTargets = eligibilitySummary.items.filter(i => failedIds.has(i.studentId));
+                      executeBulkGeneration(retryTargets, true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    Coba Ulang Sesi Gagal
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="border border-slate-200 rounded-2xl overflow-hidden">
