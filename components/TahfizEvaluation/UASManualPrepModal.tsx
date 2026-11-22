@@ -74,7 +74,7 @@ interface DraftSessionItem {
   };
 }
 
-const DEFAULT_MANUAL_REASON = 'Pengaturan materi manual Guru Halaqah';
+const DEFAULT_MANUAL_REASON = 'Ditetapkan sesuai pemeriksaan guru';
 const DEFAULT_VERIFY_REASON = 'Diverifikasi oleh Guru Halaqah';
 const DEFAULT_SESSION_REASON = 'Sesi diatur oleh Guru Halaqah';
 const DEFAULT_DELETE_REASON = 'Sesi draft dihapus Guru Halaqah';
@@ -535,9 +535,6 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       if (!manualConfirmation) {
         throw new Error('Catatan setoran aplikasi berbeda dengan materi yang ditetapkan. Centang "Tetapkan Sesuai Pemeriksaan Guru" terlebih dahulu.');
       }
-      if (verificationNotes.trim().length < 5) {
-        throw new Error('Isi catatan singkat perbedaan materi minimal 5 karakter.');
-      }
     }
 
     // 1. Delete removed draft sessions first (frees session_number)
@@ -548,9 +545,9 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       }
     }
 
-    // 2. Upsert every active Juz part (with explicit manual_confirmation & verification_notes)
+    // 2. Upsert every active Juz part (with explicit manual_confirmation & standard verification_notes)
     const savedPartIdByJuz = new Map<number, string>();
-    const activeNotes = verificationNotes.trim() || (isAdmin ? 'Penetapan materi oleh Admin' : DEFAULT_MANUAL_REASON);
+    const activeNotes = verificationNotes.trim() || (isAdmin ? 'Ditetapkan sesuai pemeriksaan Admin' : DEFAULT_MANUAL_REASON);
     for (let idx = 0; idx < effectivePartsList.length; idx++) {
       const pt = effectivePartsList[idx];
       const res = await api.upsertUASManualPart(
@@ -1273,7 +1270,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                   )}
 
                   {!isLockedByAdmin && (
-                    <div className="space-y-2.5 pt-1">
+                    <div className="pt-1">
                       <label className="flex items-start gap-2.5 cursor-pointer bg-white p-3 rounded-xl border border-amber-200">
                         <input
                           type="checkbox"
@@ -1291,19 +1288,6 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                           </span>
                         </span>
                       </label>
-                      <div>
-                        <label className="font-bold text-amber-950 block mb-1">Catatan Singkat (Wajib min. 5 karakter)</label>
-                        <input
-                          type="text"
-                          value={verificationNotes}
-                          onChange={e => {
-                            setVerificationNotes(e.target.value);
-                            setIsDirty(true);
-                          }}
-                          placeholder="Contoh: Santri sudah menyelesaikan setoran Juz 30 penuh di halaqah"
-                          className="w-full px-3 py-2.5 rounded-xl border border-amber-300 bg-white text-xs text-slate-800"
-                        />
-                      </div>
                     </div>
                   )}
                 </div>

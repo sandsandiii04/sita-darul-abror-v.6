@@ -488,11 +488,14 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                       {sub.hasManualOverride && (
                         <div>
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
-                            Penetapan Manual Guru
+                            Ditetapkan Manual oleh Guru
                           </span>
-                          {sub.verificationNotes && (
-                            <div className="text-[10px] text-amber-800 mt-0.5 line-clamp-2">{sub.verificationNotes}</div>
-                          )}
+                          {sub.verificationNotes &&
+                            sub.verificationNotes.trim() !== '' &&
+                            sub.verificationNotes.trim() !== 'Ditetapkan sesuai pemeriksaan guru' &&
+                            sub.verificationNotes.trim() !== 'Ditetapkan sesuai pemeriksaan Admin' && (
+                              <div className="text-[10px] text-amber-800 mt-0.5 line-clamp-2">{sub.verificationNotes}</div>
+                            )}
                         </div>
                       )}
                       <div className="text-[10px] text-slate-500">
@@ -617,10 +620,15 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
 
             {detailSub.hasManualOverride && (
               <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 space-y-1.5">
-                <div className="font-bold">Penetapan Manual Guru Halaqah (Berbeda dari Catatan Aplikasi)</div>
-                <div className="text-[11px]">
-                  <strong>Catatan Guru ({detailSub.teacherName}):</strong> {detailSub.verificationNotes || '-'}
-                </div>
+                <div className="font-bold">Ditetapkan Manual oleh Guru ({detailSub.teacherName})</div>
+                {detailSub.verificationNotes &&
+                  detailSub.verificationNotes.trim() !== '' &&
+                  detailSub.verificationNotes.trim() !== 'Ditetapkan sesuai pemeriksaan guru' &&
+                  detailSub.verificationNotes.trim() !== 'Ditetapkan sesuai pemeriksaan Admin' && (
+                    <div className="text-[11px]">
+                      <strong>Catatan Guru:</strong> {detailSub.verificationNotes}
+                    </div>
+                  )}
                 {detailSub.evidenceSummary && detailSub.evidenceSummary.length > 0 && (
                   <div className="pt-1 space-y-1 text-[11px]">
                     {detailSub.evidenceSummary.map((ev, i) => (
@@ -646,10 +654,15 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                     : pt.teacherStatus === 'draft_manual'
                       ? 'Draft'
                       : 'Siap';
+                const customNote = (pt.verificationNotes || pt.reviewReason || '').trim();
+                const showCustomNote =
+                  customNote !== '' &&
+                  customNote !== 'Ditetapkan sesuai pemeriksaan guru' &&
+                  customNote !== 'Ditetapkan sesuai pemeriksaan Admin';
                 return (
                   <div key={pt.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50">
                     <div className="font-bold text-slate-800">Juz {pt.juzNumber} ({partTypeLabel}) • {partStatusLabel}</div>
-                    <div className="text-slate-600">Catatan Guru: {pt.verificationNotes || pt.reviewReason || '-'}</div>
+                    {showCustomNote && <div className="text-slate-600 mt-0.5">Catatan: {customNote}</div>}
                   </div>
                 );
               })}
