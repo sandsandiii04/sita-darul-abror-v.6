@@ -154,12 +154,15 @@ BEGIN
 
     INSERT INTO public.exam_audit_logs (
         id, exam_period_id, student_id,
-        action_type, actor_user_id, reason, payload
+        action, actor_id, before_data, after_data, reason
     ) VALUES (
         'eal_pstat_' || (EXTRACT(EPOCH FROM now())::BIGINT)::TEXT || '_' || floor(random()*1000)::TEXT,
         p_period_id, NULL,
         'UPDATE_EXAM_PERIOD_STATUS', v_user.id,
-        COALESCE(NULLIF(trim(p_note), ''), 'Perubahan status periode ' || v_old_status || ' -> ' || p_new_status),
+        jsonb_build_object(
+            'period_id', p_period_id,
+            'status', v_old_status
+        ),
         jsonb_build_object(
             'period_id', p_period_id,
             'period_name', v_period.name,
@@ -169,7 +172,8 @@ BEGIN
             'participants_count', v_participants,
             'approved_sessions', v_approved_sessions,
             'ready_packet_sessions', v_ready_packet_sessions
-        )
+        ),
+        COALESCE(NULLIF(trim(p_note), ''), 'Perubahan status periode ' || v_old_status || ' -> ' || p_new_status)
     );
 
     RETURN jsonb_build_object(

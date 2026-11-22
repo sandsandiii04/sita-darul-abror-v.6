@@ -747,21 +747,27 @@ BEGIN
     END IF;
 
     INSERT INTO public.exam_audit_logs (
-        id, exam_period_id, student_id, exam_attempt_id,
-        action_type, actor_user_id, reason, payload
+        id, exam_period_id, student_id,
+        action, actor_id, before_data, after_data, reason
     ) VALUES (
         'eal_sub_' || (EXTRACT(EPOCH FROM now())::BIGINT)::TEXT || '_' || floor(random()*1000)::TEXT,
-        v_attempt.exam_period_id, v_attempt.student_id, p_attempt_id,
+        v_attempt.exam_period_id, v_attempt.student_id,
         'SUBMIT_UAS_ATTEMPT', v_user.id,
-        CASE WHEN v_is_partial THEN 'Finalisasi Nilai UAS (Sesi Setengah Juz / 4 Soal)' ELSE 'Finalisasi Nilai UAS (Sesi 1 Juz Penuh / 9 Soal)' END,
         jsonb_build_object(
+            'exam_attempt_id', p_attempt_id,
+            'status', 'in_progress'
+        ),
+        jsonb_build_object(
+            'exam_attempt_id', p_attempt_id,
+            'status', 'submitted',
             'total_score', v_recalculated_total,
             'is_passed', v_is_passed,
             'predikat', v_predikat,
             'uas_session_id', v_attempt.uas_session_id,
             'actual_examiner_id', v_attempt.actual_examiner_id,
             'actual_examiner_name', v_attempt.actual_examiner_name
-        )
+        ),
+        CASE WHEN v_is_partial THEN 'Finalisasi Nilai UAS (Sesi Setengah Juz / 4 Soal)' ELSE 'Finalisasi Nilai UAS (Sesi 1 Juz Penuh / 9 Soal)' END
     );
 
     RETURN json_build_object(
