@@ -1217,7 +1217,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         if (!targetRow) return null;
         return (
           <UASManualPrepModal
-            key={targetRow.participant.studentId}
+            key={`${period.id}_${targetRow.participant.studentId}`}
             isOpen={true}
             onClose={() => setFullManualStudentId(null)}
             period={period}
@@ -1231,6 +1231,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             serverParts={serverParts.filter(p => p.studentId === targetRow.participant.studentId)}
             suggestedParts={targetRow.analysis.parts}
             sessions={targetRow.sessions}
+            serverSessions={serverSessions.filter(s => s.studentId === targetRow.participant.studentId && s.status !== 'void')}
             submissionStatus={targetRow.submission?.status}
             user={user}
             onSaved={async (msgText) => {

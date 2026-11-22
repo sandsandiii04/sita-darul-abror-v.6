@@ -18,8 +18,10 @@ import {
 } from '../../services/uasJuzSegmentationService';
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   BookOpen,
   Check,
   CheckCircle2,
@@ -46,6 +48,7 @@ interface UASManualPrepModalProps {
   serverParts: ExamMaterialPart[];
   suggestedParts: ExamMaterialPart[];
   sessions: ExamUASSession[];
+  serverSessions?: ExamUASSession[];
   submissionStatus?: string;
   user: User;
   onSaved: (msgText?: string) => Promise<void>;
@@ -114,6 +117,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   records,
   serverParts,
   sessions,
+  serverSessions,
   submissionStatus,
   user,
   onSaved
@@ -188,21 +192,27 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
 
   // Step 2 state: working list of active (non-void) sessions
   const [draftSessions, setDraftSessions] = useState<DraftSessionItem[]>(() => {
-    const activeSessions = sessions.filter(s => s.status !== 'void');
+    const activeSessions = sessions.filter(s => s.status !== 'void' && (!s.examPeriodId || s.examPeriodId === period.id));
     if (activeSessions.length > 0) {
       return [...activeSessions]
         .sort((a, b) => a.sessionNumber - b.sessionNumber)
-        .map(s => ({
-          localId: s.id,
-          serverId: s.id,
-          originalSessionNumber: s.sessionNumber,
-          juzNumber: s.juzNumber,
-          sessionType: s.sessionType,
-          source: s.source || 'auto',
-          isLocked: s.isLocked,
-          hasAttempt: Boolean(s.attemptId),
-          hasQuestionSet: Boolean(s.questionSetId)
-        }));
+        .map(s => {
+          const isPersistedOnServer =
+            serverSessions !== undefined
+              ? serverSessions.some(ss => ss.id === s.id && ss.status !== 'void' && ss.examPeriodId === period.id)
+              : Boolean(s.questionSetId || s.attemptId || s.isLocked || s.source === 'manual');
+          return {
+            localId: s.id,
+            serverId: isPersistedOnServer ? s.id : undefined,
+            originalSessionNumber: isPersistedOnServer ? s.sessionNumber : undefined,
+            juzNumber: s.juzNumber,
+            sessionType: s.sessionType,
+            source: s.source || 'auto',
+            isLocked: s.isLocked,
+            hasAttempt: Boolean(s.attemptId),
+            hasQuestionSet: Boolean(s.questionSetId)
+          };
+        });
     }
     return [];
   });
@@ -473,7 +483,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
 
   const removeSession = (item: DraftSessionItem, displayIndex: number) => {
     if (item.hasAttempt || item.hasQuestionSet || item.isLocked) {
-      setFeedback({ type: 'error', text: 'Sesi yang sudah terkunci atau memiliki paket/nilai ujian tidak dapat dihapus.' });
+      setFeedback({ type: 'error', text: 'Sesi ini sudah memiliki soal atau riwayat ujian. Hubungi Admin untuk melakukan perubahan.' });
       return;
     }
     const ok = window.confirm(`Hapus Sesi ${displayIndex + 1} (Juz ${item.juzNumber}) dari rencana ujian ${studentName}?`);
@@ -485,6 +495,26 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     if (editingLocalId === item.localId) setEditingLocalId(null);
     setIsDirty(true);
     setFeedback({ type: 'success', text: `Sesi ${displayIndex + 1} (Juz ${item.juzNumber}) dihapus dari daftar. Klik Simpan untuk menerapkan.` });
+  };
+
+  const moveSession = (index: number, direction: -1 | 1) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= draftSessions.length) return;
+    const cur = draftSessions[index];
+    const target = draftSessions[targetIdx];
+    if (cur.hasAttempt || cur.hasQuestionSet || cur.isLocked || target.hasAttempt || target.hasQuestionSet || target.isLocked) {
+      setFeedback({ type: 'error', text: 'Sesi ini sudah memiliki soal atau riwayat ujian. Hubungi Admin untuk melakukan perubahan.' });
+      return;
+    }
+    setDraftSessions(prev => {
+      const next = [...prev];
+      const tmp = next[index];
+      next[index] = next[targetIdx];
+      next[targetIdx] = tmp;
+      return next;
+    });
+    setIsDirty(true);
+    setFeedback(null);
   };
 
   const openDetailEditor = (item: DraftSessionItem) => {
@@ -537,10 +567,20 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       }
     }
 
-    // 1. Delete removed draft sessions first (frees session_number)
-    for (const delId of deletedServerSessionIds) {
+    // 1. Delete removed REAL server draft sessions first (frees session_number)
+    const pendingDeletes = Array.from(new Set(deletedServerSessionIds));
+    for (const delId of pendingDeletes) {
       const delRes = await api.deleteUASManualSession(delId, DEFAULT_DELETE_REASON, user);
-      if (!delRes.success) {
+      if (delRes.success) {
+        // Immediately remove confirmed deletion so partial failures never retry deleted IDs
+        setDeletedServerSessionIds(prev => prev.filter(id => id !== delId));
+      } else {
+        const msgLower = (delRes.message || '').toLowerCase();
+        // If session was already deleted/voided on server in a prior retry, safely drop stale ID
+        if (msgLower.includes('sesi tidak ditemukan')) {
+          setDeletedServerSessionIds(prev => prev.filter(id => id !== delId));
+          continue;
+        }
         throw new Error(delRes.message || 'Gagal menghapus sesi draft lama.');
       }
     }
@@ -609,6 +649,19 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     };
 
     const seenRangeKeys = new Set<string>();
+    const preparedSessions: Array<{
+      ds: DraftSessionItem;
+      assignedNum: number;
+      partId: string;
+      sStartSurah: number;
+      sStartAyah: number;
+      sEndSurah: number;
+      sEndAyah: number;
+      sStartPage: number;
+      sEndPage: number;
+      sCoveredPages: number[];
+    }> = [];
+
     for (let i = 0; i < draftSessions.length; i++) {
       const ds = draftSessions[i];
       if (ds.hasAttempt || ds.hasQuestionSet || ds.isLocked) continue;
@@ -620,7 +673,6 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
         throw new Error(`Materi Juz ${ds.juzNumber} tidak ditemukan untuk Sesi ${assignedNum}.`);
       }
 
-      // Support distinct split ranges within the same Juz
       let sStartSurah = part.startSurah;
       let sStartAyah = part.startAyah;
       let sEndSurah = part.endSurah;
@@ -649,30 +701,105 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
         throw new Error(`Terdeteksi dua sesi dengan cakupan yang sama persis pada Juz ${ds.juzNumber}. Ubah rentang salah satu sesi jika ingin membagi juz.`);
       }
       seenRangeKeys.add(rangeKey);
+      preparedSessions.push({
+        ds,
+        assignedNum,
+        partId,
+        sStartSurah,
+        sStartAyah,
+        sEndSurah,
+        sEndAyah,
+        sStartPage,
+        sEndPage,
+        sCoveredPages
+      });
+    }
 
+    // 4a. If reordering existing server sessions causes session_number swap collision (e.g. S1 <-> S2),
+    // temporarily park colliding existing sessions at high numbers (1000+i) before assigning final numbers.
+    const existingServerNums = new Map<string, number>();
+    preparedSessions.forEach(item => {
+      if (item.ds.serverId && item.ds.originalSessionNumber) {
+        existingServerNums.set(item.ds.serverId, item.ds.originalSessionNumber);
+      }
+    });
+    const needsReorderPark = preparedSessions.some(item => {
+      if (!item.ds.serverId || item.ds.originalSessionNumber === item.assignedNum) return false;
+      for (const [otherId, otherNum] of existingServerNums.entries()) {
+        if (otherId !== item.ds.serverId && otherNum === item.assignedNum) return true;
+      }
+      return false;
+    });
+
+    if (needsReorderPark) {
+      for (let i = 0; i < preparedSessions.length; i++) {
+        const item = preparedSessions[i];
+        if (!item.ds.serverId) continue;
+        const parkRes = await api.upsertUASManualSession(
+          period.id,
+          studentId,
+          {
+            id: item.ds.serverId,
+            sessionNumber: 1000 + i,
+            sessionType: item.ds.sessionType,
+            primaryPartId: item.partId,
+            juzNumber: item.ds.juzNumber,
+            coveredPages: item.sCoveredPages,
+            startSurah: item.sStartSurah,
+            startAyah: item.sStartAyah,
+            endSurah: item.sEndSurah,
+            endAyah: item.sEndAyah,
+            startPage: item.sStartPage,
+            endPage: item.sEndPage
+          },
+          isAdmin ? 'Sesi disesuaikan oleh Admin' : activeNotes,
+          user
+        );
+        if (!parkRes.success) {
+          throw new Error(parkRes.message || 'Gagal mengatur ulang urutan sesi.');
+        }
+      }
+    }
+
+    // 4b. Upsert every session with its final sequential session_number and sync serverId back to local state
+    const updatedServerMeta = new Map<string, { serverId: string; sessionNumber: number }>();
+    for (const item of preparedSessions) {
       const sessRes = await api.upsertUASManualSession(
         period.id,
         studentId,
         {
-          id: ds.serverId || undefined,
-          sessionNumber: assignedNum,
-          sessionType: ds.sessionType,
-          primaryPartId: partId,
-          juzNumber: ds.juzNumber,
-          coveredPages: sCoveredPages,
-          startSurah: sStartSurah,
-          startAyah: sStartAyah,
-          endSurah: sEndSurah,
-          endAyah: sEndAyah,
-          startPage: sStartPage,
-          endPage: sEndPage
+          id: item.ds.serverId || undefined,
+          sessionNumber: item.assignedNum,
+          sessionType: item.ds.sessionType,
+          primaryPartId: item.partId,
+          juzNumber: item.ds.juzNumber,
+          coveredPages: item.sCoveredPages,
+          startSurah: item.sStartSurah,
+          startAyah: item.sStartAyah,
+          endSurah: item.sEndSurah,
+          endAyah: item.sEndAyah,
+          startPage: item.sStartPage,
+          endPage: item.sEndPage
         },
         isAdmin ? 'Sesi disesuaikan oleh Admin' : activeNotes,
         user
       );
       if (!sessRes.success) {
-        throw new Error(sessRes.message || `Gagal menyimpan Sesi ${assignedNum} (Juz ${ds.juzNumber}).`);
+        throw new Error(sessRes.message || `Gagal menyimpan Sesi ${item.assignedNum} (Juz ${item.ds.juzNumber}).`);
       }
+      const resolvedId = sessRes.sessionId || item.ds.serverId;
+      if (resolvedId) {
+        updatedServerMeta.set(item.ds.localId, { serverId: resolvedId, sessionNumber: item.assignedNum });
+      }
+    }
+
+    if (updatedServerMeta.size > 0) {
+      setDraftSessions(prev =>
+        prev.map(s => {
+          const meta = updatedServerMeta.get(s.localId);
+          return meta ? { ...s, serverId: meta.serverId, originalSessionNumber: meta.sessionNumber } : s;
+        })
+      );
     }
 
     setDeletedServerSessionIds([]);
@@ -961,8 +1088,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
 
               {draftSessions.length === 0 ? (
                 <div className="p-5 rounded-2xl border border-dashed border-slate-300 text-center space-y-2">
-                  <p className="font-semibold text-slate-600">Belum ada sesi ujian yang ditambahkan.</p>
-                  <p className="text-[11px] text-slate-500">Tekan tombol <strong>+ Tambah Sesi</strong> di bawah untuk menyusun sesi ujian.</p>
+                  <p className="font-semibold text-slate-700">Belum ada sesi ujian.</p>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -977,13 +1103,13 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                       : part ? `${part.endSurahName}:${part.endAyah}` : '';
                     return (
                       <div key={sess.localId} className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
                             <div className="font-extrabold text-sm sm:text-base text-slate-900">
                               Sesi {idx + 1} — Juz {sess.juzNumber}
                             </div>
                             <div className="text-xs font-semibold text-slate-600 mt-0.5">
-                              {sess.sessionType === 'full_juz' ? '1 Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
+                              {sess.sessionType === 'full_juz' ? 'Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
                             </div>
                             {startName && endName && (
                               <div className="text-[11px] text-slate-500 mt-0.5">
@@ -991,8 +1117,32 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                               </div>
                             )}
                           </div>
-                          {!locked && (
+                          {!locked ? (
                             <div className="flex items-center gap-1.5 shrink-0">
+                              {draftSessions.length > 1 && (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={() => moveSession(idx, -1)}
+                                    title="Naikkan urutan sesi"
+                                    aria-label={`Naikkan Sesi ${idx + 1}`}
+                                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30"
+                                  >
+                                    <ArrowUp size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === draftSessions.length - 1}
+                                    onClick={() => moveSession(idx, 1)}
+                                    title="Turunkan urutan sesi"
+                                    aria-label={`Turunkan Sesi ${idx + 1}`}
+                                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30"
+                                  >
+                                    <ArrowDown size={13} />
+                                  </button>
+                                </div>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => openDetailEditor(sess)}
@@ -1008,6 +1158,12 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                                 <Trash2 size={13} /> Hapus
                               </button>
                             </div>
+                          ) : (
+                            (sess.hasAttempt || sess.hasQuestionSet || sess.isLocked) && (
+                              <div className="w-full text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-1">
+                                Sesi ini sudah memiliki soal atau riwayat ujian. Hubungi Admin untuk melakukan perubahan.
+                              </div>
+                            )
                           )}
                         </div>
                       </div>
