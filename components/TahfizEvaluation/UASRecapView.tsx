@@ -7,6 +7,7 @@ import {
   ExamQuestionAssessment
 } from '../../types';
 import { api } from '../../api';
+import { getSessionExaminers, SessionExaminerEntry } from '../../services/uasExaminerDisplay';
 import { UASExamReviewModal } from './UASExamReviewModal';
 import { generateExamRecapCSV, generateExamRecapExcelXML } from '../../services/examRecapExportService';
 import { 
@@ -50,6 +51,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
     questions: ExamQuestion[];
     assessments: ExamQuestionAssessment[];
     sessionType?: 'partial_half' | 'full_juz';
+    examiners?: SessionExaminerEntry[];
   } | null>(null);
 
   const isAdmin = user.role === 'admin';
@@ -128,18 +130,24 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
   const handleOpenReview = async (
     student: ExaminerStudentItem,
     sessionAttemptId?: string,
-    sessionType?: 'partial_half' | 'full_juz'
+    sessionType?: 'partial_half' | 'full_juz',
+    sessionExaminers?: SessionExaminerEntry[]
   ) => {
     const targetAttemptId = sessionAttemptId || student.attemptId;
     if (!targetAttemptId) return;
     try {
       const res = await api.getUASAttempt(targetAttemptId, user);
       if (res.success && res.questions && res.assessments) {
+        const resolvedExaminers =
+          sessionExaminers && sessionExaminers.length > 0
+            ? sessionExaminers
+            : getSessionExaminers(res.attempt as any);
         setReviewStudent({
           student,
           questions: res.questions,
           assessments: res.assessments,
-          sessionType: sessionType || (res.questions.length === 4 ? 'partial_half' : 'full_juz')
+          sessionType: sessionType || (res.questions.length === 4 ? 'partial_half' : 'full_juz'),
+          examiners: resolvedExaminers
         });
       } else {
         alert(res.message || 'Gagal memuat rincian penilaian ujian UAS.');
@@ -251,7 +259,11 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
         const q = searchQuery.toLowerCase();
         const matchName = s.studentName.toLowerCase().includes(q);
         const matchNis = s.studentNis?.toLowerCase().includes(q);
-        if (!matchName && !matchNis) return false;
+        const sSessions = sessionsByStudent.get(s.studentId) || [];
+        const matchExaminer = sSessions.some((ss: any) =>
+          getSessionExaminers(ss).some(ex => ex.name.toLowerCase().includes(q))
+        );
+        if (!matchName && !matchNis && !matchExaminer) return false;
       }
 
       // Class filter
@@ -276,7 +288,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
 
       return true;
     });
-  }, [students, searchQuery, selectedClass, selectedHalaqah, selectedStatusFilter, periodInfo]);
+  }, [students, sessionsByStudent, searchQuery, selectedClass, selectedHalaqah, selectedStatusFilter, periodInfo]);
 
   return (
     <div className="space-y-5 animate-fade-in p-2 sm:p-4 max-w-7xl mx-auto">
@@ -526,21 +538,63 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                           );
                         })()}
                       </td>
-                      <td className="py-3 px-4 text-slate-600 font-medium">
+                      <td className="py-3 px-4 text-slate-600 font-medium align-top min-w-[180px] whitespace-normal break-words">
                         {(() => {
                           const sSessions = sessionsByStudent.get(s.studentId) || [];
                           if (sSessions.length > 0) {
                             return (
-                              <div className="space-y-0.5 text-[11px]">
-                                {sSessions.map((ss: any) => (
-                                  <div key={ss.id}>
-                                    S{ss.session_number || ss.sessionNumber}: {ss.actual_examiner_name || ss.actualExaminerName || 'Belum ada'}
-                                  </div>
-                                ))}
+                              <div className="space-y-1.5 text-[11px]">
+                                {sSessions.map((ss: any) => {
+                                  const sessNum = ss.session_number || ss.sessionNumber;
+                                  const examiners = getSessionExaminers(ss);
+                                  if (examiners.length === 0) {
+                                    return (
+                                      <div key={ss.id} className="leading-snug break-words">
+                                        <span className="font-semibold text-slate-700">S{sessNum}:</span>{' '}
+                                        <span className="text-slate-400">Belum ada</span>
+                                      </div>
+                                    );
+                                  }
+                                  if (examiners.length === 1) {
+                                    return (
+                                      <div key={ss.id} className="leading-snug break-words">
+                                        <span className="font-semibold text-slate-700">S{sessNum}:</span>{' '}
+                                        <span className="text-slate-700">{examiners[0].name}</span>
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <div key={ss.id} className="leading-snug">
+                                      <div className="font-semibold text-slate-700">S{sessNum}:</div>
+                                      <ol className="mt-0.5 space-y-0.5 pl-4 list-decimal text-slate-700">
+                                        {examiners.map((ex, exIdx) => (
+                                          <li key={ex.id || `${ex.name}-${exIdx}`} className="break-words whitespace-normal">
+                                            {ex.name}
+                                          </li>
+                                        ))}
+                                      </ol>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           }
-                          return s.examinerName || s.teacherName || '-';
+                          const fallbackExaminers = getSessionExaminers(s as any);
+                          if (fallbackExaminers.length === 0) {
+                            return <span className="text-slate-400 text-[11px]">Belum ada</span>;
+                          }
+                          if (fallbackExaminers.length === 1) {
+                            return <span className="text-slate-700 text-[11px] break-words">{fallbackExaminers[0].name}</span>;
+                          }
+                          return (
+                            <ol className="space-y-0.5 pl-4 list-decimal text-[11px] text-slate-700">
+                              {fallbackExaminers.map((ex, exIdx) => (
+                                <li key={ex.id || `${ex.name}-${exIdx}`} className="break-words whitespace-normal">
+                                  {ex.name}
+                                </li>
+                              ))}
+                            </ol>
+                          );
                         })()}
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -641,7 +695,14 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                                 {submittedSess.map((ss: any) => (
                                   <button
                                     key={ss.id}
-                                    onClick={() => handleOpenReview(s, ss.attempt_id || ss.attemptId, ss.session_type || ss.sessionType)}
+                                    onClick={() =>
+                                      handleOpenReview(
+                                        s,
+                                        ss.attempt_id || ss.attemptId,
+                                        ss.session_type || ss.sessionType,
+                                        getSessionExaminers(ss)
+                                      )
+                                    }
                                     className="px-2 py-1 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-800 text-slate-700 text-[11px] font-semibold transition-colors border border-slate-200 hover:border-indigo-200 inline-flex items-center gap-1"
                                   >
                                     <span>Rincian S{ss.session_number || ss.sessionNumber}</span>
@@ -682,6 +743,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
           questions={reviewStudent.questions}
           assessments={reviewStudent.assessments}
           sessionType={reviewStudent.sessionType}
+          examiners={reviewStudent.examiners}
           onSubmitFinal={async () => {}}
           onClose={() => setReviewStudent(null)}
           onNavigateToQuestion={() => {}}

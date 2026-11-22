@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ExamQuestion, ExamQuestionAssessment, UASSessionType } from '../../types';
+import { SessionExaminerEntry } from '../../services/uasExaminerDisplay';
 import { CheckCircle2, AlertCircle, Award, ArrowLeft, Send, ShieldAlert, BookOpen, Layers } from 'lucide-react';
 import { calculateUASAttemptTotalScore, isMandatoryQuestion, getQuestionMaxScores } from '../../services/uasScoringService';
 
@@ -10,6 +11,7 @@ interface UASExamReviewModalProps {
   questions: ExamQuestion[];
   assessments: ExamQuestionAssessment[];
   sessionType?: UASSessionType;
+  examiners?: SessionExaminerEntry[];
   onSubmitFinal: () => Promise<void>;
   onClose: () => void;
   onNavigateToQuestion: (qNumber: number) => void;
@@ -23,6 +25,7 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
   questions,
   assessments,
   sessionType,
+  examiners,
   onSubmitFinal,
   onClose,
   onNavigateToQuestion,
@@ -140,6 +143,31 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
 
         {/* Scrollable Questions List */}
         <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
+          {examiners && (
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-snug">
+              {examiners.length === 0 ? (
+                <div>
+                  Penguji: <span className="text-slate-400 font-medium">Belum ada</span>
+                </div>
+              ) : examiners.length === 1 ? (
+                <div className="break-words whitespace-normal">
+                  Penguji: <strong className="text-slate-800">{examiners[0].name}</strong>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-slate-500 font-medium">Penguji:</div>
+                  <ol className="mt-1 space-y-0.5 pl-4 list-decimal text-slate-800 font-semibold">
+                    {examiners.map((ex, idx) => (
+                      <li key={ex.id || `${ex.name}-${idx}`} className="break-words whitespace-normal">
+                        {ex.name}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
               <AlertCircle size={15} className="shrink-0 text-rose-500" />
@@ -169,6 +197,7 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
             const makhraj = asm?.makhrajScore ?? maxMakhraj;
             const qScore = asm?.questionScore ?? (fluency + tajwid + makhraj);
             const notes = asm?.notes;
+            const assessedByName = String((asm as any)?.assessedByName || (asm as any)?.assessed_by_name || '').trim();
             const pageNum = (q as any).pageNumber || (q as any).page_number || q.startPage;
 
             return (
@@ -191,11 +220,16 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
                       {q.questionNumber}
                     </span>
                     <div className="min-w-0">
-                      <div className="text-xs font-bold text-slate-800 truncate">
+                      <div className="text-xs font-bold text-slate-800 break-words">
                         {isMandatory 
                           ? `Soal Wajib • Halaman ${pageNum || '-'}` 
                           : `Soal Acak • Zona ${q.zoneNumber}`}
                       </div>
+                      {assessedByName && (
+                        <div className="text-[11px] text-slate-500 break-words">
+                          Penguji: <span className="font-semibold text-slate-700">{assessedByName}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 

@@ -8,6 +8,7 @@ import {
   ExamQuestionAssessment
 } from '../../types';
 import { api } from '../../api';
+import { getSessionExaminers } from '../../services/uasExaminerDisplay';
 import { UASExamSheet } from './UASExamSheet';
 import { UASAssignExaminerModal } from './UASAssignExaminerModal';
 import { UASReopenModal } from './UASReopenModal';
@@ -416,11 +417,19 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
   // Filtered students
   const filteredStudents = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return students.filter(s => {
-      const matchSearch = 
-        s.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.studentNis.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.examinerName && s.examinerName.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchSessionExaminer = !q
+        ? false
+        : (s.sessions || []).some((sess: any) =>
+            getSessionExaminers(sess).some(ex => ex.name.toLowerCase().includes(q))
+          );
+      const matchSearch =
+        !q ||
+        s.studentName.toLowerCase().includes(q) ||
+        s.studentNis.toLowerCase().includes(q) ||
+        (s.examinerName && s.examinerName.toLowerCase().includes(q)) ||
+        matchSessionExaminer;
       if (!matchSearch) return false;
       if (selectedClass !== 'ALL' && s.class !== selectedClass) return false;
 
@@ -841,74 +850,74 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                           ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN' : 'Bukan penguji')
                           : sInfo.disabledReason;
                         const isMandatoryAction = sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart;
-                        const historyNames: string[] = Array.isArray(sess.examinerHistory)
-                          ? Array.from(
-                              new Set(
-                                sess.examinerHistory
-                                  .map((h: any) => String(h?.examinerName || h?.teacherName || h?.name || '').trim())
-                                  .filter(Boolean)
-                              )
-                            )
-                          : [];
-                        const actualExaminer =
-                          (sess.actualExaminerName || '').trim() ||
-                          historyNames[historyNames.length - 1] ||
-                          '';
-                        const otherExaminers = historyNames.filter(n => n !== actualExaminer);
+                        const sessionExaminers = getSessionExaminers(sess);
                         const statusText = sessDone
-                          ? `Selesai • Nilai: ${sess.score ?? '-'}/100`
+                          ? `Selesai • Nilai ${sess.score ?? '-'}/100`
                           : sessInProgress
                             ? 'Sedang Diuji'
                             : sInfo.label;
-                        const examinerDisplay = actualExaminer || 'Belum ada';
 
                         return (
-                          <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
-                            <div className="min-w-0 space-y-0.5">
-                              <div className="text-xs font-bold text-slate-800 truncate">
-                                Sesi {sess.sessionNumber} • Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? '4 Soal' : '9 Soal'})
+                          <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 space-y-0.5">
+                                <div className="text-xs font-bold text-slate-800 leading-snug break-words">
+                                  Sesi {sess.sessionNumber} • Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? '4 Soal' : '9 Soal'})
+                                </div>
+                                <div className="text-[11px] text-slate-600 leading-snug break-words">
+                                  <strong className={sessDone ? 'text-emerald-700' : sessInProgress ? 'text-amber-700' : 'text-slate-700'}>
+                                    {statusText}
+                                  </strong>
+                                </div>
                               </div>
-                              <div className="text-[11px] text-slate-600 truncate">
-                                Status: <strong className={sessDone ? 'text-emerald-700' : sessInProgress ? 'text-amber-700' : 'text-slate-700'}>{statusText}</strong>
-                              </div>
-                              <div
-                                className="text-[11px] text-slate-500 truncate flex items-center gap-1"
-                                title={historyNames.length > 1 ? `Riwayat penguji: ${historyNames.join(', ')}` : undefined}
-                              >
-                                <span className="truncate">
-                                  Penguji: <strong className={actualExaminer ? 'text-slate-700' : 'text-slate-400 font-medium'}>{examinerDisplay}</strong>
+                              {sessDone ? (
+                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold shrink-0">
+                                  Selesai
                                 </span>
-                                {otherExaminers.length > 0 && (
-                                  <span className="px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-600 text-[10px] font-semibold shrink-0">
-                                    +{otherExaminers.length}
-                                  </span>
-                                )}
-                              </div>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartExam(student, sess)}
+                                  disabled={!sessCanStart}
+                                  title={disabledReason || undefined}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-colors ${
+                                    sessCanStart
+                                      ? 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer'
+                                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                  }`}
+                                >
+                                  {startingSessionId === sess.id
+                                    ? 'Memuat...'
+                                    : isMandatoryAction
+                                      ? 'Pilih Soal Wajib'
+                                      : sess.status === 'in_progress'
+                                        ? 'Lanjutkan'
+                                        : 'Mulai'}
+                                </button>
+                              )}
                             </div>
-                            {sessDone ? (
-                              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold shrink-0">
-                                Selesai
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => handleStartExam(student, sess)}
-                                disabled={!sessCanStart}
-                                title={disabledReason || undefined}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-colors ${
-                                  sessCanStart
-                                    ? 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer'
-                                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                                }`}
-                              >
-                                {startingSessionId === sess.id
-                                  ? 'Memuat...'
-                                  : isMandatoryAction
-                                    ? 'Pilih Soal Wajib'
-                                    : sess.status === 'in_progress'
-                                      ? 'Lanjutkan'
-                                      : 'Mulai'}
-                              </button>
-                            )}
+
+                            <div className="pt-1.5 border-t border-slate-200/70 text-[11px] text-slate-500 leading-snug">
+                              {sessionExaminers.length === 0 ? (
+                                <div className="break-words whitespace-normal">
+                                  Penguji: <span className="text-slate-400 font-medium">Belum ada</span>
+                                </div>
+                              ) : sessionExaminers.length === 1 ? (
+                                <div className="break-words whitespace-normal">
+                                  Penguji: <strong className="text-slate-700">{sessionExaminers[0].name}</strong>
+                                </div>
+                              ) : (
+                                <div>
+                                  <div className="text-slate-500">Penguji:</div>
+                                  <ol className="mt-0.5 space-y-0.5 pl-4 list-decimal text-slate-700 font-semibold">
+                                    {sessionExaminers.map((ex, idx) => (
+                                      <li key={ex.id || `${ex.name}-${idx}`} className="break-words whitespace-normal">
+                                        {ex.name}
+                                      </li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
