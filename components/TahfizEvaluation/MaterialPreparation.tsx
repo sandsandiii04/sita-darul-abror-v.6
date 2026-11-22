@@ -826,6 +826,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
           period={currentPeriod}
           term={currentTerm}
           participants={participants}
+          students={students}
           snapshots={snapshots}
           records={records}
           refreshKey={uasRefreshKey}
