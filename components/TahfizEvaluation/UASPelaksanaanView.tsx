@@ -835,23 +835,54 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                       {activeSessions.map(sess => {
                         const sInfo = getSessionStatusInfo(sess);
                         const sessDone = sInfo.code === 'SUBMITTED';
+                        const sessInProgress = sInfo.code === 'IN_PROGRESS';
                         const sessCanStart = sInfo.canStart && canExamine && startingSessionId !== sess.id;
                         const disabledReason = !canExamine
                           ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN' : 'Bukan penguji')
                           : sInfo.disabledReason;
                         const isMandatoryAction = sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart;
+                        const historyNames: string[] = Array.isArray(sess.examinerHistory)
+                          ? Array.from(
+                              new Set(
+                                sess.examinerHistory
+                                  .map((h: any) => String(h?.examinerName || h?.teacherName || h?.name || '').trim())
+                                  .filter(Boolean)
+                              )
+                            )
+                          : [];
+                        const actualExaminer =
+                          (sess.actualExaminerName || '').trim() ||
+                          historyNames[historyNames.length - 1] ||
+                          '';
+                        const otherExaminers = historyNames.filter(n => n !== actualExaminer);
+                        const statusText = sessDone
+                          ? `Selesai • Nilai: ${sess.score ?? '-'}/100`
+                          : sessInProgress
+                            ? 'Sedang Diuji'
+                            : sInfo.label;
+                        const examinerDisplay = actualExaminer || 'Belum ada';
+
                         return (
                           <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
-                            <div className="min-w-0">
+                            <div className="min-w-0 space-y-0.5">
                               <div className="text-xs font-bold text-slate-800 truncate">
                                 Sesi {sess.sessionNumber} • Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? '4 Soal' : '9 Soal'})
                               </div>
-                              <div className="text-[11px] text-slate-500 truncate">
-                                {sessDone
-                                  ? `Selesai • Nilai ${sess.score ?? '-'}`
-                                  : sInfo.code === 'IN_PROGRESS'
-                                    ? `Sedang Ujian • ${sess.actualExaminerName || '-'}`
-                                    : sInfo.label}
+                              <div className="text-[11px] text-slate-600 truncate">
+                                Status: <strong className={sessDone ? 'text-emerald-700' : sessInProgress ? 'text-amber-700' : 'text-slate-700'}>{statusText}</strong>
+                              </div>
+                              <div
+                                className="text-[11px] text-slate-500 truncate flex items-center gap-1"
+                                title={historyNames.length > 1 ? `Riwayat penguji: ${historyNames.join(', ')}` : undefined}
+                              >
+                                <span className="truncate">
+                                  Penguji: <strong className={actualExaminer ? 'text-slate-700' : 'text-slate-400 font-medium'}>{examinerDisplay}</strong>
+                                </span>
+                                {otherExaminers.length > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded bg-slate-200/80 text-slate-600 text-[10px] font-semibold shrink-0">
+                                    +{otherExaminers.length}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             {sessDone ? (

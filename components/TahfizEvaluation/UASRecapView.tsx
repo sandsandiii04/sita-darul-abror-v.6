@@ -534,7 +534,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                               <div className="space-y-0.5 text-[11px]">
                                 {sSessions.map((ss: any) => (
                                   <div key={ss.id}>
-                                    S{ss.session_number || ss.sessionNumber}: {ss.actual_examiner_name || ss.actualExaminerName || '-'}
+                                    S{ss.session_number || ss.sessionNumber}: {ss.actual_examiner_name || ss.actualExaminerName || 'Belum ada'}
                                   </div>
                                 ))}
                               </div>
