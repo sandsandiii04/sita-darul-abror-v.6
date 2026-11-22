@@ -654,18 +654,18 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
       </div>
 
       {showSyncPreview && canEditPrep && (
-        <div className="p-4 rounded-2xl border border-teal-300 bg-teal-50/70 space-y-3 text-xs">
+        <div className="p-4 rounded-2xl border border-teal-200 bg-teal-50/70 space-y-3 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <div className="font-extrabold text-teal-950">Pratinjau Sebelum Sinkronisasi Materi Per Juz &amp; Sesi</div>
+            <div className="font-bold text-teal-950">Pratinjau Muat Sugesti Setoran</div>
             <button onClick={() => setShowSyncPreview(false)} className="text-slate-500 hover:text-slate-800 font-bold">Tutup</button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             <div className="p-2.5 rounded-xl bg-white border border-teal-100">
-              <div className="text-[10px] text-slate-500">Bagian Valid (ready)</div>
+              <div className="text-[10px] text-slate-500">Materi Siap</div>
               <div className="text-sm font-black text-emerald-700">{summary.readyPartsCount}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-white border border-amber-200">
-              <div className="text-[10px] text-slate-500">Bagian needs_review</div>
+              <div className="text-[10px] text-slate-500">Perlu Dicek</div>
               <div className="text-sm font-black text-amber-700">{summary.needsReviewPartsCount}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-white border border-indigo-200">
@@ -681,12 +681,12 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
               <div className="text-sm font-black text-slate-800">{summary.partialSessions}</div>
             </div>
             <div className="p-2.5 rounded-xl bg-white border border-rose-200">
-              <div className="text-[10px] text-slate-500">Bank Kurang / Blm Periksa</div>
+              <div className="text-[10px] text-slate-500">Soal Kurang / Belum Cek</div>
               <div className="text-sm font-black text-rose-700">{summary.bankShort} / {summary.uncheckedCount}</div>
             </div>
           </div>
           <p className="text-[11px] text-teal-900">
-            Sinkronisasi hanya menyimpan data persiapan (termasuk status <strong>needs_review</strong> untuk diperbaiki Admin). Sinkronisasi <strong>tidak</strong> otomatis memfinalisasi materi, <strong>tidak</strong> mengunci paket soal, dan <strong>tidak</strong> membuat attempt ujian.
+            Menyimpan usulan materi dan sesi sebagai draft tanpa mengunci paket soal atau membuka ujian.
           </p>
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowSyncPreview(false)} className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold">Batal</button>
@@ -696,9 +696,9 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                 await handleSyncAllToServer();
               }}
               disabled={isSyncing}
-              className="px-4 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold"
+              className="px-4 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold"
             >
-              Konfirmasi &amp; Jalankan Sinkronisasi
+              Simpan Sugesti
             </button>
           </div>
         </div>
@@ -713,10 +713,10 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
       {/* Summary Chips (Admin only — Guru Halaqah uses simple status tabs below) */}
       {!isTeacher && (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
-        <button onClick={() => setFilterMode('all')} className={`p-3 rounded-2xl border text-left ${filterMode === 'all' ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-50 border-slate-200'}`}>
-          <div className="text-[10px] opacity-75">Total Sesi Direncanakan</div>
+        <button onClick={() => setFilterMode('all')} className={`p-3 rounded-2xl border text-left ${filterMode === 'all' ? 'bg-teal-600 text-white border-teal-600' : 'bg-slate-50 border-slate-200 text-slate-800'}`}>
+          <div className="text-[10px] opacity-80">Total Sesi</div>
           <div className="text-lg font-black">{summary.totalSessions}</div>
-          <div className="text-[10px] opacity-75">{summary.fullSessions} penuh • {summary.partialSessions} ½ juz</div>
+          <div className="text-[10px] opacity-80">{summary.fullSessions} penuh • {summary.partialSessions} parsial</div>
         </button>
         <button onClick={() => setFilterMode('multi_session')} className={`p-3 rounded-2xl border text-left ${filterMode === 'multi_session' ? 'bg-teal-700 text-white border-teal-700' : 'bg-teal-50/70 border-teal-200 text-teal-900'}`}>
           <div className="text-[10px] opacity-80">Santri Multi-Sesi</div>
@@ -813,29 +813,29 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             const generatedCount = row.sessions.filter(s => Boolean(s.questionSetId)).length;
             const packetStatusLabel =
               subSt !== 'admin_approved'
-                ? 'Menunggu Persetujuan Admin'
+                ? 'Menunggu Admin'
                 : row.sessions.length === 0
                   ? 'Belum Ada Sesi'
                   : generatedCount === row.sessions.length
-                    ? 'Paket Soal Siap'
+                    ? 'Paket Siap'
                     : generatedCount > 0
                       ? `${generatedCount}/${row.sessions.length} Paket Siap`
-                      : 'Menunggu Paket Soal';
+                      : 'Menunggu Soal';
 
             const statusBadge =
               subSt === 'admin_approved' && allGenerated
-                ? { label: 'Paket Soal Siap', cls: 'bg-teal-100 text-teal-900' }
+                ? { label: 'Paket Siap', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200' }
                 : subSt === 'admin_approved'
-                  ? { label: 'Menunggu Paket Soal', cls: 'bg-emerald-100 text-emerald-800' }
+                  ? { label: isTeacher ? 'Disetujui' : 'Menunggu Soal', cls: 'bg-teal-50 text-teal-800 border border-teal-200' }
                   : subSt === 'pending_admin_approval' || subSt === 'exception_pending'
-                    ? { label: 'Menunggu Persetujuan Admin', cls: 'bg-sky-100 text-sky-800' }
+                    ? { label: 'Menunggu Admin', cls: 'bg-sky-50 text-sky-800 border border-sky-200' }
                     : subSt === 'rejected' || subSt === 'needs_correction' || subSt === 'stale' || hasSessionCoverageMismatch
-                      ? { label: 'Perlu Diperbaiki', cls: 'bg-rose-100 text-rose-800' }
+                      ? { label: isTeacher ? 'Perlu Dicek' : 'Perlu Perbaikan', cls: 'bg-rose-50 text-rose-700 border border-rose-200' }
                       : allVerified
-                        ? { label: 'Sudah Diverifikasi', cls: 'bg-teal-100 text-teal-800' }
+                        ? { label: 'Siap Dikirim', cls: 'bg-teal-50 text-teal-800 border border-teal-200' }
                         : row.analysis.parts.some(p => p.teacherStatus === 'draft_manual')
-                          ? { label: 'Draft Materi', cls: 'bg-indigo-100 text-indigo-800' }
-                          : { label: 'Belum Diperiksa', cls: 'bg-amber-100 text-amber-800' };
+                          ? { label: 'Draft', cls: 'bg-slate-100 text-slate-700 border border-slate-200' }
+                          : { label: 'Belum Diperiksa', cls: 'bg-amber-50 text-amber-800 border border-amber-200' };
 
             return (
               <div key={row.participant.studentId} className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between gap-3">

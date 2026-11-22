@@ -79,6 +79,7 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
   const [verifyingPin, setVerifyingPin] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const [manualMandatoryStudent, setManualMandatoryStudent] = useState<ExaminerStudentItem | null>(null);
+  const [showPeriodDetail, setShowPeriodDetail] = useState(false);
 
   // Load available UAS periods
   useEffect(() => {
@@ -351,35 +352,39 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     return Array.from(set).sort();
   }, [students]);
 
-  // Unified official per-session & student status calculator (Section E)
+  // Unified official per-session & student status calculator
   const isPeriodActive = periodInfo?.status === 'active';
+  const formatPeriodStatus = (st?: string) => {
+    if (st === 'active') return 'Aktif';
+    if (st === 'preparation') return 'Persiapan';
+    if (st === 'closed' || st === 'completed') return 'Selesai';
+    return 'Draft';
+  };
   const getSessionStatusInfo = (sess: any) => {
     if (sess.status === 'submitted') {
-      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false, disabledReason: 'Ujian sudah selesai' };
+      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false, disabledReason: 'Selesai' };
     }
     if (sess.status === 'in_progress') {
       return {
         code: 'IN_PROGRESS' as const,
-        label: 'Sedang Diuji',
+        label: 'Sedang Ujian',
         canStart: isPeriodActive,
-        disabledReason: isPeriodActive ? null : 'Menunggu UAS dibuka'
+        disabledReason: isPeriodActive ? null : 'UAS belum dibuka'
       };
     }
     const isApproved = sess.approvalStatus === 'admin_approved' || Boolean(sess.questionSetId);
     if (!isApproved) {
-      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', canStart: false, disabledReason: 'Menunggu persetujuan' };
+      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Admin', canStart: false, disabledReason: 'Menunggu Admin' };
     }
     if (!sess.questionSetId) {
-      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', canStart: false, disabledReason: 'Soal belum tersedia' };
+      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Soal', canStart: false, disabledReason: 'Menunggu Soal' };
     }
     if (!isPeriodActive) {
-      return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', canStart: false, disabledReason: 'Menunggu UAS dibuka' };
+      return { code: 'PACKET_READY' as const, label: 'Siap Diuji', canStart: false, disabledReason: 'UAS belum dibuka' };
     }
     return {
       code: 'READY' as const,
-      label: sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory'
-        ? 'Pilih 2 soal wajib'
-        : 'Siap Diuji',
+      label: 'Siap Diuji',
       canStart: true,
       disabledReason: null
     };
@@ -396,18 +401,17 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
       const pktReadyCnt = infos.filter(i => i.code === 'PACKET_READY').length;
       const waitPktCnt = infos.filter(i => i.code === 'WAITING_PACKET').length;
 
-      if (doneCnt === total) return { code: 'SUBMITTED' as const, label: 'Selesai', cls: 'bg-emerald-100 text-emerald-800' };
-      if (inProgCnt > 0) return { code: 'IN_PROGRESS' as const, label: 'Sedang Diuji', cls: 'bg-amber-100 text-amber-800' };
-      if (readyCnt === total) return { code: 'READY' as const, label: 'Siap Diuji', cls: 'bg-blue-100 text-blue-800' };
-      if (readyCnt > 0) return { code: 'READY' as const, label: `${readyCnt}/${total} Sesi Siap Diuji`, cls: 'bg-blue-100 text-blue-800' };
-      if (pktReadyCnt === total) return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', cls: 'bg-teal-100 text-teal-800' };
-      if (pktReadyCnt > 0) return { code: 'PACKET_READY' as const, label: `${pktReadyCnt}/${total} Paket Siap`, cls: 'bg-teal-100 text-teal-800' };
-      if (waitPktCnt > 0) return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', cls: 'bg-amber-100 text-amber-900' };
-      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', cls: 'bg-slate-100 text-slate-600' };
+      if (doneCnt === total) return { code: 'SUBMITTED' as const, label: 'Selesai', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
+      if (inProgCnt > 0) return { code: 'IN_PROGRESS' as const, label: 'Sedang Ujian', cls: 'bg-amber-50 text-amber-800 border border-amber-200' };
+      if (readyCnt === total) return { code: 'READY' as const, label: 'Siap Diuji', cls: 'bg-teal-50 text-teal-800 border border-teal-200' };
+      if (readyCnt > 0) return { code: 'READY' as const, label: `${readyCnt}/${total} Siap Diuji`, cls: 'bg-teal-50 text-teal-800 border border-teal-200' };
+      if (pktReadyCnt > 0) return { code: 'PACKET_READY' as const, label: 'Menunggu Dibuka', cls: 'bg-slate-100 text-slate-700 border border-slate-200' };
+      if (waitPktCnt > 0) return { code: 'WAITING_PACKET' as const, label: 'Menunggu Soal', cls: 'bg-amber-50 text-amber-800 border border-amber-200' };
+      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Admin', cls: 'bg-slate-100 text-slate-600 border border-slate-200' };
     }
-    if (s.attemptStatus === 'submitted') return { code: 'SUBMITTED' as const, label: `Selesai (Skor: ${s.totalScore})`, cls: 'bg-emerald-100 text-emerald-800' };
-    if (s.attemptStatus === 'in_progress') return { code: 'IN_PROGRESS' as const, label: 'Sedang Diuji', cls: 'bg-amber-100 text-amber-800' };
-    return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', cls: 'bg-slate-100 text-slate-600' };
+    if (s.attemptStatus === 'submitted') return { code: 'SUBMITTED' as const, label: `Selesai (${s.totalScore})`, cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
+    if (s.attemptStatus === 'in_progress') return { code: 'IN_PROGRESS' as const, label: 'Sedang Ujian', cls: 'bg-amber-50 text-amber-800 border border-amber-200' };
+    return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Admin', cls: 'bg-slate-100 text-slate-600 border border-slate-200' };
   };
 
   // Filtered students
@@ -473,55 +477,57 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
   if (isSharedExaminer && !verifiedExaminer) {
     return (
-      <div className="p-6 max-w-xl mx-auto mt-8">
-        <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
-          <div className="px-6 py-5 bg-gradient-to-r from-teal-900 to-emerald-900 text-white">
-            <h2 className="font-black text-lg flex items-center gap-2">
-              <ShieldCheck size={22} className="text-emerald-300" />
-              <span>Pilih &amp; Verifikasi Penguji UAS</span>
-            </h2>
-            <p className="text-xs text-emerald-100 mt-1">
-              Akun Login: <strong>{user.name}</strong>. Penguji wajib memilih identitas diri dan memasukkan PIN pribadi sebelum memulai ujian.
-            </p>
+      <div className="p-4 sm:p-6 max-w-md mx-auto mt-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-4 bg-white border-b border-slate-200 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 shrink-0">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <h2 className="font-bold text-base text-slate-900">Verifikasi Penguji UAS</h2>
+              <p className="text-xs text-slate-500">
+                Akun: <strong>{user.name}</strong> • Pilih nama penguji dan masukkan PIN.
+              </p>
+            </div>
           </div>
-          <form onSubmit={handleVerifyExaminer} className="p-6 space-y-4">
+          <form onSubmit={handleVerifyExaminer} className="p-5 space-y-4">
             {pinError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center gap-2">
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
                 <AlertCircle size={15} className="shrink-0" />
                 <span>{pinError}</span>
               </div>
             )}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nama Penguji (Asatidz Aktif)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">Nama Penguji</label>
               <select
                 value={selectedTeacherId}
                 onChange={e => setSelectedTeacherId(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-white"
+                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-slate-900"
                 required
               >
-                <option value="">-- Pilih Penguji UAS --</option>
+                <option value="">-- Pilih Penguji --</option>
                 {activeTeachersList.map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">PIN Verifikasi Penguji</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">PIN Penguji</label>
               <input
                 type="password"
                 value={examinerPin}
                 onChange={e => setExaminerPin(e.target.value)}
-                placeholder="Masukkan PIN pribadi dari Admin"
-                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl"
+                placeholder="Masukkan PIN pribadi"
+                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-slate-900"
                 required
               />
             </div>
             <button
               type="submit"
               disabled={verifyingPin || !selectedTeacherId || !examinerPin.trim()}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-md disabled:opacity-50"
+              className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50"
             >
-              {verifyingPin ? 'Memverifikasi Identitas...' : 'Verifikasi & Masuk Pelaksanaan UAS'}
+              {verifyingPin ? 'Memverifikasi...' : 'Masuk Pelaksanaan UAS'}
             </button>
           </form>
         </div>
@@ -530,13 +536,13 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
   }
 
   return (
-    <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+    <div className="space-y-4 pb-10 max-w-7xl mx-auto">
       {isSharedExaminer && verifiedExaminer && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-900">
-          <div>
-            <span>Akun Bersama: <strong>{user.name}</strong></span>
-            <span className="mx-2">•</span>
-            <span>Penguji Terverifikasi: <strong>{verifiedExaminer.teacherName}</strong></span>
+        <div className="px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-900">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>Penguji: <strong>{verifiedExaminer.teacherName}</strong></span>
+            <span className="text-emerald-400">•</span>
+            <span className="text-emerald-700">{user.name}</span>
           </div>
           <button
             type="button"
@@ -547,46 +553,26 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
           </button>
         </div>
       )}
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-emerald-800 to-teal-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-80 h-80 bg-white/5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
-                <ClipboardCheck size={22} className="text-emerald-300" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-widest text-emerald-300 bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-500/30">
-                PENGUJI RESMI
-              </span>
+
+      {/* Clean Light Header */}
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 shrink-0">
+              <ClipboardCheck size={20} />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-              Pelaksanaan & Penilaian UAS Tahfiz
-            </h1>
-            <p className="text-sm text-teal-100/80 mt-1 max-w-2xl leading-relaxed">
-              Pelaksanaan Ujian Tahfiz Akhir Semester (9 soal • Total nilai 100).
-            </p>
+            <div>
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900">
+                Pelaksanaan UAS Tahfiz
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pilih santri dan sesi untuk memulai atau melanjutkan penilaian.
+              </p>
+            </div>
           </div>
 
           {/* Period Selector */}
-          <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20 min-w-[240px]">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-bold text-teal-200 uppercase tracking-wider">
-                Pilih Periode UAS Aktif
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  loadPeriods();
-                  if (selectedPeriodId) loadStudents(selectedPeriodId);
-                }}
-                className="text-[10px] font-bold text-emerald-200 hover:text-white flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-                title="Segarkan status periode & daftar santri"
-              >
-                <RefreshCcw size={11} className={isLoading ? 'animate-spin' : ''} />
-                <span>Segarkan</span>
-              </button>
-            </div>
+          <div className="flex items-center gap-2 min-w-0 sm:min-w-[260px]">
             <select
               value={selectedPeriodId}
               onChange={(e) => {
@@ -603,61 +589,82 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                   });
                 }
               }}
-              className="w-full bg-slate-900/80 text-white text-xs font-bold p-2.5 rounded-xl border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="flex-1 min-w-0 bg-slate-50 text-slate-800 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
             >
-              {periods.length === 0 && <option value="">Tidak ada periode UAS aktif</option>}
+              {periods.length === 0 && <option value="">Belum ada periode UAS</option>}
               {periods.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name} {p.status === 'active' ? '(Aktif)' : `(${p.status})`}
+                  {p.name} ({formatPeriodStatus(p.status)})
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => {
+                loadPeriods();
+                if (selectedPeriodId) loadStudents(selectedPeriodId);
+              }}
+              className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors shrink-0"
+              title="Segarkan"
+              aria-label="Segarkan"
+            >
+              <RefreshCcw size={15} className={isLoading ? 'animate-spin text-teal-600' : ''} />
+            </button>
           </div>
         </div>
 
-        {/* Stats Badges */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/10">
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-teal-200 block font-medium">Total Peserta</span>
-            <span className="text-xl font-black text-white">{stats.total} Santri</span>
+        {/* Light Stats Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-slate-100">
+          <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
+            <span className="text-[11px] text-slate-500 block font-medium">Total Peserta</span>
+            <span className="text-lg font-extrabold text-slate-900">{stats.total}</span>
           </div>
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-emerald-200 block font-medium">Siap Diuji</span>
-            <span className="text-xl font-black text-emerald-300">{stats.ready} Santri</span>
+          <div className="bg-teal-50/70 rounded-xl p-3 border border-teal-200/80">
+            <span className="text-[11px] text-teal-700 block font-medium">Siap Diuji</span>
+            <span className="text-lg font-extrabold text-teal-800">{stats.ready}</span>
           </div>
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-amber-200 block font-medium">Sedang Berjalan</span>
-            <span className="text-xl font-black text-amber-300">{stats.inProgress} Santri</span>
+          <div className="bg-amber-50/70 rounded-xl p-3 border border-amber-200/80">
+            <span className="text-[11px] text-amber-700 block font-medium">Sedang Ujian</span>
+            <span className="text-lg font-extrabold text-amber-800">{stats.inProgress}</span>
           </div>
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-teal-200 block font-medium">Selesai (Submitted)</span>
-            <span className="text-xl font-black text-white">{stats.submitted} Santri</span>
+          <div className="bg-emerald-50/70 rounded-xl p-3 border border-emerald-200/80">
+            <span className="text-[11px] text-emerald-700 block font-medium">Selesai</span>
+            <span className="text-lg font-extrabold text-emerald-800">{stats.submitted}</span>
           </div>
         </div>
       </div>
 
       {/* Period Not Active Banner */}
       {periodInfo && !isPeriodActive && (
-        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-sm">
-          <div className="flex items-start gap-3">
-            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-bold text-amber-950">
-                UAS belum dibuka oleh Admin. Paket soal sudah dapat disiapkan, tetapi ujian baru dapat dimulai setelah periode diaktifkan.
-              </p>
-              <p className="text-[11px] text-amber-800">
-                Status periode <strong>{periodInfo.name}</strong> saat ini: <strong>{periodInfo.status === 'preparation' ? 'Persiapan (preparation)' : periodInfo.status}</strong>. Keterangan: <strong>Paket Soal Siap</strong> berarti soal sudah tersedia namun belum boleh diuji; status akan berubah menjadi <strong>Siap Diuji</strong> setelah periode diaktifkan Admin dan PIN penguji terverifikasi.
-              </p>
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-950 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+              <span className="font-bold text-amber-950">UAS belum dibuka oleh Admin.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPeriodDetail(prev => !prev)}
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-bold text-[11px] hover:bg-amber-100"
+              >
+                {showPeriodDetail ? 'Tutup Detail' : 'Lihat Detail'}
+              </button>
+              {isAdmin && onNavigateToPeriods && (
+                <button
+                  type="button"
+                  onClick={onNavigateToPeriods}
+                  className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold transition-colors"
+                >
+                  Kelola Periode UAS
+                </button>
+              )}
             </div>
           </div>
-          {isAdmin && onNavigateToPeriods && (
-            <button
-              type="button"
-              onClick={onNavigateToPeriods}
-              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0 shadow-sm transition-colors self-start sm:self-center"
-            >
-              Kelola Periode UAS
-            </button>
+          {showPeriodDetail && (
+            <p className="text-[11px] text-amber-900 pt-1 border-t border-amber-200/70">
+              Periode <strong>{periodInfo.name}</strong> berstatus <strong>{formatPeriodStatus(periodInfo.status)}</strong>. Tombol Mulai aktif otomatis setelah periode dibuka oleh Admin.
+            </p>
           )}
         </div>
       )}
@@ -822,68 +829,54 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                 </div>
 
                 {/* Card Action Buttons */}
-                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
                   {activeSessions.length > 0 ? (
                     <div className="space-y-1.5">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Daftar Sesi UAS ({activeSessions.length} Sesi)
-                      </div>
                       {activeSessions.map(sess => {
                         const sInfo = getSessionStatusInfo(sess);
                         const sessDone = sInfo.code === 'SUBMITTED';
                         const sessCanStart = sInfo.canStart && canExamine && startingSessionId !== sess.id;
                         const disabledReason = !canExamine
-                          ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN dahulu' : 'Bukan penguji tugas')
+                          ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN' : 'Bukan penguji')
                           : sInfo.disabledReason;
                         const isMandatoryAction = sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart;
                         return (
                           <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-800 truncate">
-                                Sesi {sess.sessionNumber}: Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? 'Parsial • 4 Soal' : '1 Juz Penuh • 9 Soal'})
+                                Sesi {sess.sessionNumber} • Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? '4 Soal' : '9 Soal'})
                               </div>
-                              <div className="text-[10px] text-slate-500 truncate">
+                              <div className="text-[11px] text-slate-500 truncate">
                                 {sessDone
-                                  ? `Selesai • Nilai: ${sess.score ?? '-'} • Penguji: ${sess.actualExaminerName || '-'}`
+                                  ? `Selesai • Nilai ${sess.score ?? '-'}`
                                   : sInfo.code === 'IN_PROGRESS'
-                                    ? `Sedang Diuji • Penguji: ${sess.actualExaminerName || '-'}`
-                                    : disabledReason
-                                      ? `${sInfo.label} • ${disabledReason}`
-                                      : sInfo.label}
+                                    ? `Sedang Ujian • ${sess.actualExaminerName || '-'}`
+                                    : sInfo.label}
                               </div>
                             </div>
                             {sessDone ? (
-                              <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0" title="Ujian sudah selesai">
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold shrink-0">
                                 Selesai
                               </span>
                             ) : (
-                              <div className="flex flex-col items-end shrink-0">
-                                <button
-                                  onClick={() => handleStartExam(student, sess)}
-                                  disabled={!sessCanStart}
-                                  title={disabledReason || undefined}
-                                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-colors ${
-                                    sessCanStart
-                                      ? (isMandatoryAction
-                                          ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-sm'
-                                          : 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer shadow-sm')
-                                      : 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
-                                  }`}
-                                >
-                                  {startingSessionId === sess.id
-                                    ? 'Memuat...'
-                                    : isMandatoryAction
-                                      ? 'Pilih 2 Soal Wajib'
-                                      : sess.status === 'in_progress'
-                                        ? 'Lanjutkan'
-                                        : 'Mulai'}
-                                </button>
-                                {!sessCanStart && disabledReason && (
-                                  <span className="text-[9px] font-semibold text-amber-700 mt-0.5 whitespace-nowrap">
-                                    {disabledReason}
-                                  </span>
-                                )}
-                              </div>
+                              <button
+                                onClick={() => handleStartExam(student, sess)}
+                                disabled={!sessCanStart}
+                                title={disabledReason || undefined}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-colors ${
+                                  sessCanStart
+                                    ? 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer'
+                                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                }`}
+                              >
+                                {startingSessionId === sess.id
+                                  ? 'Memuat...'
+                                  : isMandatoryAction
+                                    ? 'Pilih Soal Wajib'
+                                    : sess.status === 'in_progress'
+                                      ? 'Lanjutkan'
+                                      : 'Mulai'}
+                              </button>
                             )}
                           </div>
                         );

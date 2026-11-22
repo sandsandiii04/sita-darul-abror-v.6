@@ -145,7 +145,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
         try {
           if (isMandatory) {
-            promptText = `Bacakan Mushaf Standar Madinah Halaman ${pageNum} secara penuh (Juz ${juzNum}).`;
+            promptText = `Bacakan halaman ini secara penuh.`;
             try {
               const verses = await quranService.getVersesByPage(pageNum);
               if (verses && verses.length > 0) {
@@ -221,7 +221,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
   // Trigger debounced autosave
   const triggerAutosave = (updatedAsm: ExamQuestionAssessment) => {
     setSaveStatus('saving');
-    setSaveMessage('Menyimpan perubahan...');
+    setSaveMessage('Menyimpan...');
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -245,7 +245,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan di Server');
+          setSaveMessage('Tersimpan');
           const nextVer = (res as any).version ?? res.assessment?.version;
           if (nextVer) {
             setAssessments(prev => prev.map(a => 
@@ -256,17 +256,17 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           }
         } else if (res.isConflict) {
           setSaveStatus('error');
-          setSaveMessage('Konflik versi: ' + res.message);
+          setSaveMessage('Konflik data. Muat ulang halaman.');
         } else if (res.savedLocally) {
           setSaveStatus('local');
-          setSaveMessage('Tersimpan Lokal (Belum Sync Server)');
+          setSaveMessage('Tersimpan lokal');
         } else {
           setSaveStatus('error');
-          setSaveMessage(res.message || 'Gagal simpan ke server');
+          setSaveMessage(res.message || 'Gagal menyimpan');
         }
       } catch (err: any) {
         setSaveStatus('error');
-        setSaveMessage('Gagal simpan: ' + (err.message || 'Koneksi terputus'));
+        setSaveMessage('Koneksi terputus');
       }
     }, 600);
   };
@@ -428,7 +428,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     if (immediateSave) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       setSaveStatus('saving');
-      setSaveMessage('Menyimpan status soal...');
+      setSaveMessage('Menyimpan...');
       api.saveUASQuestionAssessment({
         attemptId: attempt.id,
         questionNumber: updated.questionNumber,
@@ -444,7 +444,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
       }, user).then(res => {
         if (res.success) {
           setSaveStatus('saved');
-          setSaveMessage('Tersimpan di Server');
+          setSaveMessage('Tersimpan');
           const nextVer = (res as any).version ?? res.assessment?.version;
           if (nextVer) {
             setAssessments(prev => prev.map(a => 
@@ -455,17 +455,17 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           }
         } else if (res.isConflict) {
           setSaveStatus('error');
-          setSaveMessage('Konflik versi: ' + res.message);
+          setSaveMessage('Konflik data. Muat ulang halaman.');
         } else if (res.savedLocally) {
           setSaveStatus('local');
-          setSaveMessage('Tersimpan Lokal (Belum Sync Server)');
+          setSaveMessage('Tersimpan lokal');
         } else {
           setSaveStatus('error');
-          setSaveMessage(res.message || 'Gagal simpan ke server');
+          setSaveMessage(res.message || 'Gagal menyimpan');
         }
-      }).catch(err => {
+      }).catch(() => {
         setSaveStatus('error');
-        setSaveMessage('Gagal: ' + (err.message || 'Koneksi terputus'));
+        setSaveMessage('Koneksi terputus');
       });
     } else {
       triggerAutosave(updated);
@@ -525,121 +525,147 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
   const maxTajwid = currentMax.maxTajwid;
   const maxMakhraj = currentMax.maxMakhraj;
   const maxQScore = currentMax.maxQuestionScore;
+  const sessionNum = attempt.sessionNumber || attempt.attemptNumber || 1;
+  const displayJuz = currentText.juzNumber || (attempt as any).juzNumber || quranService.getPageJuz((currentQuestion as any)?.pageNumber || currentQuestion?.startPage || 1);
+  const mandatoryOrder = isCurrentMandatory
+    ? initialQuestions.filter((q, idx) =>
+        idx <= currentQIndex &&
+        isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role)
+      ).length || 1
+    : 0;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans select-none pb-12">
-      {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-slate-800/95 backdrop-blur-md border-b border-slate-700/80 px-3 sm:px-5 py-2.5 flex items-center justify-between shadow-lg">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowExitConfirm(true)}
-            className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700/80 transition-colors"
-            title="Keluar Sesi Ujian"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs sm:text-sm font-extrabold text-white tracking-wide">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans select-none pb-8">
+      {/* Compact Light Header */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-5 py-2.5">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setShowExitConfirm(true)}
+              className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
+              title="Keluar Sesi Ujian"
+              aria-label="Keluar Sesi Ujian"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <div className="min-w-0">
+              <div className="text-sm sm:text-base font-bold text-slate-900 truncate leading-tight">
                 {studentName}
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Kelas {studentClass}
-              </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-white/10 text-teal-100 border border-white/20">
-                Penguji: {attempt.actualExaminerName || user.verifiedExaminer?.teacherName || user.name} (Sesi {attempt.sessionNumber || attempt.attemptNumber || 1})
-              </span>
-              <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                {sessionType === 'partial_half' ? 'UAS Setengah Juz (4×25)' : 'UAS Juz Penuh (9 Soal)'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="text-slate-300">Penguji: {attempt.actualExaminerName || user.verifiedExaminer?.teacherName || user.name}</span>
-              <span>•</span>
-              <span className="flex items-center gap-1">
-                {saveStatus === 'saving' && <RefreshCw size={11} className="animate-spin text-amber-400" />}
-                {saveStatus === 'saved' && <Cloud size={11} className="text-emerald-400" />}
-                {saveStatus === 'local' && <CloudOff size={11} className="text-blue-400" />}
-                {saveStatus === 'error' && <AlertTriangle size={11} className="text-rose-400" />}
-                <span className={saveStatus === 'saved' ? 'text-emerald-400' : saveStatus === 'local' ? 'text-blue-300 font-bold' : 'text-slate-400'}>
-                  {saveMessage}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 mt-0.5">
+                <span className="font-semibold text-slate-700">Juz {displayJuz}</span>
+                <span>•</span>
+                <span>Sesi {sessionNum}</span>
+                <span>•</span>
+                <span className="font-semibold text-teal-700">
+                  {currentQIndex + 1} dari {totalQuestionsCount}
                 </span>
-                {saveStatus === 'local' && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setSaveStatus('saving');
-                      setSaveMessage('Menyinkronkan ke server...');
-                      const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
-                      if (syncRes.success) {
-                        setSaveStatus('saved');
-                        setSaveMessage('Tersimpan di Server');
-                      } else {
-                        setSaveStatus('local');
-                        setSaveMessage(syncRes.message || 'Masih tersimpan lokal');
-                      }
-                    }}
-                    className="ml-1.5 px-2 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/40 text-[10px] font-bold"
+                <span>•</span>
+                <span className="inline-flex items-center gap-1">
+                  {saveStatus === 'saving' && <RefreshCw size={11} className="animate-spin text-amber-600" />}
+                  {saveStatus === 'saved' && <Cloud size={11} className="text-emerald-600" />}
+                  {saveStatus === 'local' && <CloudOff size={11} className="text-amber-600" />}
+                  {saveStatus === 'error' && <AlertTriangle size={11} className="text-rose-600" />}
+                  <span
+                    className={
+                      saveStatus === 'saved'
+                        ? 'text-emerald-700 font-medium'
+                        : saveStatus === 'local'
+                          ? 'text-amber-700 font-semibold'
+                          : saveStatus === 'error'
+                            ? 'text-rose-700 font-semibold'
+                            : 'text-slate-500'
+                    }
                   >
-                    Sinkronkan Ulang
-                  </button>
-                )}
-              </span>
+                    {saveMessage}
+                  </span>
+                  {saveStatus === 'local' && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setSaveStatus('saving');
+                        setSaveMessage('Menyinkronkan...');
+                        const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
+                        if (syncRes.success) {
+                          setSaveStatus('saved');
+                          setSaveMessage('Tersimpan');
+                        } else {
+                          setSaveStatus('local');
+                          setSaveMessage('Belum sync');
+                        }
+                      }}
+                      className="ml-1 px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
+                    >
+                      Sinkronkan
+                    </button>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Live Score Counter & Review Button */}
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="text-right hidden xs:block">
-            <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-semibold">Total Nilai</span>
-            <div className="flex items-baseline justify-end gap-1">
-              <span className="text-lg sm:text-xl font-black text-emerald-400">{totalCalculatedScore}</span>
-              <span className="text-[10px] text-slate-400">/100</span>
+          {/* Live Score & Finish Button */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="text-right hidden sm:block">
+              <span className="text-[10px] text-slate-500 block font-medium leading-none">Total Nilai</span>
+              <div className="flex items-baseline justify-end gap-0.5 mt-0.5">
+                <span className="text-lg font-extrabold text-teal-700">{totalCalculatedScore}</span>
+                <span className="text-[11px] text-slate-400">/100</span>
+              </div>
             </div>
-          </div>
 
-          <button
-            onClick={() => setShowReviewModal(true)}
-            className="px-3 sm:px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 cursor-pointer"
-          >
-            <Award size={15} />
-            <span className="hidden sm:inline">Review & Submit</span>
-            <span className="sm:hidden font-extrabold">{totalCalculatedScore}p</span>
-          </button>
+            <button
+              onClick={() => setShowReviewModal(true)}
+              className="px-3 sm:px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Award size={15} />
+              <span className="hidden sm:inline">Selesaikan Ujian</span>
+              <span className="sm:hidden">{totalCalculatedScore}/100</span>
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* 9-Question Tab Strip */}
-      <div className="bg-slate-800/60 border-b border-slate-700/60 px-3 py-2 overflow-x-auto">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2">
+      {/* Question Navigation Strip */}
+      <div className="bg-white border-b border-slate-200 px-3 py-2 overflow-x-auto">
+        <div className="max-w-3xl mx-auto flex items-center gap-1.5 sm:gap-2">
           {initialQuestions.map((q, idx) => {
             const asm = assessments.find(a => a.questionNumber === q.questionNumber);
             const isCompleted = !!asm?.completedAt;
+            const hasActivity = Boolean(
+              asm &&
+                ((asm.fluencyEvents && asm.fluencyEvents.length > 0) ||
+                  (asm.tajwidEvents && asm.tajwidEvents.length > 0) ||
+                  (asm.makhrajEvents && asm.makhrajEvents.length > 0) ||
+                  (asm.notes && asm.notes.trim().length > 0))
+            );
+            const isNeedsCheck = !isCompleted && hasActivity;
             const isCurrent = idx === currentQIndex;
             const isMandatory = sessionType === 'partial_half'
-          ? false
-          : isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
+              ? false
+              : isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
 
             return (
               <button
                 key={q.questionNumber}
                 onClick={() => navigateToQuestion(q.questionNumber)}
-                className={`flex-1 min-w-[42px] py-1.5 sm:py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer relative ${
-                  isCurrent 
-                    ? (isMandatory ? 'bg-indigo-600 text-white shadow-lg ring-2 ring-indigo-400' : 'bg-teal-600 text-white shadow-lg ring-2 ring-teal-400')
+                className={`flex-1 min-w-[46px] py-2 px-1.5 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  isCurrent
+                    ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
                     : isCompleted
-                      ? 'bg-slate-700/80 text-emerald-300 hover:bg-slate-700 border border-emerald-500/30'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700/60 border border-slate-700'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      : isNeedsCheck
+                        ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                <div className="flex items-center gap-1">
-                  <span className="text-xs font-black">#{q.questionNumber}</span>
+                <div className="flex items-center gap-0.5">
+                  <span className="text-xs font-bold">{q.questionNumber}</span>
                   {isCompleted && (
-                    <CheckCircle2 size={11} className={isCurrent ? 'text-white' : 'text-emerald-400'} />
+                    <CheckCircle2 size={11} className={isCurrent ? 'text-white' : 'text-emerald-600'} />
                   )}
                 </div>
-                <span className="text-[9px] uppercase tracking-tighter opacity-80 mt-0.5">
+                <span className={`text-[9px] font-semibold mt-0.5 ${isCurrent ? 'text-teal-50' : 'text-slate-500'}`}>
                   {isMandatory ? 'Wajib' : `Z${q.zoneNumber}`}
                 </span>
               </button>
@@ -649,78 +675,93 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
       </div>
 
       {/* Main Examination Sheet Area */}
-      <main className="max-w-3xl w-full mx-auto p-3 sm:p-5 space-y-4 flex-1">
-        {/* Question Header Card */}
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4 shadow-xl">
-          <div className="flex items-center justify-between mb-2">
+      <main className="max-w-3xl w-full mx-auto p-3 sm:p-5 space-y-3.5 flex-1">
+        {/* Question Card */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className={`px-2.5 py-1 rounded-lg text-xs font-black tracking-wide ${
-                isCurrentMandatory 
-                  ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' 
-                  : 'bg-teal-500/20 text-teal-300 border border-teal-500/40'
-              }`}>
-                {isCurrentMandatory ? 'SOAL WAJIB (HALAMAN PENUH)' : `SOAL ACAK — ZONA ${currentQuestion?.zoneNumber}`}
+              <span
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                  isCurrentMandatory
+                    ? 'bg-teal-50 text-teal-800 border-teal-200'
+                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+              >
+                {isCurrentMandatory ? `Soal Wajib ${mandatoryOrder}` : `Soal Acak ${currentQNum} • Zona ${currentQuestion?.zoneNumber}`}
               </span>
-              <span className="text-xs text-slate-400 font-semibold">
-                Maks: <span className="text-white font-bold">{maxQScore} Poin</span>
+              <span className="text-xs text-slate-500 font-medium">
+                Maks <strong className="text-slate-800">{maxQScore}</strong> poin
               </span>
             </div>
 
             {/* Complete Toggle Button */}
             <button
               onClick={toggleQuestionCompleted}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer border ${
                 currentAssessment.completedAt
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
-                  : 'bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
               }`}
             >
               <CheckCircle2 size={14} className={currentAssessment.completedAt ? 'text-white' : 'text-slate-400'} />
-              <span>{currentAssessment.completedAt ? 'Selesai Diuji' : 'Tandai Selesai'}</span>
+              <span>{currentAssessment.completedAt ? 'Selesai' : 'Tandai Selesai'}</span>
             </button>
           </div>
 
-          {/* Surah & Ayah / Page Info */}
-          <div className="mt-2 text-sm text-slate-300">
+          {/* Page / Surah Reference */}
+          <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
             {isCurrentMandatory ? (
-              <div className="flex items-center gap-2 text-indigo-300 font-bold">
-                <BookOpen size={16} />
-                <span>Mushaf Madinah Halaman {currentText.pageNumber || currentQuestion?.pageNumber || '-'} (Juz {currentText.juzNumber || '-'})</span>
-              </div>
+              <>
+                <BookOpen size={16} className="text-teal-600 shrink-0" />
+                <span>
+                  Halaman {currentText.pageNumber || (currentQuestion as any)?.pageNumber || '-'} • Juz {currentText.juzNumber || displayJuz}
+                </span>
+              </>
             ) : (
-              <div className="flex items-center gap-2 text-teal-300 font-bold">
-                <Layers size={16} />
-                <span>{currentText.startSurahName} (Ayat {currentQuestion?.promptStartAyah} s.d. {currentQuestion?.answerEndAyah})</span>
-              </div>
+              <>
+                <Layers size={16} className="text-teal-600 shrink-0" />
+                <span>
+                  {currentText.startSurahName} • Ayat {currentQuestion?.promptStartAyah}–{currentQuestion?.answerEndAyah}
+                </span>
+              </>
             )}
           </div>
 
-          {/* Prompt Box */}
-          <div className="mt-3 p-3.5 rounded-xl bg-slate-900/90 border border-slate-700/80">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold mb-1">
-              {isCurrentMandatory ? 'Instruksi Penguji' : 'Potongan Awal Ayat (Pemicu)'}
-            </span>
-            <p className="text-base sm:text-lg font-arabic text-emerald-300 leading-loose text-right dir-rtl font-medium">
-              {currentText.promptText}
+          {/* Prompt / Instruction Box */}
+          {isCurrentMandatory ? (
+            <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5">
+              Bacakan halaman ini secara penuh.
             </p>
-          </div>
+          ) : (
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span className="text-[11px] text-slate-500 block font-semibold mb-1.5">
+                Potongan Awal Ayat
+              </span>
+              <p
+                dir="rtl"
+                className="text-lg sm:text-xl font-arabic text-slate-900 leading-[2.2] text-right font-medium"
+              >
+                {currentText.promptText}
+              </p>
+            </div>
+          )}
 
-          {/* Answer Accordion Toggle */}
-          <div className="mt-3">
+          {/* Answer / Mushaf Full Text Toggle */}
+          <div>
             <button
               onClick={() => setShowAnswer(prev => ({ ...prev, [currentQNum]: !prev[currentQNum] }))}
-              className="text-xs font-bold text-teal-400 hover:text-teal-300 flex items-center gap-1.5 py-1 transition-colors"
+              className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               {showAnswer[currentQNum] ? <EyeOff size={14} /> : <Eye size={14} />}
-              <span>{showAnswer[currentQNum] ? 'Sembunyikan Teks Lengkap' : 'Lihat Teks Lengkap Rujukan'}</span>
+              <span>{showAnswer[currentQNum] ? 'Sembunyikan Teks' : 'Tampilkan Teks'}</span>
             </button>
 
             {showAnswer[currentQNum] && (
-              <div className="mt-2 p-3.5 rounded-xl bg-slate-900/60 border border-teal-500/30 animate-fade-in">
-                <span className="text-[10px] text-teal-400 uppercase tracking-wider block font-semibold mb-1.5">
-                  {isCurrentMandatory ? `Teks Seluruh Halaman ${currentText.pageNumber}` : 'Teks Lengkap Jawaban Santri'}
-                </span>
-                <p className="text-sm sm:text-base font-arabic text-slate-200 leading-loose text-right dir-rtl max-h-60 overflow-y-auto pr-1">
+              <div className="mt-2.5 p-4 rounded-xl bg-amber-50/40 border border-slate-200 animate-fade-in">
+                <p
+                  dir="rtl"
+                  className="text-lg sm:text-xl font-arabic text-slate-900 leading-[2.3] text-right max-h-72 overflow-y-auto overscroll-contain pr-1"
+                >
                   {currentText.answerText}
                 </p>
               </div>
@@ -729,40 +770,35 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
         </div>
 
         {/* Live Score for This Question */}
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4 shadow-xl flex items-center justify-between">
-          <div>
-            <span className="text-xs text-slate-400 block font-semibold">Skor Soal #{currentQNum}</span>
-            <div className="flex items-center gap-3 text-xs mt-1">
-              <span className="text-slate-300">
-                Kelancaran: <b className="text-amber-400">{currentAssessment.fluencyScore}</b>/{maxFluency}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="text-xs text-slate-500 block font-semibold">Nilai Soal {currentQNum}</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1 text-slate-600">
+              <span>
+                Kelancaran: <strong className="text-slate-900">{currentAssessment.fluencyScore}</strong>/{maxFluency}
               </span>
-              <span>•</span>
-              <span className="text-slate-300">
-                Tajwid: <b className="text-indigo-400">{currentAssessment.tajwidScore}</b>/{maxTajwid}
+              <span>
+                Tajwid: <strong className="text-slate-900">{currentAssessment.tajwidScore}</strong>/{maxTajwid}
               </span>
-              <span>•</span>
-              <span className="text-slate-300">
-                Makhraj: <b className="text-teal-400">{currentAssessment.makhrajScore}</b>/{maxMakhraj}
+              <span>
+                Makhraj: <strong className="text-slate-900">{currentAssessment.makhrajScore}</strong>/{maxMakhraj}
               </span>
             </div>
           </div>
-          <div className="text-right">
-            <span className="text-2xl sm:text-3xl font-black text-white">{currentAssessment.questionScore}</span>
-            <span className="text-xs text-slate-400 ml-1">/{maxQScore}</span>
+          <div className="text-right shrink-0">
+            <span className="text-2xl sm:text-3xl font-black text-teal-700">{currentAssessment.questionScore}</span>
+            <span className="text-xs text-slate-400 ml-0.5">/{maxQScore}</span>
           </div>
         </div>
 
-        {/* Scoring Aspect 1: KELANCARAN */}
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4 shadow-xl space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-              <h4 className="text-xs sm:text-sm font-bold text-white tracking-wide">
-                1. KELANCARAN HAFALAN (60%)
-              </h4>
-            </div>
-            <div className="text-xs font-bold text-amber-400">
-              {currentAssessment.fluencyScore} / {maxFluency} Poin
+        {/* Scoring Aspect 1: Kelancaran */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h4 className="text-xs sm:text-sm font-bold text-slate-800">
+              Kelancaran
+            </h4>
+            <div className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+              {currentAssessment.fluencyScore} / {maxFluency}
             </div>
           </div>
 
@@ -771,43 +807,40 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
               <button
                 key={btn.type}
                 onClick={() => handleAddFluency(btn.type)}
-                className={`p-3 rounded-xl border flex flex-col items-center justify-center transition-all active:scale-95 cursor-pointer ${btn.btnClass}`}
+                className={`min-h-[52px] p-2.5 rounded-xl border bg-white flex flex-col items-center justify-center transition-all active:scale-95 cursor-pointer ${btn.btnClass}`}
               >
                 <span className="text-xs font-bold">{btn.shortLabel}</span>
-                <span className="text-[10px] opacity-80 mt-0.5">-{btn.deduction}p</span>
+                <span className="text-[11px] opacity-80 mt-0.5">-{btn.deduction}</span>
               </button>
             ))}
           </div>
 
-          {/* Fluency Recorded Events */}
           {currentAssessment.fluencyEvents.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {currentAssessment.fluencyEvents.map(ev => (
-                <span
+                <button
+                  type="button"
                   key={ev.id}
                   onClick={() => handleRemoveFluency(ev.id)}
-                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 cursor-pointer hover:bg-amber-500/30 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-1 cursor-pointer hover:bg-amber-100 transition-colors"
                   title="Klik untuk menghapus catatan"
                 >
-                  <span>{ev.label} (-{ev.deduction}p)</span>
-                  <X size={11} className="hover:text-white" />
-                </span>
+                  <span>{ev.label} (-{ev.deduction})</span>
+                  <X size={12} />
+                </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Scoring Aspect 2: TAJWID */}
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4 shadow-xl space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-indigo-400" />
-              <h4 className="text-xs sm:text-sm font-bold text-white tracking-wide">
-                2. KAIDAH TAJWID (20%)
-              </h4>
-            </div>
-            <div className="text-xs font-bold text-indigo-400">
-              {currentAssessment.tajwidScore} / {maxTajwid} Poin
+        {/* Scoring Aspect 2: Tajwid */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h4 className="text-xs sm:text-sm font-bold text-slate-800">
+              Tajwid
+            </h4>
+            <div className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">
+              {currentAssessment.tajwidScore} / {maxTajwid}
             </div>
           </div>
 
@@ -816,43 +849,40 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
               <button
                 key={btn.type}
                 onClick={() => handleAddTajwid(btn.type)}
-                className={`p-3 rounded-xl border flex flex-col items-center justify-center transition-all active:scale-95 cursor-pointer ${btn.btnClass}`}
+                className={`min-h-[52px] p-2.5 rounded-xl border bg-white flex flex-col items-center justify-center transition-all active:scale-95 cursor-pointer ${btn.btnClass}`}
               >
                 <span className="text-xs font-bold">{btn.label}</span>
-                <span className="text-[10px] opacity-80 mt-0.5">-{btn.deduction}p</span>
+                <span className="text-[11px] opacity-80 mt-0.5">-{btn.deduction}</span>
               </button>
             ))}
           </div>
 
-          {/* Tajwid Recorded Events */}
           {currentAssessment.tajwidEvents.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {currentAssessment.tajwidEvents.map(ev => (
-                <span
+                <button
+                  type="button"
                   key={ev.id}
                   onClick={() => handleRemoveTajwid(ev.id)}
-                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center gap-1 cursor-pointer hover:bg-indigo-500/30 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-50 text-indigo-900 border border-indigo-200 flex items-center gap-1 cursor-pointer hover:bg-indigo-100 transition-colors"
                   title="Klik untuk menghapus catatan"
                 >
-                  <span>{ev.label} (-{ev.deduction}p)</span>
-                  <X size={11} className="hover:text-white" />
-                </span>
+                  <span>{ev.label} (-{ev.deduction})</span>
+                  <X size={12} />
+                </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Scoring Aspect 3: MAKHRAJ */}
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4 shadow-xl space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-teal-400" />
-              <h4 className="text-xs sm:text-sm font-bold text-white tracking-wide">
-                3. MAKHRAJ & SIFAT HURUF (20%)
-              </h4>
-            </div>
-            <div className="text-xs font-bold text-teal-400">
-              {currentAssessment.makhrajScore} / {maxMakhraj} Poin
+        {/* Scoring Aspect 3: Makhraj */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h4 className="text-xs sm:text-sm font-bold text-slate-800">
+              Makhraj
+            </h4>
+            <div className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-0.5 rounded-full">
+              {currentAssessment.makhrajScore} / {maxMakhraj}
             </div>
           </div>
 
@@ -861,46 +891,46 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
               <button
                 key={btn.type}
                 onClick={() => handleAddMakhraj(btn.type)}
-                className={`p-3 rounded-xl border flex flex-col items-center justify-center transition-all active:scale-95 cursor-pointer ${btn.btnClass}`}
+                className={`min-h-[52px] p-2.5 rounded-xl border bg-white flex flex-col items-center justify-center transition-all active:scale-95 cursor-pointer ${btn.btnClass}`}
               >
                 <span className="text-xs font-bold">{btn.label}</span>
-                <span className="text-[10px] opacity-80 mt-0.5">-{btn.deduction}p</span>
+                <span className="text-[11px] opacity-80 mt-0.5">-{btn.deduction}</span>
               </button>
             ))}
           </div>
 
-          {/* Makhraj Recorded Events */}
           {currentAssessment.makhrajEvents.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {currentAssessment.makhrajEvents.map(ev => (
-                <span
+                <button
+                  type="button"
                   key={ev.id}
                   onClick={() => handleRemoveMakhraj(ev.id)}
-                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/40 flex items-center gap-1 cursor-pointer hover:bg-teal-500/30 transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-teal-50 text-teal-900 border border-teal-200 flex items-center gap-1 cursor-pointer hover:bg-teal-100 transition-colors"
                   title="Klik untuk menghapus catatan"
                 >
-                  <span>{ev.label} (-{ev.deduction}p)</span>
-                  <X size={11} className="hover:text-white" />
-                </span>
+                  <span>{ev.label} (-{ev.deduction})</span>
+                  <X size={12} />
+                </button>
               ))}
             </div>
           )}
         </div>
 
         {/* Examiner Notes */}
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 p-4 shadow-xl">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
           <button
             onClick={() => setNotesOpen(!notesOpen)}
-            className="w-full flex items-center justify-between text-xs font-bold text-slate-300 hover:text-white transition-colors"
+            className="w-full flex items-center justify-between text-xs font-bold text-slate-700 hover:text-slate-900 transition-colors"
           >
             <div className="flex items-center gap-2">
               <MessageSquare size={14} className="text-slate-400" />
-              <span>Catatan Penguji untuk Soal #{currentQNum}</span>
+              <span>Catatan Soal {currentQNum}</span>
               {currentAssessment.notes && (
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="w-2 h-2 rounded-full bg-teal-600" />
               )}
             </div>
-            <span className="text-[11px] text-slate-400">{notesOpen ? 'Tutup' : 'Buka'}</span>
+            <span className="text-[11px] text-slate-500">{notesOpen ? 'Tutup' : 'Tambah'}</span>
           </button>
 
           {notesOpen && (
@@ -908,34 +938,34 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
               <textarea
                 value={currentAssessment.notes || ''}
                 onChange={(e) => handleNotesChange(e.target.value)}
-                placeholder="Tuliskan catatan khusus santri (misal: sering ragu di awal ayat 15)..."
+                placeholder="Catatan singkat penguji (opsional)..."
                 rows={2}
-                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 resize-none"
+                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
               />
             </div>
           )}
         </div>
 
         {/* Navigation Footer */}
-        <div className="pt-2 flex items-center justify-between gap-3">
+        <div className="pt-1 flex items-center justify-between gap-2">
           <button
             onClick={handlePrevQuestion}
             disabled={currentQIndex === 0}
-            className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1"
+            className="px-3.5 sm:px-4 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
           >
             <ChevronLeft size={16} />
             <span>Sebelumnya</span>
           </button>
 
-          <span className="text-xs text-slate-400 font-semibold">
-            Soal {currentQNum} dari {totalQuestionsCount} ({completedCount}/{totalQuestionsCount} selesai)
+          <span className="text-xs text-slate-500 font-semibold text-center">
+            {completedCount}/{totalQuestionsCount} selesai
           </span>
 
           <button
             onClick={handleNextQuestion}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 transition-all shadow-md flex items-center gap-1 cursor-pointer"
+            className="px-4 sm:px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 transition-colors flex items-center gap-1 cursor-pointer"
           >
-            <span>{currentQIndex === initialQuestions.length - 1 ? 'Review Selesai' : 'Lanjut'}</span>
+            <span>{currentQIndex === initialQuestions.length - 1 ? 'Selesaikan Ujian' : 'Berikutnya'}</span>
             <ChevronRight size={16} />
           </button>
         </div>
@@ -972,21 +1002,21 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
       {/* Exit Confirmation Modal */}
       {showExitConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-800 rounded-2xl max-w-sm w-full p-5 border border-slate-700 shadow-2xl space-y-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 border border-slate-200 shadow-xl space-y-4">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
               <AlertTriangle size={20} />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white">Keluar dari Lembar Ujian?</h4>
-              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                Seluruh nilai dan catatan event yang telah dimasukkan tersimpan secara otomatis. Anda dapat melanjutkan kembali kapan saja selama periode ujian belum ditutup.
+              <h4 className="text-sm font-bold text-slate-900">Keluar dari Lembar Ujian?</h4>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Penilaian yang sudah diisi tersimpan otomatis. Anda dapat melanjutkan ujian kembali kapan saja.
               </p>
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-700">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 onClick={() => setShowExitConfirm(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:bg-slate-700 transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors"
               >
                 Tetap Menilai
               </button>

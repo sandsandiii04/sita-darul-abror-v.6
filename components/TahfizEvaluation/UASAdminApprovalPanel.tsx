@@ -304,11 +304,11 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
       <div className="flex flex-wrap gap-1.5 text-[11px]">
         {[
           { id: 'all', label: 'Semua' },
-          { id: 'pending_admin_approval', label: 'Menunggu Persetujuan' },
+          { id: 'pending_admin_approval', label: 'Menunggu Admin' },
           { id: 'eligible', label: 'Layak Disetujui' },
-          { id: 'needs_fix', label: 'Perlu Koreksi' },
+          { id: 'needs_fix', label: 'Perlu Perbaikan' },
           { id: 'admin_approved', label: 'Disetujui' },
-          { id: 'ready_generate', label: 'Siap Generate' }
+          { id: 'ready_generate', label: 'Menunggu Soal' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -358,8 +358,8 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
           <option value="pending_admin_approval">Menunggu Admin</option>
           <option value="exception_pending">Pengecualian</option>
           <option value="admin_approved">Disetujui</option>
-          <option value="rejected">Ditolak / Koreksi</option>
-          <option value="stale">Stale (Perlu Verifikasi Ulang)</option>
+          <option value="rejected">Perlu Perbaikan</option>
+          <option value="stale">Perlu Dicek Ulang</option>
         </select>
       </div>
 
@@ -637,25 +637,49 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
 
             <div className="space-y-2">
               <div className="font-bold text-slate-800">Bagian Materi Per Juz ({detailParts.length})</div>
-              {detailParts.map(pt => (
-                <div key={pt.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50">
-                  <div className="font-bold">Juz {pt.juzNumber} ({pt.partType}) — [{pt.status} / {pt.teacherStatus}]</div>
-                  <div className="text-slate-600">Catatan Verifikasi Guru: {pt.verificationNotes || pt.reviewReason || '-'}</div>
-                </div>
-              ))}
+              {detailParts.map(pt => {
+                const partTypeLabel = pt.partType === 'full_juz' ? '1 Juz Penuh' : pt.partType === 'partial_half' ? 'Parsial' : 'Kurang dari ½ Juz';
+                const partStatusLabel = pt.teacherStatus === 'admin_approved' || pt.status === 'finalized'
+                  ? 'Disetujui'
+                  : pt.status === 'needs_review'
+                    ? 'Perlu Dicek'
+                    : pt.teacherStatus === 'draft_manual'
+                      ? 'Draft'
+                      : 'Siap';
+                return (
+                  <div key={pt.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50">
+                    <div className="font-bold text-slate-800">Juz {pt.juzNumber} ({partTypeLabel}) • {partStatusLabel}</div>
+                    <div className="text-slate-600">Catatan Guru: {pt.verificationNotes || pt.reviewReason || '-'}</div>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="space-y-2">
               <div className="font-bold text-slate-800">Rencana Sesi ({detailSessions.length})</div>
-              {detailSessions.map(s => (
-                <div key={s.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex justify-between">
-                  <div>
-                    <div className="font-bold">Sesi {s.sessionNumber}: Juz {s.juzNumber} ({s.sessionType}) [{s.source || 'auto'}]</div>
-                    {s.changeReason && <div className="text-slate-500">Alasan Manual: {s.changeReason}</div>}
+              {detailSessions.map(s => {
+                const sessTypeLabel = s.sessionType === 'full_juz' ? '1 Juz Penuh (9 Soal)' : 'Parsial (4 Soal)';
+                const sessStatusLabel = s.status === 'submitted'
+                  ? 'Selesai'
+                  : s.status === 'in_progress'
+                    ? 'Sedang Ujian'
+                    : s.questionSetId
+                      ? 'Paket Siap'
+                      : s.approvalStatus === 'admin_approved'
+                        ? 'Menunggu Soal'
+                        : 'Menunggu Admin';
+                return (
+                  <div key={s.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-slate-800">
+                        Sesi {s.sessionNumber}: Juz {s.juzNumber} • {sessTypeLabel}
+                      </div>
+                      {s.changeReason && <div className="text-slate-500">Catatan: {s.changeReason}</div>}
+                    </div>
+                    <span className="font-bold text-teal-700 shrink-0">{sessStatusLabel}</span>
                   </div>
-                  <span className="font-bold text-slate-700">{s.approvalStatus || s.status}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="space-y-1.5">

@@ -284,40 +284,31 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700 shadow-sm shrink-0">
-              <Award size={22} />
+            <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 shrink-0">
+              <Award size={20} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
-                  Rekapitulasi Nilai UAS Tahfiz
-                </h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                  Modul UAS (Per Sesi / Juz)
-                </span>
-              </div>
+              <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight">
+                Rekap Nilai UAS Tahfiz
+              </h1>
               <p className="text-xs text-slate-500 mt-0.5">
                 {isAdmin 
-                  ? 'Rekapitulasi resmi nilai ujian akhir semester (UAS) seluruh santri, status kelulusan KKM, dan ekspor data.'
-                  : `Rekapitulasi nilai ujian UAS santri binaan Ustadz ${user.name}.`}
+                  ? 'Rekap nilai ujian akhir semester, kelulusan KKM, dan ekspor data.'
+                  : `Rekap nilai UAS santri binaan ${user.name}.`}
               </p>
             </div>
           </div>
 
           {/* Action buttons & Period select */}
           <div className="flex items-center gap-2 flex-wrap shrink-0">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
-              <Calendar size={15} className="text-slate-400" />
-              <span>Periode:</span>
-            </div>
             <select
               value={selectedPeriodId}
               onChange={(e) => setSelectedPeriodId(e.target.value)}
-              className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             >
               {periods.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name} (KKM: {p.kkm})
+                  {p.name} (KKM {p.kkm})
                 </option>
               ))}
             </select>
@@ -326,14 +317,15 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
               onClick={() => loadStudents(selectedPeriodId)}
               className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
               title="Segarkan Data"
+              aria-label="Segarkan Data"
             >
-              <RefreshCcw size={15} className={isLoading ? 'animate-spin' : ''} />
+              <RefreshCcw size={15} className={isLoading ? 'animate-spin text-teal-600' : ''} />
             </button>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={handleExportCSV}
-                className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors flex items-center gap-1"
+                className="px-2.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors flex items-center gap-1"
                 title="Ekspor CSV"
               >
                 <Download size={13} />
@@ -341,7 +333,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
               </button>
               <button
                 onClick={handleExportExcel}
-                className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors flex items-center gap-1 shadow-sm"
+                className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold transition-colors flex items-center gap-1"
                 title="Ekspor Excel"
               >
                 <FileSpreadsheet size={13} />
@@ -351,6 +343,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                 onClick={handlePrint}
                 className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
                 title="Cetak Rekap"
+                aria-label="Cetak Rekap"
               >
                 <Printer size={15} />
               </button>

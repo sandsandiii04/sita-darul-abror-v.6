@@ -155,40 +155,45 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden">
-        <div className="px-6 py-4 bg-gradient-to-r from-indigo-900 to-teal-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/10 rounded-xl">
-              <BookOpen size={20} className="text-amber-300" />
+    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="px-4 sm:px-5 py-4 bg-white border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 bg-teal-50 border border-teal-200 rounded-xl shrink-0">
+              <BookOpen size={18} className="text-teal-700" />
             </div>
-            <div>
-              <h3 className="font-bold text-base">Pilih 2 Soal Wajib Halaman Penuh</h3>
-              <p className="text-xs text-indigo-100">
-                {student.studentName} ({student.class}) — {student.startSurahName ? `${student.startSurahName}:${student.startAyah} s.d. ${student.endSurahName}:${student.endAyah}` : `Sesi ${(student as any).sessionNumber || 1} • Juz ${(student as any).juzNumber || '-'}`}
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900 truncate">Pilih 2 Soal Wajib</h3>
+              <p className="text-xs text-slate-500 truncate">
+                {student.studentName} • Kelas {student.class} • Sesi {(student as any).sessionNumber || 1} • Juz {(student as any).juzNumber || '-'}
               </p>
             </div>
           </div>
-          <button onClick={onClose} disabled={isSaving} className="p-1.5 rounded-xl hover:bg-white/10">
-            <X size={20} />
+          <button
+            onClick={onClose}
+            disabled={isSaving}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+            aria-label="Tutup"
+          >
+            <X size={18} />
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1 space-y-4">
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-900">
-            Pilih tepat <strong>2 halaman penuh</strong> dari materi sah semester berjalan di bawah ini (15 poin/halaman, total 30 poin + 7 soal acak Bank Soal = 100 poin). Halaman parsial atau di luar materi tidak ditampilkan.
+        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-3.5">
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-xs text-teal-900">
+            Pilih tepat <strong>2 halaman penuh</strong> untuk soal wajib (15 poin per halaman).
           </div>
 
           {errorMsg && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center gap-2">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
               <AlertCircle size={16} className="shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {eligibleFullPages.length < 2 ? (
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900">
-              Materi santri ini hanya memuat {eligibleFullPages.length} halaman mushaf penuh. Minimal 2 halaman penuh dibutuhkan untuk soal wajib UAS.
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+              Materi santri ini hanya memuat {eligibleFullPages.length} halaman mushaf penuh. Minimal 2 halaman penuh dibutuhkan untuk soal wajib.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -204,18 +209,18 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
                     key={p}
                     type="button"
                     onClick={() => togglePage(p)}
-                    className={`p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
+                    className={`p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-2 ${
                       isSelected
-                        ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500/20'
-                        : 'bg-white border-slate-200 hover:border-indigo-300'
+                        ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
+                        : 'bg-white border-slate-200 hover:border-teal-300 hover:bg-slate-50'
                     }`}
                   >
-                    <div>
-                      <div className="text-xs font-bold text-slate-800">Halaman {p} (15 Poin)</div>
-                      <div className="text-[11px] text-slate-500">{label}</div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900">Halaman {p}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{label}</div>
                     </div>
                     {isSelected && (
-                      <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center gap-1">
+                      <span className="px-2 py-0.5 rounded-full bg-teal-600 text-white text-[10px] font-bold flex items-center gap-1 shrink-0">
                         <CheckCircle2 size={12} /> Wajib {orderIdx + 1}
                       </span>
                     )}
@@ -226,25 +231,25 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+        <div className="px-4 sm:px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <span className="text-xs font-semibold text-slate-600">
-            Terpilih: <strong>{selectedPages.length} / 2</strong> halaman ({selectedPages.join(', ') || '-'})
+            Terpilih: <strong className="text-slate-900">{selectedPages.length}/2</strong> halaman {selectedPages.length > 0 ? `(${selectedPages.join(', ')})` : ''}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2">
             <button
               onClick={onClose}
               disabled={isSaving}
-              className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl"
+              className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl"
             >
               Batal
             </button>
             <button
               onClick={handleConfirm}
               disabled={isSaving || selectedPages.length !== 2}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50"
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
             >
               <Lock size={14} />
-              <span>{isSaving ? 'Menyimpan...' : 'Pilih Soal Wajib & Mulai Ujian'}</span>
+              <span>{isSaving ? 'Menyimpan...' : 'Mulai Ujian'}</span>
             </button>
           </div>
         </div>

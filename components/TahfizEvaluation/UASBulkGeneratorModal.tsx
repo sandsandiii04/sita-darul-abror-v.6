@@ -446,27 +446,28 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-teal-900 to-emerald-900 text-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/10 rounded-xl">
-              <Sparkles size={20} className="text-amber-300" />
+    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Light Header */}
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-white">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 bg-teal-50 border border-teal-200 rounded-xl shrink-0">
+              <Sparkles size={18} className="text-teal-700" />
             </div>
-            <div>
-              <h3 className="font-bold text-base">Generate Soal Massal UAS (Per-Sesi Bank Soal)</h3>
-              <p className="text-xs text-emerald-100">
-                {period.name} — Juz Penuh: 7 soal acak Bank Soal (+ 2 wajib manual saat ujian). Parsial: 4 soal acak Bank Soal.
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900 truncate">Siapkan Soal UAS</h3>
+              <p className="text-xs text-slate-500 truncate">
+                {period.name} • Juz Penuh: 7 acak + 2 wajib • Parsial: 4 acak
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={isExecuting}
-            className="p-1.5 rounded-xl hover:bg-white/10 transition-colors disabled:opacity-40"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 shrink-0"
+            aria-label="Tutup"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 

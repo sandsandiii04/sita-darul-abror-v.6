@@ -786,20 +786,20 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   const editingPart = editingSession ? effectivePartsByJuz.get(editingSession.juzNumber) || null : null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="px-4 sm:px-6 py-4 bg-gradient-to-r from-teal-900 to-emerald-900 text-white flex items-center justify-between gap-2">
-          <div>
-            <h3 className="font-bold text-sm sm:text-base">{studentName}</h3>
-            <p className="text-[11px] sm:text-xs text-emerald-100">
+    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden">
+        {/* Light Header */}
+        <div className="px-4 sm:px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="font-bold text-sm sm:text-base text-slate-900 truncate">{studentName}</h3>
+            <p className="text-[11px] sm:text-xs text-slate-500 truncate">
               {studentClass} • {halaqah} • Guru: {teacherName}
             </p>
           </div>
           <button
             type="button"
             onClick={handleRequestClose}
-            className="p-2 rounded-xl hover:bg-white/10"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
             aria-label="Tutup"
           >
             <X size={18} />
