@@ -73,6 +73,8 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
   } | null>(null);
   const [isGeneratingStudentId, setIsGeneratingStudentId] = useState<string | null>(null);
   const [showBulkGenModal, setShowBulkGenModal] = useState(false);
+  const [bulkGenStudentId, setBulkGenStudentId] = useState<string | null>(null);
+  const [uasRefreshKey, setUasRefreshKey] = useState(0);
 
   const questionSetMap = useMemo(() => {
     const map = new Map<string, { status: string; version: number; id: string }>();
@@ -636,14 +638,16 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
 
           {isAdmin && (
             <>
-              <button
-                onClick={handleRegenerate}
-                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
-                title="Jalankan ulang deteksi sabaq untuk santri yang belum difinalisasi"
-              >
-                <Sparkles size={14} className="text-amber-500" />
-                <span>Deteksi Ulang</span>
-              </button>
+              {currentPeriod?.examType !== 'uas' && (
+                <button
+                  onClick={handleRegenerate}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+                  title="Jalankan ulang deteksi sabaq untuk santri yang belum difinalisasi"
+                >
+                  <Sparkles size={14} className="text-amber-500" />
+                  <span>Deteksi Ulang</span>
+                </button>
+              )}
 
               {currentPeriod?.examType === 'uts' && (
                 <button
@@ -658,12 +662,12 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
 
               {(currentPeriod?.examType === 'uts' || currentPeriod?.examType === 'uas') && (
                 <button
-                  onClick={() => setShowBulkGenModal(true)}
+                  onClick={() => { setBulkGenStudentId(null); setShowBulkGenModal(true); }}
                   className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 active:from-teal-800 active:to-emerald-800 text-white text-xs font-bold rounded-xl shadow-md shadow-teal-600/20 transition-all flex items-center gap-1.5"
-                  title={`Buka panel pratinjau kelayakan dan generator soal ${currentPeriod.examType.toUpperCase()} massal`}
+                  title={`Buka panel pratinjau kelayakan dan persiapan soal ${currentPeriod.examType.toUpperCase()}`}
                 >
                   <Sparkles size={14} className="text-amber-300" />
-                  <span>Generate Soal Massal</span>
+                  <span>{currentPeriod.examType === 'uas' ? 'Siapkan Semua Soal' : 'Generate Soal Massal'}</span>
                 </button>
               )}
             </>
@@ -739,8 +743,8 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
         </div>
       )}
 
-      {/* Metrics Cards & Progress Bar (hidden for Teacher on UAS to keep view simple) */}
-      {!(isTeacher && currentPeriod?.examType === 'uas') && (
+      {/* Metrics Cards & Progress Bar (UTS only — UAS uses unified per-juz panel) */}
+      {currentPeriod?.examType !== 'uas' && (
         <>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
@@ -824,14 +828,19 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
           participants={participants}
           snapshots={snapshots}
           records={records}
+          refreshKey={uasRefreshKey}
+          onOpenPrepareQuestions={(studentId?: string) => {
+            setBulkGenStudentId(studentId || null);
+            setShowBulkGenModal(true);
+          }}
           onSessionsUpdated={() => {
             if (selectedPeriodId) loadQuestionSets(selectedPeriodId);
           }}
         />
       )}
 
-      {/* Table Section (hidden for Teacher on UAS) */}
-      {!(isTeacher && currentPeriod?.examType === 'uas') && (
+      {/* Legacy Snapshot Table Section — UTS ONLY (hidden completely on UAS so Guru & Admin never see conflicting old verification!) */}
+      {currentPeriod?.examType !== 'uas' && (
       <MaterialTable
         user={user}
         participants={participants}
@@ -847,19 +856,21 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
       />
       )}
 
-      {/* UAS Bulk Question Generator Modal */}
+      {/* UAS Bulk / Per-Student Question Generator Modal */}
       {showBulkGenModal && currentPeriod && currentPeriod.examType === 'uas' && (
         <UASBulkGeneratorModal
           isOpen={showBulkGenModal}
-          onClose={() => setShowBulkGenModal(false)}
+          onClose={() => { setShowBulkGenModal(false); setBulkGenStudentId(null); }}
           period={currentPeriod}
           participants={participants}
           snapshots={snapshots}
           questionSetMap={questionSetMap}
           user={user}
+          targetStudentId={bulkGenStudentId}
           onSuccess={async () => {
             if (selectedPeriodId) {
               await loadQuestionSets(selectedPeriodId);
+              setUasRefreshKey(k => k + 1);
             }
           }}
         />

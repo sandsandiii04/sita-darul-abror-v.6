@@ -155,7 +155,9 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
       if (res.success && res.students) {
         const sessMap = new Map<string, any[]>();
         if (juzRes?.success && Array.isArray(juzRes.sessions)) {
-          juzRes.sessions.forEach((s: any) => {
+          juzRes.sessions
+            .filter((s: any) => s.status !== 'void')
+            .forEach((s: any) => {
             const sid = s.student_id || s.studentId;
             const list = sessMap.get(sid) || [];
             list.push({
@@ -175,6 +177,8 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
               endPage: s.end_page,
               questionSetId: s.question_set_id,
               attemptId: s.attempt_id,
+              approvalStatus: s.approval_status || s.approvalStatus,
+              isLocked: !!s.is_locked,
               status: s.status,
               score: s.score,
               predikat: s.predikat,
@@ -320,48 +324,88 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     return Array.from(set).sort();
   }, [students]);
 
+  // Unified official per-session & student status calculator (Section E)
+  const isPeriodActive = periodInfo?.status === 'active';
+  const getSessionStatusInfo = (sess: any) => {
+    if (sess.status === 'submitted') {
+      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false };
+    }
+    if (sess.status === 'in_progress') {
+      return { code: 'IN_PROGRESS' as const, label: 'Sedang Diuji', canStart: isPeriodActive };
+    }
+    const isApproved = sess.approvalStatus === 'admin_approved' || Boolean(sess.questionSetId);
+    if (!isApproved) {
+      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', canStart: false };
+    }
+    if (!sess.questionSetId) {
+      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', canStart: false };
+    }
+    if (!isPeriodActive) {
+      return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', canStart: false };
+    }
+    return { code: 'READY' as const, label: 'Siap Diuji', canStart: true };
+  };
+
+  const getStudentOverallStatus = (s: ExaminerStudentItem) => {
+    const activeSessions = (s.sessions || []).filter((x: any) => x.status !== 'void');
+    if (activeSessions.length > 0) {
+      const infos = activeSessions.map(getSessionStatusInfo);
+      const total = infos.length;
+      const doneCnt = infos.filter(i => i.code === 'SUBMITTED').length;
+      const inProgCnt = infos.filter(i => i.code === 'IN_PROGRESS').length;
+      const readyCnt = infos.filter(i => i.code === 'READY').length;
+      const pktReadyCnt = infos.filter(i => i.code === 'PACKET_READY').length;
+      const waitPktCnt = infos.filter(i => i.code === 'WAITING_PACKET').length;
+
+      if (doneCnt === total) return { code: 'SUBMITTED' as const, label: 'Selesai', cls: 'bg-emerald-100 text-emerald-800' };
+      if (inProgCnt > 0) return { code: 'IN_PROGRESS' as const, label: 'Sedang Diuji', cls: 'bg-amber-100 text-amber-800' };
+      if (readyCnt === total) return { code: 'READY' as const, label: 'Siap Diuji', cls: 'bg-blue-100 text-blue-800' };
+      if (readyCnt > 0) return { code: 'READY' as const, label: `${readyCnt}/${total} Sesi Siap Diuji`, cls: 'bg-blue-100 text-blue-800' };
+      if (pktReadyCnt === total) return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', cls: 'bg-teal-100 text-teal-800' };
+      if (pktReadyCnt > 0) return { code: 'PACKET_READY' as const, label: `${pktReadyCnt}/${total} Paket Siap`, cls: 'bg-teal-100 text-teal-800' };
+      if (waitPktCnt > 0) return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', cls: 'bg-amber-100 text-amber-900' };
+      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', cls: 'bg-slate-100 text-slate-600' };
+    }
+    if (s.attemptStatus === 'submitted') return { code: 'SUBMITTED' as const, label: `Selesai (Skor: ${s.totalScore})`, cls: 'bg-emerald-100 text-emerald-800' };
+    if (s.attemptStatus === 'in_progress') return { code: 'IN_PROGRESS' as const, label: 'Sedang Diuji', cls: 'bg-amber-100 text-amber-800' };
+    return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', cls: 'bg-slate-100 text-slate-600' };
+  };
+
   // Filtered students
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
-      // Search
       const matchSearch = 
         s.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         s.studentNis.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (s.examinerName && s.examinerName.toLowerCase().includes(searchQuery.toLowerCase()));
-
       if (!matchSearch) return false;
-
-      // Class
       if (selectedClass !== 'ALL' && s.class !== selectedClass) return false;
 
-      // Status
-      if (selectedStatusFilter === 'READY') {
-        return s.hasAssignment && s.questionSetStatus === 'locked' && !s.attemptStatus;
-      }
-      if (selectedStatusFilter === 'IN_PROGRESS') {
-        return s.attemptStatus === 'in_progress';
-      }
-      if (selectedStatusFilter === 'SUBMITTED') {
-        return s.attemptStatus === 'submitted';
-      }
-      if (selectedStatusFilter === 'NEED_QUESTIONS') {
-        return !s.questionSetId || s.questionSetStatus === 'stale';
-      }
-
+      const overall = getStudentOverallStatus(s);
+      if (selectedStatusFilter === 'READY') return overall.code === 'READY';
+      if (selectedStatusFilter === 'IN_PROGRESS') return overall.code === 'IN_PROGRESS';
+      if (selectedStatusFilter === 'SUBMITTED') return overall.code === 'SUBMITTED';
+      if (selectedStatusFilter === 'NEED_QUESTIONS') return overall.code === 'WAITING_PACKET' || overall.code === 'WAITING_APPROVAL';
       return true;
     });
-  }, [students, searchQuery, selectedClass, selectedStatusFilter]);
+  }, [students, searchQuery, selectedClass, selectedStatusFilter, periodInfo?.status]);
 
   // Statistics counters
   const stats = useMemo(() => {
     const total = students.length;
-    const submitted = students.filter(s => s.attemptStatus === 'submitted').length;
-    const inProgress = students.filter(s => s.attemptStatus === 'in_progress').length;
-    const ready = students.filter(s => s.hasAssignment && s.questionSetStatus === 'locked' && !s.attemptStatus).length;
-    const needQuestions = students.filter(s => !s.questionSetId || s.questionSetStatus === 'stale').length;
-
+    let submitted = 0;
+    let inProgress = 0;
+    let ready = 0;
+    let needQuestions = 0;
+    students.forEach(s => {
+      const code = getStudentOverallStatus(s).code;
+      if (code === 'SUBMITTED') submitted++;
+      else if (code === 'IN_PROGRESS') inProgress++;
+      else if (code === 'READY') ready++;
+      else if (code === 'WAITING_PACKET' || code === 'WAITING_APPROVAL') needQuestions++;
+    });
     return { total, submitted, inProgress, ready, needQuestions };
-  }, [students]);
+  }, [students, periodInfo?.status]);
 
   // If in active examination session, render full screen exam sheet
   if (activeSession) {
@@ -627,16 +671,14 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredStudents.map(student => {
-            const hasQuestions = student.questionSetStatus === 'locked';
-            const hasPendingMandatory = student.questionSetStatus === 'pending_mandatory';
-            const isStale = student.questionSetStatus === 'stale';
+            const activeSessions = (student.sessions || []).filter((x: any) => x.status !== 'void');
+            const overall = getStudentOverallStatus(student);
             const hasAssignment = student.hasAssignment || isSharedExaminer;
             const isAssignedToMe = student.examinerId === user.id;
             const canExamine = isAdmin || (isSharedExaminer && !!verifiedExaminer) || isAssignedToMe;
-            const isSubmitted = student.attemptStatus === 'submitted';
-            const isInProgress = student.attemptStatus === 'in_progress';
-            const isReady = (hasQuestions || hasPendingMandatory) && hasAssignment && !student.attemptStatus;
-            const isPassed = (student.totalScore || 0) >= (periodInfo?.kkm || 75);
+            const isSubmitted = overall.code === 'SUBMITTED';
+            const isInProgress = overall.code === 'IN_PROGRESS';
+            const isReady = overall.code === 'READY';
 
             return (
               <div
@@ -644,33 +686,19 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                 className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
               >
                 <div>
-                  {/* Top Badge: Status */}
+                  {/* Top Badge: Unified Status */}
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
                       Kelas {student.class}
                     </span>
 
-                    {isSubmitted ? (
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                        <CheckCircle2 size={11} />
-                        <span>Selesai (Skor: {student.totalScore})</span>
-                      </span>
-                    ) : isInProgress ? (
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 flex items-center gap-1">
-                        <Clock size={11} />
-                        <span>{student.completedQuestionsCount || 0}/9 Soal Selesai</span>
-                      </span>
-                    ) : isReady ? (
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center gap-1">
-                        <Play size={10} />
-                        <span>Siap Diuji</span>
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
-                        <AlertTriangle size={11} />
-                        <span>Belum Siap</span>
-                      </span>
-                    )}
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${overall.cls}`}>
+                      {overall.code === 'SUBMITTED' ? <CheckCircle2 size={11} />
+                        : overall.code === 'IN_PROGRESS' ? <Clock size={11} />
+                        : overall.code === 'READY' ? <Play size={10} />
+                        : <AlertTriangle size={11} />}
+                      <span>{overall.label}</span>
+                    </span>
                   </div>
 
                   {/* Student Name & NIS */}
@@ -679,57 +707,51 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">NIS: {student.studentNis}</p>
 
-                  {/* Material & Examiner Information */}
+                  {/* Material & Guru Halaqah Information (Section H: clearly distinguish Guru Halaqah vs actual PIN Examiner!) */}
                   <div className="mt-3 space-y-1.5 text-xs">
-                    <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] text-slate-400 block">Materi Uji UAS:</span>
-                      <span className="font-bold text-slate-700">
-                        {student.startSurahName} s.d. {student.endSurahName}
-                      </span>
-                    </div>
+                    {activeSessions.length === 0 && (
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
+                        <span className="text-[10px] text-slate-400 block">Materi Uji UAS:</span>
+                        <span className="font-bold text-slate-700">
+                          {student.startSurahName ? `${student.startSurahName} s.d. ${student.endSurahName}` : 'Belum diatur Guru Halaqah'}
+                        </span>
+                      </div>
+                    )}
 
                     <div className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between">
                       <div>
-                        <span className="text-[10px] text-slate-400 block">Penguji Ditugaskan:</span>
-                        <span className={`font-bold ${student.examinerName ? 'text-slate-700' : 'text-rose-500'}`}>
-                          {student.examinerName || 'Belum Ditugaskan'}
+                        <span className="text-[10px] text-slate-400 block">Guru Halaqah:</span>
+                        <span className={`font-bold ${student.examinerName ? 'text-slate-700' : 'text-slate-400'}`}>
+                          {student.examinerName || 'Belum Terdaftar'}
                         </span>
                       </div>
-                      {isAdmin && (
-                        <button
-                          onClick={() => setAssignModalStudent(student)}
-                          className="p-1 rounded-lg text-teal-700 hover:bg-teal-50 transition-colors"
-                          title="Ubah Penguji"
-                        >
-                          <UserCheck size={16} />
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Card Action Buttons */}
                 <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                  {student.sessions && student.sessions.length > 0 ? (
+                  {activeSessions.length > 0 ? (
                     <div className="space-y-1.5">
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Pilih Sesi UAS ({student.sessions.length} Sesi)
+                        Daftar Sesi UAS ({activeSessions.length} Sesi)
                       </div>
-                      {student.sessions.map(sess => {
-                        const sessDone = sess.status === 'submitted';
-                        const sessReady = Boolean(sess.questionSetId);
+                      {activeSessions.map(sess => {
+                        const sInfo = getSessionStatusInfo(sess);
+                        const sessDone = sInfo.code === 'SUBMITTED';
+                        const sessCanStart = sInfo.canStart && canExamine;
                         return (
-                          <div key={sess.id} className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
+                          <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
                             <div className="min-w-0">
                               <div className="text-xs font-bold text-slate-800 truncate">
-                                Sesi {sess.sessionNumber}: Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? '½ Juz • 4 Soal' : 'Penuh • 9 Soal'})
+                                Sesi {sess.sessionNumber}: Juz {sess.juzNumber} ({sess.sessionType === 'partial_half' ? 'Parsial • 4 Soal' : '1 Juz Penuh • 9 Soal'})
                               </div>
                               <div className="text-[10px] text-slate-500 truncate">
                                 {sessDone
-                                  ? `Selesai • Nilai: ${sess.score ?? '-'} (${sess.actualExaminerName || '-'})`
-                                  : sessReady
-                                  ? (sess.actualExaminerName ? `Berjalan • Penguji: ${sess.actualExaminerName}` : 'Siap Diuji')
-                                  : 'Paket soal sesi belum di-generate'}
+                                  ? `Selesai • Nilai: ${sess.score ?? '-'} • Penguji: ${sess.actualExaminerName || '-'}`
+                                  : sInfo.code === 'IN_PROGRESS'
+                                    ? `Sedang Diuji • Penguji: ${sess.actualExaminerName || '-'}`
+                                    : sInfo.label}
                               </div>
                             </div>
                             {sessDone ? (
@@ -739,10 +761,10 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                             ) : (
                               <button
                                 onClick={() => handleStartExam(student, sess)}
-                                disabled={!canExamine || !sessReady}
+                                disabled={!sessCanStart}
                                 className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold shrink-0 disabled:opacity-40"
                               >
-                                {sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory'
+                                {sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart
                                   ? 'Pilih Wajib'
                                   : sess.status === 'in_progress'
                                   ? 'Lanjutkan'
@@ -798,11 +820,11 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                       }`}
                     >
                       <Play size={14} />
-                      <span>{hasPendingMandatory ? 'Pilih Soal Wajib & Mulai Ujian' : 'Mulai Ujian UAS'}</span>
+                      <span>{student.questionSetStatus === 'pending_mandatory' ? 'Pilih Soal Wajib & Mulai Ujian' : 'Mulai Ujian UAS'}</span>
                     </button>
                   ) : (
                     <div className="text-center py-1.5 text-[11px] text-slate-400">
-                      {!hasAssignment ? 'Tugaskan penguji terlebih dahulu' : 'Soal UAS belum dibuat/stale'}
+                      {overall.label}
                     </div>
                   )}
                 </div>

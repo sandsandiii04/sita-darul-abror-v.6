@@ -37,6 +37,7 @@ interface UASBulkGeneratorModalProps {
   onSuccess: () => Promise<void>;
   initialClassFilter?: string;
   initialHalaqahFilter?: string;
+  targetStudentId?: string | null;
 }
 
 interface ExecutionResultItem {
@@ -56,7 +57,8 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   user,
   onSuccess,
   initialClassFilter = 'all',
-  initialHalaqahFilter = 'all'
+  initialHalaqahFilter = 'all',
+  targetStudentId = null
 }) => {
   const [selectedClass, setSelectedClass] = useState<string>(initialClassFilter);
   const [selectedHalaqah, setSelectedHalaqah] = useState<string>(initialHalaqahFilter);
@@ -116,7 +118,9 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
           const map = new Map<string, any[]>();
           const allSess: any[] = [];
           if (juzRes?.success && Array.isArray(juzRes.sessions)) {
-            juzRes.sessions.forEach((s: any) => {
+            juzRes.sessions
+              .filter((s: any) => s.status !== 'void')
+              .forEach((s: any) => {
               const sid = s.student_id || s.studentId;
               const obj = {
                 id: s.id,
@@ -135,6 +139,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                 startPage: s.start_page || s.startPage,
                 endPage: s.end_page || s.endPage,
                 questionSetId: s.question_set_id || s.questionSetId,
+                attemptId: s.attempt_id || s.attemptId,
                 approvalStatus: s.approval_status || s.approvalStatus,
                 status: s.status
               };
@@ -175,18 +180,47 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
     return Array.from(set).sort();
   }, [participants]);
 
+  const scopedParticipants = useMemo(() => {
+    if (!targetStudentId) return participants;
+    return participants.filter(p => p.studentId === targetStudentId);
+  }, [participants, targetStudentId]);
+
   const eligibilitySummary = useMemo(() => {
     return evaluateUASMultiSessionEligibility({
-      participants,
+      participants: scopedParticipants,
       parts: juzParts,
       sessions: juzSessions,
       submissions: juzSubmissions,
       snapshots,
       bankQuestions,
-      classFilter: selectedClass,
-      halaqahFilter: selectedHalaqah
+      classFilter: targetStudentId ? 'all' : selectedClass,
+      halaqahFilter: targetStudentId ? 'all' : selectedHalaqah
     });
-  }, [participants, juzParts, juzSessions, juzSubmissions, snapshots, bankQuestions, selectedClass, selectedHalaqah]);
+  }, [scopedParticipants, juzParts, juzSessions, juzSubmissions, snapshots, bankQuestions, selectedClass, selectedHalaqah, targetStudentId]);
+
+  // Session-level preview breakdown (Section C)
+  const sessionPreview = useMemo(() => {
+    const readyIds = new Set(eligibilitySummary.items.filter(i => i.status === 'SIAP_GENERATE').map(i => i.studentId));
+    let fullCount = 0;
+    let partialCount = 0;
+    let toCreate = 0;
+    let alreadyHave = 0;
+    let unapproved = 0;
+    const scopedIds = new Set(scopedParticipants.map(p => p.studentId));
+    juzSessions.forEach(s => {
+      if (!scopedIds.has(s.studentId) || s.status === 'void') return;
+      if (s.questionSetId) {
+        alreadyHave++;
+      } else if (s.approvalStatus !== 'admin_approved') {
+        unapproved++;
+      } else if (readyIds.has(s.studentId)) {
+        toCreate++;
+        if (s.sessionType === 'full_juz') fullCount++;
+        else partialCount++;
+      }
+    });
+    return { fullCount, partialCount, toCreate, alreadyHave, unapproved };
+  }, [eligibilitySummary.items, juzSessions, scopedParticipants]);
 
   const displayedItems = useMemo(() => {
     return eligibilitySummary.items.filter(item => {
@@ -251,35 +285,31 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
         }
         seenStudentIds.add(item.studentId);
 
-        // Jangan menimpa paket yang sudah ada/difinalisasi
-        const existingQ = questionSetMap.get(item.studentId);
-        if (existingQ && existingQ.status !== 'stale') {
-          results.push({
-            studentId: item.studentId,
-            studentName: item.studentName,
-            status: 'SKIPPED',
-            message: `Paket 9 soal v${existingQ.version} sudah ada (${existingQ.status}).`
-          });
-          setProcessedCount(i + 1);
-          continue;
-        }
-
-        const studentSessions = juzSessionsByStudent.get(item.studentId) || [];
+        const studentSessions = (juzSessionsByStudent.get(item.studentId) || []).filter(
+          s => s.status !== 'void' && s.approvalStatus === 'admin_approved'
+        );
         if (studentSessions.length === 0) {
           results.push({
             studentId: item.studentId,
             studentName: item.studentName,
-            status: 'FAILED',
-            message: 'Menunggu Persetujuan Admin / belum ada sesi UAS yang disetujui.'
+            status: 'SKIPPED',
+            message: 'Belum ada sesi UAS yang disetujui Admin.'
           });
           setProcessedCount(i + 1);
           continue;
         }
 
-        try {
-          let genSessions = 0;
-          for (const sess of studentSessions) {
-            if (sess.questionSetId) continue;
+        // Per-session isolated generation: if 1 session fails, other sessions stay safely saved!
+        let genSessions = 0;
+        let skippedSessions = 0;
+        const failedMsgs: string[] = [];
+
+        for (const sess of studentSessions) {
+          if (sess.questionSetId || sess.attemptId) {
+            skippedSessions++;
+            continue;
+          }
+          try {
             const sessRes = await uasQuestionGenerator.generateUASSessionRandomDraft({
               period,
               session: sess,
@@ -297,21 +327,33 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               throw new Error(saveSessRes.message || `Gagal menyimpan paket Sesi ${sess.sessionNumber}.`);
             }
             genSessions++;
+          } catch (sessErr: any) {
+            failedMsgs.push(`Sesi ${sess.sessionNumber} (Juz ${sess.juzNumber}): ${sessErr?.message || 'Gagal generate'}`);
           }
+        }
+
+        if (failedMsgs.length > 0 && genSessions === 0) {
+          results.push({
+            studentId: item.studentId,
+            studentName: item.studentName,
+            status: 'FAILED',
+            message: failedMsgs.join(' • ')
+          });
+        } else if (failedMsgs.length > 0 && genSessions > 0) {
+          results.push({
+            studentId: item.studentId,
+            studentName: item.studentName,
+            status: 'FAILED',
+            message: `${genSessions} sesi berhasil disiapkan; gagal: ${failedMsgs.join(' • ')}`
+          });
+        } else {
           results.push({
             studentId: item.studentId,
             studentName: item.studentName,
             status: genSessions > 0 ? 'SUCCESS' : 'SKIPPED',
             message: genSessions > 0
-              ? `${genSessions} sesi UAS berhasil di-generate (Juz Penuh: 7 acak + 2 wajib manual penguji / Parsial: 4 acak).`
+              ? `${genSessions} paket sesi UAS berhasil disiapkan${skippedSessions > 0 ? ` (${skippedSessions} sudah ada)` : ''}.`
               : 'Seluruh sesi UAS santri ini sudah memiliki paket soal.'
-          });
-        } catch (err: any) {
-          results.push({
-            studentId: item.studentId,
-            studentName: item.studentName,
-            status: 'FAILED',
-            message: err?.message || 'Gagal membuat paket 9 soal UAS.'
           });
         }
 
@@ -381,29 +423,32 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               <span>Memeriksa kelayakan sesi disetujui Admin & zona acak Bank Soal...</span>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-emerald-700">SIAP_GENERATE (7 / 4 Acak)</p>
-                <p className="text-2xl font-black text-emerald-800">{eligibilitySummary.siapGenerate}</p>
-              </div>
-              <div className="bg-white p-3 rounded-2xl border border-sky-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-sky-700">MENUNGGU PERSETUJUAN ADMIN</p>
-                <p className="text-2xl font-black text-sky-800">{eligibilitySummary.materiBelumFinal}</p>
-              </div>
-              <div className="bg-white p-3 rounded-2xl border border-amber-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-amber-700">MATERI_PERLU_REVIEW</p>
-                <p className="text-2xl font-black text-amber-800">{eligibilitySummary.materiPerluReview + eligibilitySummary.stale}</p>
-              </div>
-              <div className="bg-white p-3 rounded-2xl border border-rose-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-rose-700">MATERI_TIDAK_CUKUP</p>
-                <p className="text-2xl font-black text-rose-800">{eligibilitySummary.materiTidakCukup}</p>
-              </div>
-              <div className="bg-white p-3 rounded-2xl border border-purple-200 shadow-sm">
-                <p className="text-[11px] font-semibold text-purple-700">BANK_SOAL_KURANG</p>
-                <p className="text-2xl font-black text-purple-800">{eligibilitySummary.bankSoalKurang}</p>
-                {eligibilitySummary.sudahAda > 0 && (
-                  <p className="text-[10px] font-semibold text-teal-700 mt-0.5">+ {eligibilitySummary.sudahAda} SUDAH_ADA</p>
-                )}
+            <div className="space-y-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-sm">
+                  <p className="text-[11px] font-semibold text-emerald-700">Siap Disiapkan</p>
+                  <p className="text-2xl font-black text-emerald-800">{eligibilitySummary.siapGenerate}</p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">{sessionPreview.toCreate} paket sesi</p>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-teal-200 shadow-sm">
+                  <p className="text-[11px] font-semibold text-teal-700">Rincian Sesi Siap</p>
+                  <p className="text-sm font-black text-teal-900 mt-1">{sessionPreview.fullCount} Penuh • {sessionPreview.partialCount} Parsial</p>
+                  <p className="text-[10px] text-slate-500">7 acak+2 wajib / 4 acak</p>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-sky-200 shadow-sm">
+                  <p className="text-[11px] font-semibold text-sky-700">Menunggu Admin</p>
+                  <p className="text-2xl font-black text-sky-800">{eligibilitySummary.materiBelumFinal}</p>
+                  <p className="text-[10px] text-slate-500">{sessionPreview.unapproved} sesi belum disetujui</p>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-purple-200 shadow-sm">
+                  <p className="text-[11px] font-semibold text-purple-700">Bank Soal Kurang</p>
+                  <p className="text-2xl font-black text-purple-800">{eligibilitySummary.bankSoalKurang}</p>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <p className="text-[11px] font-semibold text-slate-600">Sudah Ada Paket</p>
+                  <p className="text-2xl font-black text-slate-800">{eligibilitySummary.sudahAda}</p>
+                  <p className="text-[10px] text-slate-500">{sessionPreview.alreadyHave} sesi dilewati</p>
+                </div>
               </div>
             </div>
           )}

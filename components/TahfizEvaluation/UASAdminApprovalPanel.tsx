@@ -28,6 +28,7 @@ interface UASAdminApprovalPanelProps {
   sessions: ExamUASSession[];
   onRefresh: () => Promise<void> | void;
   onOpenStudentPrep?: (studentId: string) => void;
+  onPrepareQuestions?: (studentId?: string) => void;
 }
 
 const PAGE_SIZE = 25;
@@ -39,7 +40,8 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
   parts,
   sessions,
   onRefresh,
-  onOpenStudentPrep
+  onOpenStudentPrep,
+  onPrepareQuestions
 }) => {
   const [halaqahFilter, setHalaqahFilter] = useState('all');
   const [teacherFilter, setTeacherFilter] = useState('all');
@@ -254,12 +256,20 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <FileCheck2 size={18} className="text-indigo-700" />
-            <h2 className="text-base font-extrabold text-slate-900">Persetujuan Materi &amp; Sesi UAS (Admin)</h2>
+            <h2 className="text-base font-extrabold text-slate-900">Persetujuan Guru &amp; Persiapan Soal UAS (Admin)</h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Tinjau pengajuan dari Guru Halaqah, setujui satu per satu atau massal dengan checkbox yang aman &amp; idempoten.
+            Tinjau pengajuan dari Guru Halaqah, setujui satu per satu atau massal, lalu siapkan paket soalnya.
           </p>
         </div>
+        {onPrepareQuestions && (
+          <button
+            onClick={() => onPrepareQuestions()}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm shrink-0"
+          >
+            Siapkan Semua Soal
+          </button>
+        )}
       </div>
 
       {/* KPI Summary */}
@@ -494,7 +504,19 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <div className="inline-flex items-center gap-1.5">
-                        {onOpenStudentPrep && (
+                        {(() => {
+                          const stSessions = sessions.filter(s => s.studentId === sub.studentId && s.status !== 'void');
+                          const needsPacket = sub.status === 'admin_approved' && stSessions.some(s => !s.questionSetId);
+                          return needsPacket && onPrepareQuestions ? (
+                            <button
+                              onClick={() => onPrepareQuestions(sub.studentId)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold inline-flex items-center gap-1"
+                            >
+                              <span>Siapkan Soal</span>
+                            </button>
+                          ) : null;
+                        })()}
+                        {onOpenStudentPrep && sub.status !== 'admin_approved' && (
                           <button
                             onClick={() => onOpenStudentPrep(sub.studentId)}
                             className="px-2.5 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-bold inline-flex items-center gap-1"

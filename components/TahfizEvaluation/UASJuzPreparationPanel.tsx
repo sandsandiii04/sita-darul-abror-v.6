@@ -25,6 +25,8 @@ interface UASJuzPreparationPanelProps {
   participants: ExamParticipant[];
   snapshots: ExamMaterialSnapshot[];
   records: TahfidzRecord[];
+  refreshKey?: number;
+  onOpenPrepareQuestions?: (studentId?: string) => void;
   onSessionsUpdated?: () => void;
 }
 
@@ -35,6 +37,8 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   participants,
   snapshots,
   records,
+  refreshKey = 0,
+  onOpenPrepareQuestions,
   onSessionsUpdated
 }) => {
   const [serverParts, setServerParts] = useState<ExamMaterialPart[]>([]);
@@ -186,7 +190,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
 
   useEffect(() => {
     loadRemote();
-  }, [period.id]);
+  }, [period.id, refreshKey]);
 
   const studentRows = useMemo(() => {
     const snapMap = new Map<string, ExamMaterialSnapshot>();
@@ -569,26 +573,36 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   return (
     <div className="space-y-4">
       {isAdmin && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setActiveAdminTab('prep')}
-            className={`px-4 py-2 rounded-2xl text-xs font-extrabold border transition-colors ${
-              activeAdminTab === 'prep' ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            Persiapan Materi Per Juz
-          </button>
-          <button
-            onClick={() => setActiveAdminTab('approval')}
-            className={`px-4 py-2 rounded-2xl text-xs font-extrabold border transition-colors flex items-center gap-2 ${
-              activeAdminTab === 'approval' ? 'bg-indigo-700 text-white border-indigo-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <span>Persetujuan Materi &amp; Sesi UAS</span>
-            {pendingApprovalCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black">{pendingApprovalCount}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setActiveAdminTab('prep')}
+              className={`px-4 py-2 rounded-2xl text-xs font-extrabold border transition-colors ${
+                activeAdminTab === 'prep' ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              1. Persiapan Materi
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('approval')}
+              className={`px-4 py-2 rounded-2xl text-xs font-extrabold border transition-colors flex items-center gap-2 ${
+                activeAdminTab === 'approval' ? 'bg-indigo-700 text-white border-indigo-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <span>2. Persetujuan Guru</span>
+              {pendingApprovalCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black">{pendingApprovalCount}</span>
+              )}
+            </button>
+            {onOpenPrepareQuestions && (
+              <button
+                onClick={() => onOpenPrepareQuestions()}
+                className="px-4 py-2 rounded-2xl text-xs font-extrabold border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+              >
+                3. Siapkan Semua Soal
+              </button>
             )}
-          </button>
+          </div>
         </div>
       )}
 
@@ -601,6 +615,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           sessions={serverSessions}
           onRefresh={loadRemote}
           onOpenStudentPrep={(sid) => setFullManualStudentId(sid)}
+          onPrepareQuestions={onOpenPrepareQuestions}
         />
       ) : (
     <div className="bg-white rounded-3xl border border-teal-200/80 shadow-sm p-5 space-y-4">
@@ -795,13 +810,25 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
               hasSessionCoverageMismatch ||
               Boolean(row.submission?.rejectedReason);
 
+            const generatedCount = row.sessions.filter(s => Boolean(s.questionSetId)).length;
+            const packetStatusLabel =
+              subSt !== 'admin_approved'
+                ? 'Menunggu Persetujuan Admin'
+                : row.sessions.length === 0
+                  ? 'Belum Ada Sesi'
+                  : generatedCount === row.sessions.length
+                    ? 'Paket Soal Siap'
+                    : generatedCount > 0
+                      ? `${generatedCount}/${row.sessions.length} Paket Siap`
+                      : 'Menunggu Paket Soal';
+
             const statusBadge =
               subSt === 'admin_approved' && allGenerated
-                ? { label: 'Siap Ujian', cls: 'bg-teal-100 text-teal-900' }
+                ? { label: 'Paket Soal Siap', cls: 'bg-teal-100 text-teal-900' }
                 : subSt === 'admin_approved'
-                  ? { label: 'Disetujui', cls: 'bg-emerald-100 text-emerald-800' }
+                  ? { label: 'Menunggu Paket Soal', cls: 'bg-emerald-100 text-emerald-800' }
                   : subSt === 'pending_admin_approval' || subSt === 'exception_pending'
-                    ? { label: 'Menunggu Admin', cls: 'bg-sky-100 text-sky-800' }
+                    ? { label: 'Menunggu Persetujuan Admin', cls: 'bg-sky-100 text-sky-800' }
                     : subSt === 'rejected' || subSt === 'needs_correction' || subSt === 'stale' || hasSessionCoverageMismatch
                       ? { label: 'Perlu Diperbaiki', cls: 'bg-rose-100 text-rose-800' }
                       : allVerified
@@ -884,8 +911,29 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                   )}
                 </div>
 
-                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                  {subSt !== 'admin_approved' || isAdmin ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="text-[11px] font-semibold text-slate-500">
+                    Paket: <strong className={generatedCount === row.sessions.length && row.sessions.length > 0 ? 'text-teal-700' : 'text-slate-700'}>{packetStatusLabel}</strong>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                  {isAdmin && subSt === 'admin_approved' && !allGenerated && onOpenPrepareQuestions ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onOpenPrepareQuestions(row.participant.studentId)}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        Siapkan Soal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTeacherDetailStudentId(row.participant.studentId)}
+                        className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold"
+                      >
+                        Lihat Detail
+                      </button>
+                    </>
+                  ) : subSt !== 'admin_approved' || isAdmin ? (
                     <>
                       <button
                         type="button"
@@ -922,6 +970,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                       </button>
                     </>
                   )}
+                  </div>
                 </div>
               </div>
             );
