@@ -4467,6 +4467,29 @@ export const api = {
     }
   },
 
+  // Sanitize technical PostgreSQL/PostgREST errors before showing to teachers/examiners
+  formatFriendlyUASRpcError(
+    rawMessage: string | undefined,
+    stage: 'start' | 'mandatory' | 'save' | 'submit'
+  ): string {
+    const fallbackByStage: Record<typeof stage, string> = {
+      start: 'Ujian belum dapat dimulai karena ada masalah teknis pada data soal. Silakan hubungi Admin.',
+      mandatory: 'Pilihan 2 soal wajib belum dapat disimpan karena kendala teknis. Silakan hubungi Admin.',
+      save: 'Penilaian belum dapat tersimpan ke server karena kendala teknis. Silakan coba lagi atau hubungi Admin.',
+      submit: 'Pengesahan nilai ujian belum dapat diproses karena kendala teknis. Silakan coba lagi atau hubungi Admin.'
+    };
+    if (!rawMessage) return fallbackByStage[stage];
+    const isTechnical =
+      /record\s+"|column\s+"|relation\s+"|violates\s+|syntax\s+error|PGRST\d+|function\s+public\.|invalid\s+input\s+syntax|null\s+value\s+in\s+column|permission\s+denied/i.test(
+        rawMessage
+      );
+    if (isTechnical) {
+      console.error('[UAS_DIAG]', { stage, detail: rawMessage });
+      return fallbackByStage[stage];
+    }
+    return rawMessage;
+  },
+
   async selectUASMandatoryPages(
     params: { periodId: string; studentId: string; uasSessionId?: string; q1Payload: any; q2Payload: any },
     userOverride?: User | null
@@ -4483,10 +4506,13 @@ export const api = {
         p_q2_payload: params.q2Payload,
         p_uas_session_id: params.uasSessionId || null
       });
-      if (error) return { success: false, message: error.message };
+      if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'mandatory') };
+      if (data && !data.success && data.message) {
+        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'mandatory') };
+      }
       return data;
     } catch (e: any) {
-      return { success: false, message: e?.message || 'Gagal menyimpan pilihan 2 soal wajib UAS.' };
+      return { success: false, message: this.formatFriendlyUASRpcError(e?.message, 'mandatory') };
     }
   },
 
@@ -4966,17 +4992,20 @@ export const api = {
         });
 
         if (!error && data) {
+          if (!data.success && data.message) {
+            return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'submit') };
+          }
           return data;
         }
         return {
           success: false,
-          message: error?.message || 'Gagal mengesahkan hasil ujian UAS ke server database.'
+          message: this.formatFriendlyUASRpcError(error?.message, 'submit')
         };
       } catch (e: any) {
-        console.error("submitUASAttempt remote error:", e);
+        console.error('[UAS_DIAG]', { stage: 'submit', detail: e?.message });
         return {
           success: false,
-          message: e?.message || 'Koneksi terputus: Hasil ujian UAS belum tersimpan resmi di server. Silakan coba lagi saat koneksi stabil.'
+          message: 'Koneksi terputus: Hasil ujian UAS belum tersimpan resmi di server. Silakan coba lagi saat koneksi stabil.'
         };
       }
     }
@@ -5353,10 +5382,13 @@ export const api = {
         p_student_id: studentId,
         p_uas_session_id: uasSessionId
       });
-      if (error) return { success: false, message: error.message };
+      if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'start') };
+      if (data && !data.success && data.message) {
+        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'start') };
+      }
       return data;
     } catch (e: any) {
-      return { success: false, message: e?.message || 'Gagal memulai sesi ujian UAS.' };
+      return { success: false, message: this.formatFriendlyUASRpcError(e?.message, 'start') };
     }
   },
 
