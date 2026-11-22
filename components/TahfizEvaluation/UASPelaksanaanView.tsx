@@ -144,7 +144,10 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     }
   };
 
+  const loadSeqRef = useRef(0);
+
   const loadStudents = async (periodId: string) => {
+    const seq = ++loadSeqRef.current;
     setIsLoading(true);
     setErrorMsg(null);
     try {
@@ -152,6 +155,7 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
         api.getExaminerUASStudents(periodId, user),
         api.getUASJuzPartsAndSessions(periodId, user)
       ]);
+      if (seq !== loadSeqRef.current) return;
       if (res.success && res.students) {
         const sessMap = new Map<string, any[]>();
         if (juzRes?.success && Array.isArray(juzRes.sessions)) {
@@ -350,30 +354,30 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
   const isPeriodActive = periodInfo?.status === 'active';
   const getSessionStatusInfo = (sess: any) => {
     if (sess.status === 'submitted') {
-      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false, disabledReason: 'Sesi sudah selesai.' };
+      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false, disabledReason: 'Ujian sudah selesai' };
     }
     if (sess.status === 'in_progress') {
       return {
         code: 'IN_PROGRESS' as const,
         label: 'Sedang Diuji',
         canStart: isPeriodActive,
-        disabledReason: isPeriodActive ? null : 'UAS belum dibuka oleh Admin.'
+        disabledReason: isPeriodActive ? null : 'Menunggu UAS dibuka'
       };
     }
     const isApproved = sess.approvalStatus === 'admin_approved' || Boolean(sess.questionSetId);
     if (!isApproved) {
-      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', canStart: false, disabledReason: 'Materi sesi ini belum disetujui Admin.' };
+      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', canStart: false, disabledReason: 'Menunggu persetujuan' };
     }
     if (!sess.questionSetId) {
-      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', canStart: false, disabledReason: 'Soal sesi ini belum disiapkan.' };
+      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', canStart: false, disabledReason: 'Soal belum tersedia' };
     }
     if (!isPeriodActive) {
-      return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', canStart: false, disabledReason: 'UAS belum dibuka oleh Admin.' };
+      return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', canStart: false, disabledReason: 'Menunggu UAS dibuka' };
     }
     return {
       code: 'READY' as const,
       label: sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory'
-        ? 'Pilih 2 Soal Wajib'
+        ? 'Pilih 2 soal wajib'
         : 'Siap Diuji',
       canStart: true,
       disabledReason: null
@@ -570,7 +574,20 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
             </label>
             <select
               value={selectedPeriodId}
-              onChange={(e) => setSelectedPeriodId(e.target.value)}
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setSelectedPeriodId(nextId);
+                setStudents([]);
+                const matched = periods.find(p => p.id === nextId);
+                if (matched) {
+                  setPeriodInfo({
+                    id: matched.id,
+                    name: matched.name,
+                    kkm: matched.kkm || 75,
+                    status: matched.status
+                  });
+                }
+              }}
               className="w-full bg-slate-900/80 text-white text-xs font-bold p-2.5 rounded-xl border border-white/20 focus:outline-none focus:ring-2 focus:ring-emerald-400"
             >
               {periods.length === 0 && <option value="">Tidak ada periode UAS aktif</option>}
@@ -606,12 +623,14 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
       {/* Period Not Active Banner */}
       {periodInfo && !isPeriodActive && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-xs text-amber-900 shadow-sm">
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3 text-xs text-amber-950 shadow-sm">
           <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-bold text-amber-950">UAS belum dibuka oleh Admin.</p>
-            <p className="text-amber-800 mt-0.5">
-              Periode <strong>{periodInfo.name}</strong> saat ini berstatus <strong>{periodInfo.status === 'preparation' ? 'Persiapan (preparation)' : periodInfo.status}</strong>. Paket soal yang sudah disiapkan akan otomatis berstatus <em>Siap Diuji</em> dan tombol <em>Mulai</em> akan aktif setelah Admin mengaktifkan periode UAS.
+          <div className="space-y-1">
+            <p className="font-bold text-amber-950">
+              UAS belum dibuka oleh Admin. Paket soal sudah dapat disiapkan, tetapi ujian baru dapat dimulai setelah periode diaktifkan.
+            </p>
+            <p className="text-[11px] text-amber-800">
+              Status periode <strong>{periodInfo.name}</strong> saat ini: <strong>{periodInfo.status === 'preparation' ? 'Persiapan (preparation)' : periodInfo.status}</strong>. Keterangan: <strong>Paket Soal Siap</strong> berarti soal sudah tersedia namun belum boleh diuji; status akan berubah menjadi <strong>Siap Diuji</strong> setelah periode diaktifkan Admin dan PIN penguji terverifikasi.
             </p>
           </div>
         </div>
@@ -788,8 +807,9 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                         const sessDone = sInfo.code === 'SUBMITTED';
                         const sessCanStart = sInfo.canStart && canExamine && startingSessionId !== sess.id;
                         const disabledReason = !canExamine
-                          ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN penguji terlebih dahulu.' : 'Anda bukan penguji yang ditugaskan.')
+                          ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN dahulu' : 'Bukan penguji tugas')
                           : sInfo.disabledReason;
+                        const isMandatoryAction = sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart;
                         return (
                           <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
                             <div className="min-w-0">
@@ -802,29 +822,42 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                                   : sInfo.code === 'IN_PROGRESS'
                                     ? `Sedang Diuji • Penguji: ${sess.actualExaminerName || '-'}`
                                     : disabledReason
-                                      ? `${sInfo.label} — ${disabledReason}`
+                                      ? `${sInfo.label} • ${disabledReason}`
                                       : sInfo.label}
                               </div>
                             </div>
                             {sessDone ? (
-                              <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0">
+                              <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[10px] font-bold shrink-0" title="Ujian sudah selesai">
                                 Selesai
                               </span>
                             ) : (
-                              <button
-                                onClick={() => handleStartExam(student, sess)}
-                                disabled={!sessCanStart}
-                                title={disabledReason || undefined}
-                                className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                              >
-                                {startingSessionId === sess.id
-                                  ? 'Memuat...'
-                                  : sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart
-                                    ? 'Pilih Wajib'
-                                    : sess.status === 'in_progress'
-                                      ? 'Lanjutkan'
-                                      : 'Mulai'}
-                              </button>
+                              <div className="flex flex-col items-end shrink-0">
+                                <button
+                                  onClick={() => handleStartExam(student, sess)}
+                                  disabled={!sessCanStart}
+                                  title={disabledReason || undefined}
+                                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 transition-colors ${
+                                    sessCanStart
+                                      ? (isMandatoryAction
+                                          ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-sm'
+                                          : 'bg-teal-600 hover:bg-teal-700 text-white cursor-pointer shadow-sm')
+                                      : 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                                  }`}
+                                >
+                                  {startingSessionId === sess.id
+                                    ? 'Memuat...'
+                                    : isMandatoryAction
+                                      ? 'Pilih 2 Soal Wajib'
+                                      : sess.status === 'in_progress'
+                                        ? 'Lanjutkan'
+                                        : 'Mulai'}
+                                </button>
+                                {!sessCanStart && disabledReason && (
+                                  <span className="text-[9px] font-semibold text-amber-700 mt-0.5 whitespace-nowrap">
+                                    {disabledReason}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         );
