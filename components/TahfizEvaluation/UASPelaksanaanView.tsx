@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   User, 
   ExamPeriod, 
@@ -212,10 +212,32 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
     }
   };
 
+  const startInFlightRef = useRef(false);
+  const [startingSessionId, setStartingSessionId] = useState<string | null>(null);
+
+  const buildMandatoryStudentPayload = (student: ExaminerStudentItem, sessionItem?: any) => ({
+    ...student,
+    uasSessionId: sessionItem?.id || student.uasSessionId,
+    sessionNumber: sessionItem?.sessionNumber || student.sessionNumber,
+    juzNumber: sessionItem?.juzNumber || student.juzNumber,
+    startSurah: sessionItem?.startSurah || student.startSurah,
+    startAyah: sessionItem?.startAyah || student.startAyah,
+    endSurah: sessionItem?.endSurah || student.endSurah,
+    endAyah: sessionItem?.endAyah || student.endAyah,
+    startPage: sessionItem?.startPage || student.startPage,
+    endPage: sessionItem?.endPage || student.endPage,
+    coveredPages: sessionItem?.coveredPages || (student as any).coveredPages
+  });
+
   // Start specific UAS session (multi-session per juz) or fallback single session
   const handleStartExam = async (student: ExaminerStudentItem, sessionItem?: any) => {
+    if (startInFlightRef.current) return;
+    if (!isPeriodActive) {
+      setErrorMsg('UAS belum dibuka oleh Admin.');
+      return;
+    }
     if (isSharedExaminer && !verifiedExaminer) {
-      setErrorMsg('Identitas penguji UAS belum diverifikasi.');
+      setErrorMsg('Verifikasi PIN penguji terlebih dahulu.');
       return;
     }
     const isPartialSession = sessionItem?.sessionType === 'partial_half';
@@ -224,14 +246,11 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
       : (student.questionSetStatus === 'pending_mandatory');
 
     if (!isPartialSession && needsMandatory) {
-      setManualMandatoryStudent({
-        ...student,
-        uasSessionId: sessionItem?.id || student.uasSessionId,
-        sessionNumber: sessionItem?.sessionNumber || student.sessionNumber,
-        juzNumber: sessionItem?.juzNumber || student.juzNumber
-      });
+      setManualMandatoryStudent(buildMandatoryStudentPayload(student, sessionItem));
       return;
     }
+    startInFlightRef.current = true;
+    setStartingSessionId(sessionItem?.id || student.studentId);
     setErrorMsg(null);
     try {
       const effectiveUser = verifiedExaminer ? { ...user, verifiedExaminer } : user;
@@ -240,7 +259,7 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
         : await api.startUASAttempt({ periodId: selectedPeriodId, studentId: student.studentId }, effectiveUser);
 
       if ((res as any).requiresManualMandatory) {
-        setManualMandatoryStudent(student);
+        setManualMandatoryStudent(buildMandatoryStudentPayload(student, sessionItem));
         return;
       }
 
@@ -261,6 +280,9 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal memulai sesi ujian.');
+    } finally {
+      startInFlightRef.current = false;
+      setStartingSessionId(null);
     }
   };
 
@@ -328,22 +350,34 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
   const isPeriodActive = periodInfo?.status === 'active';
   const getSessionStatusInfo = (sess: any) => {
     if (sess.status === 'submitted') {
-      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false };
+      return { code: 'SUBMITTED' as const, label: 'Selesai', canStart: false, disabledReason: 'Sesi sudah selesai.' };
     }
     if (sess.status === 'in_progress') {
-      return { code: 'IN_PROGRESS' as const, label: 'Sedang Diuji', canStart: isPeriodActive };
+      return {
+        code: 'IN_PROGRESS' as const,
+        label: 'Sedang Diuji',
+        canStart: isPeriodActive,
+        disabledReason: isPeriodActive ? null : 'UAS belum dibuka oleh Admin.'
+      };
     }
     const isApproved = sess.approvalStatus === 'admin_approved' || Boolean(sess.questionSetId);
     if (!isApproved) {
-      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', canStart: false };
+      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Persetujuan Admin', canStart: false, disabledReason: 'Materi sesi ini belum disetujui Admin.' };
     }
     if (!sess.questionSetId) {
-      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', canStart: false };
+      return { code: 'WAITING_PACKET' as const, label: 'Menunggu Paket Soal', canStart: false, disabledReason: 'Soal sesi ini belum disiapkan.' };
     }
     if (!isPeriodActive) {
-      return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', canStart: false };
+      return { code: 'PACKET_READY' as const, label: 'Paket Soal Siap', canStart: false, disabledReason: 'UAS belum dibuka oleh Admin.' };
     }
-    return { code: 'READY' as const, label: 'Siap Diuji', canStart: true };
+    return {
+      code: 'READY' as const,
+      label: sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory'
+        ? 'Pilih 2 Soal Wajib'
+        : 'Siap Diuji',
+      canStart: true,
+      disabledReason: null
+    };
   };
 
   const getStudentOverallStatus = (s: ExaminerStudentItem) => {
@@ -570,6 +604,19 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
         </div>
       </div>
 
+      {/* Period Not Active Banner */}
+      {periodInfo && !isPeriodActive && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-xs text-amber-900 shadow-sm">
+          <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold text-amber-950">UAS belum dibuka oleh Admin.</p>
+            <p className="text-amber-800 mt-0.5">
+              Periode <strong>{periodInfo.name}</strong> saat ini berstatus <strong>{periodInfo.status === 'preparation' ? 'Persiapan (preparation)' : periodInfo.status}</strong>. Paket soal yang sudah disiapkan akan otomatis berstatus <em>Siap Diuji</em> dan tombol <em>Mulai</em> akan aktif setelah Admin mengaktifkan periode UAS.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Error Alert */}
       {errorMsg && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between text-xs text-red-700 animate-fade-in">
@@ -739,7 +786,10 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                       {activeSessions.map(sess => {
                         const sInfo = getSessionStatusInfo(sess);
                         const sessDone = sInfo.code === 'SUBMITTED';
-                        const sessCanStart = sInfo.canStart && canExamine;
+                        const sessCanStart = sInfo.canStart && canExamine && startingSessionId !== sess.id;
+                        const disabledReason = !canExamine
+                          ? (isSharedExaminer && !verifiedExaminer ? 'Verifikasi PIN penguji terlebih dahulu.' : 'Anda bukan penguji yang ditugaskan.')
+                          : sInfo.disabledReason;
                         return (
                           <div key={sess.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
                             <div className="min-w-0">
@@ -751,7 +801,9 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                                   ? `Selesai • Nilai: ${sess.score ?? '-'} • Penguji: ${sess.actualExaminerName || '-'}`
                                   : sInfo.code === 'IN_PROGRESS'
                                     ? `Sedang Diuji • Penguji: ${sess.actualExaminerName || '-'}`
-                                    : sInfo.label}
+                                    : disabledReason
+                                      ? `${sInfo.label} — ${disabledReason}`
+                                      : sInfo.label}
                               </div>
                             </div>
                             {sessDone ? (
@@ -762,13 +814,16 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
                               <button
                                 onClick={() => handleStartExam(student, sess)}
                                 disabled={!sessCanStart}
-                                className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold shrink-0 disabled:opacity-40"
+                                title={disabledReason || undefined}
+                                className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                               >
-                                {sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart
-                                  ? 'Pilih Wajib'
-                                  : sess.status === 'in_progress'
-                                  ? 'Lanjutkan'
-                                  : 'Mulai'}
+                                {startingSessionId === sess.id
+                                  ? 'Memuat...'
+                                  : sess.sessionType === 'full_juz' && sess.status === 'pending_mandatory' && sInfo.canStart
+                                    ? 'Pilih Wajib'
+                                    : sess.status === 'in_progress'
+                                      ? 'Lanjutkan'
+                                      : 'Mulai'}
                               </button>
                             )}
                           </div>

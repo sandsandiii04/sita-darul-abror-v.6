@@ -49,6 +49,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
     student: ExaminerStudentItem;
     questions: ExamQuestion[];
     assessments: ExamQuestionAssessment[];
+    sessionType?: 'partial_half' | 'full_juz';
   } | null>(null);
 
   const isAdmin = user.role === 'admin';
@@ -90,12 +91,14 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
       ]);
       if (juzRes?.success && Array.isArray(juzRes.sessions)) {
         const sMap = new Map<string, any[]>();
-        juzRes.sessions.forEach((sess: any) => {
-          const sid = sess.student_id || sess.studentId;
-          const arr = sMap.get(sid) || [];
-          arr.push(sess);
-          sMap.set(sid, arr);
-        });
+        juzRes.sessions
+          .filter((sess: any) => sess.status !== 'void')
+          .forEach((sess: any) => {
+            const sid = sess.student_id || sess.studentId;
+            const arr = sMap.get(sid) || [];
+            arr.push(sess);
+            sMap.set(sid, arr);
+          });
         setSessionsByStudent(sMap);
       } else {
         setSessionsByStudent(new Map());
@@ -121,16 +124,22 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
     }
   };
 
-  // Open review modal
-  const handleOpenReview = async (student: ExaminerStudentItem) => {
-    if (!student.attemptId) return;
+  // Open review modal (supports specific session attemptId for multi-session students)
+  const handleOpenReview = async (
+    student: ExaminerStudentItem,
+    sessionAttemptId?: string,
+    sessionType?: 'partial_half' | 'full_juz'
+  ) => {
+    const targetAttemptId = sessionAttemptId || student.attemptId;
+    if (!targetAttemptId) return;
     try {
-      const res = await api.getUASAttempt(student.attemptId, user);
+      const res = await api.getUASAttempt(targetAttemptId, user);
       if (res.success && res.questions && res.assessments) {
         setReviewStudent({
           student,
           questions: res.questions,
-          assessments: res.assessments
+          assessments: res.assessments,
+          sessionType: sessionType || (res.questions.length === 4 ? 'partial_half' : 'full_juz')
         });
       } else {
         alert(res.message || 'Gagal memuat rincian penilaian ujian UAS.');
@@ -284,7 +293,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                   Rekapitulasi Nilai UAS Tahfiz
                 </h1>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                  Modul UAS (9 Soal)
+                  Modul UAS (Per Sesi / Juz)
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -542,49 +551,125 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
                         })()}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {isSubmitted ? (
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            isPassed 
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                              : 'bg-rose-100 text-rose-800 border border-rose-200'
-                          }`}>
-                            {isPassed ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                            <span>{isPassed ? 'LULUS' : 'TIDAK LULUS'}</span>
-                          </span>
-                        ) : isInProgress ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                            <Clock size={12} className="animate-pulse" />
-                            <span>Sedang Ujian</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
-                            <span>Belum Ujian</span>
-                          </span>
-                        )}
+                        {(() => {
+                          const sSessions = sessionsByStudent.get(s.studentId) || [];
+                          if (sSessions.length > 0) {
+                            const doneList = sSessions.filter((x: any) => x.status === 'submitted');
+                            const inProgList = sSessions.filter((x: any) => x.status === 'in_progress');
+                            if (doneList.length === sSessions.length) {
+                              const allPass = doneList.every((x: any) => Number(x.score || 0) >= kkm);
+                              return (
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                  allPass
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                    : 'bg-rose-100 text-rose-800 border border-rose-200'
+                                }`}>
+                                  {allPass ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                                  <span>{allPass ? 'LULUS' : 'TIDAK LULUS'} ({doneList.length}/{sSessions.length})</span>
+                                </span>
+                              );
+                            }
+                            if (doneList.length > 0 || inProgList.length > 0) {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                  <Clock size={12} />
+                                  <span>{doneList.length}/{sSessions.length} Sesi Selesai</span>
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
+                                <span>Belum Ujian</span>
+                              </span>
+                            );
+                          }
+                          return isSubmitted ? (
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              isPassed 
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}>
+                              {isPassed ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                              <span>{isPassed ? 'LULUS' : 'TIDAK LULUS'}</span>
+                            </span>
+                          ) : isInProgress ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                              <Clock size={12} className="animate-pulse" />
+                              <span>Sedang Ujian</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
+                              <span>Belum Ujian</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {isSubmitted ? (
-                          <span className={`text-base font-black ${
-                            isPassed ? 'text-emerald-700' : 'text-rose-600'
-                          }`}>
-                            {s.totalScore}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 font-bold">-</span>
-                        )}
+                        {(() => {
+                          const sSessions = sessionsByStudent.get(s.studentId) || [];
+                          if (sSessions.length > 0) {
+                            return (
+                              <div className="space-y-0.5">
+                                {sSessions.map((ss: any) => {
+                                  const hasScore = ss.score !== null && ss.score !== undefined;
+                                  const passSess = hasScore && Number(ss.score) >= kkm;
+                                  return (
+                                    <div key={ss.id} className="text-xs font-black">
+                                      <span className="text-[10px] font-semibold text-slate-400 mr-1">
+                                        S{ss.session_number || ss.sessionNumber}:
+                                      </span>
+                                      <span className={hasScore ? (passSess ? 'text-emerald-700' : 'text-rose-600') : 'text-slate-300'}>
+                                        {hasScore ? ss.score : '-'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          }
+                          return isSubmitted ? (
+                            <span className={`text-base font-black ${
+                              isPassed ? 'text-emerald-700' : 'text-rose-600'
+                            }`}>
+                              {s.totalScore}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-bold">-</span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {isSubmitted ? (
-                          <button
-                            onClick={() => handleOpenReview(s)}
-                            className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-800 text-slate-700 text-xs font-semibold transition-colors border border-slate-200 hover:border-indigo-200 inline-flex items-center gap-1"
-                          >
-                            <span>Rincian</span>
-                            <ChevronRight size={13} />
-                          </button>
-                        ) : (
-                          <span className="text-slate-300 text-[11px]">-</span>
-                        )}
+                        {(() => {
+                          const sSessions = sessionsByStudent.get(s.studentId) || [];
+                          const submittedSess = sSessions.filter((ss: any) => ss.status === 'submitted' && (ss.attempt_id || ss.attemptId));
+                          if (submittedSess.length > 0) {
+                            return (
+                              <div className="flex flex-col items-center gap-1">
+                                {submittedSess.map((ss: any) => (
+                                  <button
+                                    key={ss.id}
+                                    onClick={() => handleOpenReview(s, ss.attempt_id || ss.attemptId, ss.session_type || ss.sessionType)}
+                                    className="px-2 py-1 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-800 text-slate-700 text-[11px] font-semibold transition-colors border border-slate-200 hover:border-indigo-200 inline-flex items-center gap-1"
+                                  >
+                                    <span>Rincian S{ss.session_number || ss.sessionNumber}</span>
+                                    <ChevronRight size={12} />
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return isSubmitted ? (
+                            <button
+                              onClick={() => handleOpenReview(s)}
+                              className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-800 text-slate-700 text-xs font-semibold transition-colors border border-slate-200 hover:border-indigo-200 inline-flex items-center gap-1"
+                            >
+                              <span>Rincian</span>
+                              <ChevronRight size={13} />
+                            </button>
+                          ) : (
+                            <span className="text-slate-300 text-[11px]">-</span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );
@@ -603,6 +688,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
           kkm={periodInfo?.kkm || 70}
           questions={reviewStudent.questions}
           assessments={reviewStudent.assessments}
+          sessionType={reviewStudent.sessionType}
           onSubmitFinal={async () => {}}
           onClose={() => setReviewStudent(null)}
           onNavigateToQuestion={() => {}}

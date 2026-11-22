@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { ExaminerStudentItem, ExamMaterialSnapshot, User } from '../../types';
 import { api } from '../../api';
 import { uasQuestionGenerator } from '../../services/uasQuestionGenerator';
@@ -27,24 +27,39 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const confirmInFlightRef = useRef(false);
+
+  const sessionCoveredPages: number[] = useMemo(() => {
+    const raw = (student as any).coveredPages;
+    if (Array.isArray(raw) && raw.length > 0) {
+      return Array.from(new Set(raw.map(Number).filter(n => Number.isFinite(n) && n >= 1 && n <= 604))).sort((a, b) => a - b);
+    }
+    return [];
+  }, [student]);
 
   const snapshotObj = useMemo<ExamMaterialSnapshot | null>(() => {
-    if (!student.startSurah || !student.endSurah) return null;
-    const minP = Math.min(student.startPage || 1, student.endPage || 1);
-    const maxP = Math.max(student.startPage || 1, student.endPage || 1);
+    const sPage = student.startPage || (sessionCoveredPages.length > 0 ? sessionCoveredPages[0] : 1);
+    const ePage = student.endPage || (sessionCoveredPages.length > 0 ? sessionCoveredPages[sessionCoveredPages.length - 1] : 1);
+    const minP = Math.min(sPage, ePage);
+    const maxP = Math.max(sPage, ePage);
+    const startBound = MUSHAF_604_PAGE_BOUNDARIES[minP];
+    const endBound = MUSHAF_604_PAGE_BOUNDARIES[maxP];
+    const startSurah = student.startSurah || startBound?.startSurah;
+    const endSurah = student.endSurah || endBound?.endSurah;
+    if (!startSurah || !endSurah) return null;
     return {
       id: student.snapshotId || `snap_${student.studentId}`,
       examPeriodId: periodId,
       studentId: student.studentId,
       sourceType: 'automatic',
-      startSurah: student.startSurah,
-      startAyah: student.startAyah || 1,
-      endSurah: student.endSurah,
-      endAyah: student.endAyah || 1,
-      startPage: student.startPage || minP,
-      endPage: student.endPage || maxP,
-      startJuz: 1,
-      endJuz: 30,
+      startSurah,
+      startAyah: student.startAyah || startBound?.startAyah || 1,
+      endSurah,
+      endAyah: student.endAyah || endBound?.endAyah || 1,
+      startPage: minP,
+      endPage: maxP,
+      startJuz: (student as any).juzNumber || 1,
+      endJuz: (student as any).juzNumber || 30,
       estimatedPages: Math.max(1, maxP - minP + 1),
       memorizationDirection: (student.memorizationDirection as any) || 'forward',
       totalRecordsAnalyzed: 1,
@@ -52,18 +67,30 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
       createdAt: '',
       updatedAt: ''
     };
-  }, [student, periodId]);
+  }, [student, periodId, sessionCoveredPages]);
 
   const eligibleFullPages = useMemo(() => {
+    if (sessionCoveredPages.length >= 2) {
+      return sessionCoveredPages;
+    }
     if (!snapshotObj) return [];
     try {
       const path = uasQuestionGenerator.buildMaterialPath(snapshotObj);
       const pathPages = Array.from(new Set(path.nodes.map(n => n.pageNumber)));
-      return getFullMushafPagesInSnapshot(snapshotObj, pathPages);
+      const fullPages = getFullMushafPagesInSnapshot(snapshotObj, pathPages);
+      if (fullPages.length >= 2) return fullPages;
     } catch {
-      return [];
+      // Fallback to explicit page range below
     }
-  }, [snapshotObj]);
+    if (snapshotObj.startPage && snapshotObj.endPage && snapshotObj.endPage > snapshotObj.startPage) {
+      const range: number[] = [];
+      for (let p = snapshotObj.startPage; p <= snapshotObj.endPage; p++) {
+        if (MUSHAF_604_PAGE_BOUNDARIES[p]) range.push(p);
+      }
+      return range;
+    }
+    return [];
+  }, [snapshotObj, sessionCoveredPages]);
 
   if (!isOpen) return null;
 
@@ -77,11 +104,13 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
   };
 
   const handleConfirm = async () => {
+    if (confirmInFlightRef.current) return;
     if (selectedPages.length !== 2 || !snapshotObj) {
       setErrorMsg('Pilih tepat 2 halaman penuh Mushaf Madinah yang berbeda.');
       return;
     }
 
+    confirmInFlightRef.current = true;
     setIsSaving(true);
     setErrorMsg(null);
     try {
@@ -102,7 +131,13 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
       });
 
       const res = await api.selectUASMandatoryPages(
-        { periodId, studentId: student.studentId, q1Payload: q1, q2Payload: q2 },
+        {
+          periodId,
+          studentId: student.studentId,
+          uasSessionId: (student as any).uasSessionId,
+          q1Payload: q1,
+          q2Payload: q2
+        },
         user
       );
       if (!res.success) {
@@ -115,6 +150,7 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
       setErrorMsg(e?.message || 'Terjadi kesalahan saat memvalidasi halaman wajib.');
     } finally {
       setIsSaving(false);
+      confirmInFlightRef.current = false;
     }
   };
 
@@ -129,7 +165,7 @@ export const UASManualMandatoryModal: React.FC<UASManualMandatoryModalProps> = (
             <div>
               <h3 className="font-bold text-base">Pilih 2 Soal Wajib Halaman Penuh</h3>
               <p className="text-xs text-indigo-100">
-                {student.studentName} ({student.class}) — {student.startSurahName}:{student.startAyah} s.d. {student.endSurahName}:{student.endAyah}
+                {student.studentName} ({student.class}) — {student.startSurahName ? `${student.startSurahName}:${student.startAyah} s.d. ${student.endSurahName}:${student.endAyah}` : `Sesi ${(student as any).sessionNumber || 1} • Juz ${(student as any).juzNumber || '-'}`}
               </p>
             </div>
           </div>

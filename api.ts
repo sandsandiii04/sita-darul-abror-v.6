@@ -4401,7 +4401,7 @@ export const api = {
   },
 
   async selectUASMandatoryPages(
-    params: { periodId: string; studentId: string; q1Payload: any; q2Payload: any },
+    params: { periodId: string; studentId: string; uasSessionId?: string; q1Payload: any; q2Payload: any },
     userOverride?: User | null
   ): Promise<{ success: boolean; questionSet?: any; questions?: any[]; message?: string }> {
     const u = userOverride || getLoggedUser();
@@ -4413,7 +4413,8 @@ export const api = {
         p_period_id: params.periodId,
         p_student_id: params.studentId,
         p_q1_payload: params.q1Payload,
-        p_q2_payload: params.q2Payload
+        p_q2_payload: params.q2Payload,
+        p_uas_session_id: params.uasSessionId || null
       });
       if (error) return { success: false, message: error.message };
       return data;

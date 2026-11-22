@@ -135,7 +135,9 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
         const startSurahName = startSurahInfo?.name || `Surat ${q.promptStartSurah || q.answerStartSurah}`;
         const endSurahName = endSurahInfo?.name || `Surat ${q.answerEndSurah}`;
 
-        const isMandatory = isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
+        const isMandatory = sessionType === 'partial_half'
+          ? false
+          : isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
         let promptText = '...';
         let answerText = '...';
         let pageNum = (q as any).pageNumber || (q as any).page_number || q.startPage || 1;
@@ -244,10 +246,11 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
         if (res.success) {
           setSaveStatus('saved');
           setSaveMessage('Tersimpan di Server');
-          if (res.assessment?.version) {
+          const nextVer = (res as any).version ?? res.assessment?.version;
+          if (nextVer) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updatedAsm.questionNumber 
-                ? { ...a, version: res.assessment.version } 
+                ? { ...a, version: nextVer } 
                 : a
             ));
           }
@@ -442,10 +445,11 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
         if (res.success) {
           setSaveStatus('saved');
           setSaveMessage('Tersimpan di Server');
-          if (res.assessment?.version) {
+          const nextVer = (res as any).version ?? res.assessment?.version;
+          if (nextVer) {
             setAssessments(prev => prev.map(a => 
               a.questionNumber === updated.questionNumber 
-                ? { ...a, version: res.assessment.version } 
+                ? { ...a, version: nextVer } 
                 : a
             ));
           }
@@ -550,7 +554,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="text-slate-300">Penguji: {user.name}</span>
+              <span className="text-slate-300">Penguji: {attempt.actualExaminerName || user.verifiedExaminer?.teacherName || user.name}</span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 {saveStatus === 'saving' && <RefreshCw size={11} className="animate-spin text-amber-400" />}
@@ -613,7 +617,9 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
             const asm = assessments.find(a => a.questionNumber === q.questionNumber);
             const isCompleted = !!asm?.completedAt;
             const isCurrent = idx === currentQIndex;
-            const isMandatory = isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
+            const isMandatory = sessionType === 'partial_half'
+          ? false
+          : isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
 
             return (
               <button
@@ -943,6 +949,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           kkm={kkm}
           questions={initialQuestions}
           assessments={assessments}
+          sessionType={sessionType}
           onSubmitFinal={async () => {
             const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
             if (!syncRes.success) {

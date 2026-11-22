@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { ExamQuestion, ExamQuestionAssessment } from '../../types';
+import React, { useState, useRef } from 'react';
+import { ExamQuestion, ExamQuestionAssessment, UASSessionType } from '../../types';
 import { CheckCircle2, AlertCircle, Award, ArrowLeft, Send, ShieldAlert, BookOpen, Layers } from 'lucide-react';
-import { calculateUASAttemptTotalScore, isMandatoryQuestion, UAS_SCORING_CONFIG } from '../../services/uasScoringService';
+import { calculateUASAttemptTotalScore, isMandatoryQuestion, getQuestionMaxScores } from '../../services/uasScoringService';
 
 interface UASExamReviewModalProps {
   studentName: string;
@@ -9,6 +9,7 @@ interface UASExamReviewModalProps {
   kkm: number;
   questions: ExamQuestion[];
   assessments: ExamQuestionAssessment[];
+  sessionType?: UASSessionType;
   onSubmitFinal: () => Promise<void>;
   onClose: () => void;
   onNavigateToQuestion: (qNumber: number) => void;
@@ -21,6 +22,7 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
   kkm,
   questions,
   assessments,
+  sessionType,
   onSubmitFinal,
   onClose,
   onNavigateToQuestion,
@@ -28,9 +30,13 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submitInFlightRef = useRef(false);
 
+  const resolvedSessionType: UASSessionType =
+    sessionType || (questions.length === 4 ? 'partial_half' : 'full_juz');
+  const expectedTotal = questions.length || (resolvedSessionType === 'partial_half' ? 4 : 9);
   const completedCount = assessments.filter(a => !!a.completedAt).length;
-  const isAllCompleted = completedCount === 9;
+  const isAllCompleted = completedCount === expectedTotal;
   const incompleteQuestions = questions.filter(q => {
     const asm = assessments.find(a => a.questionNumber === q.questionNumber);
     return !asm?.completedAt;
@@ -40,11 +46,13 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
   const isPassed = totalScore >= kkm;
 
   const handleSubmit = async () => {
+    if (submitInFlightRef.current) return;
     if (!isAllCompleted) {
-      setError(`Tidak dapat submit: Baru ${completedCount} dari 9 butir soal yang diselesaikan.`);
+      setError(`Tidak dapat submit: Baru ${completedCount} dari ${expectedTotal} butir soal yang diselesaikan.`);
       return;
     }
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     setError(null);
     try {
@@ -53,6 +61,7 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
     } catch (err: any) {
       setError(err.message || 'Gagal mengirim hasil ujian UAS.');
       setIsSubmitting(false);
+      submitInFlightRef.current = false;
     }
   };
 
@@ -94,11 +103,11 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
               </div>
               <div>
                 <div className="text-xs font-bold flex items-center gap-2">
-                  <span>{isAllCompleted ? 'SIAP SUBMIT (9/9 SOAL SELESAI)' : `BELUM LENGKAP: ${completedCount}/9 SELESAI`}</span>
+                  <span>{isAllCompleted ? `SIAP SUBMIT (${expectedTotal}/${expectedTotal} SOAL SELESAI)` : `BELUM LENGKAP: ${completedCount}/${expectedTotal} SELESAI`}</span>
                 </div>
                 <p className="text-[11px] opacity-80 mt-0.5">
                   {isAllCompleted 
-                    ? 'Seluruh 9 butir soal telah diuji dan dikonfirmasi selesai.' 
+                    ? `Seluruh ${expectedTotal} butir soal telah diuji dan dikonfirmasi selesai.` 
                     : `Soal belum selesai: Soal ${incompleteQuestions.map(q => q.questionNumber).join(', ')}. Klik butir soal di bawah untuk menilai.`}
                 </p>
               </div>
@@ -144,18 +153,21 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
           )}
 
           <div className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
-            <span>Rincian 9 Butir Soal UAS</span>
+            <span>Rincian {expectedTotal} Butir Soal UAS</span>
             <span className="text-[11px] text-slate-400 font-normal">Klik butir soal untuk membuka</span>
           </div>
 
           {questions.map((q) => {
             const asm = assessments.find(a => a.questionNumber === q.questionNumber);
             const isCompleted = !!asm?.completedAt;
-            const isMandatory = isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
-            const maxScore = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxQuestionScore : UAS_SCORING_CONFIG.random.maxQuestionScore;
-            const maxFluency = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxFluency : UAS_SCORING_CONFIG.random.maxFluency;
-            const maxTajwid = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxTajwid : UAS_SCORING_CONFIG.random.maxTajwid;
-            const maxMakhraj = isMandatory ? UAS_SCORING_CONFIG.mandatory.maxMakhraj : UAS_SCORING_CONFIG.random.maxMakhraj;
+            const isMandatory = resolvedSessionType === 'partial_half'
+              ? false
+              : isMandatoryQuestion(q.questionNumber, (q as any).questionRole || (q as any).question_role);
+            const qMax = getQuestionMaxScores(q.questionNumber, (q as any).questionRole || (q as any).question_role, resolvedSessionType);
+            const maxScore = qMax.maxQuestionScore;
+            const maxFluency = qMax.maxFluency;
+            const maxTajwid = qMax.maxTajwid;
+            const maxMakhraj = qMax.maxMakhraj;
 
             const fluency = asm?.fluencyScore ?? maxFluency;
             const tajwid = asm?.tajwidScore ?? maxTajwid;
@@ -310,7 +322,7 @@ export const UASExamReviewModal: React.FC<UASExamReviewModalProps> = ({
                   ? 'Menyimpan...' 
                   : isAllCompleted 
                     ? 'Selesaikan Ujian' 
-                    : `Belum Lengkap (${completedCount}/9 Soal)`}
+                    : `Belum Lengkap (${completedCount}/${expectedTotal} Soal)`}
               </span>
             </button>
           )}
