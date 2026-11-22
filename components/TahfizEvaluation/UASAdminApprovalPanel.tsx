@@ -27,6 +27,7 @@ interface UASAdminApprovalPanelProps {
   parts: ExamMaterialPart[];
   sessions: ExamUASSession[];
   onRefresh: () => Promise<void> | void;
+  onOpenStudentPrep?: (studentId: string) => void;
 }
 
 const PAGE_SIZE = 25;
@@ -37,7 +38,8 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
   submissions,
   parts,
   sessions,
-  onRefresh
+  onRefresh,
+  onOpenStudentPrep
 }) => {
   const [halaqahFilter, setHalaqahFilter] = useState('all');
   const [teacherFilter, setTeacherFilter] = useState('all');
@@ -455,7 +457,17 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                           : sub.status === 'rejected' || sub.status === 'needs_correction' ? 'bg-rose-100 text-rose-800'
                           : 'bg-amber-100 text-amber-800'
                       }`}>
-                        {sub.status}
+                        {sub.status === 'admin_approved'
+                          ? 'Disetujui'
+                          : sub.status === 'pending_admin_approval'
+                            ? 'Menunggu Admin'
+                            : sub.status === 'exception_pending'
+                              ? 'Pengecualian'
+                              : sub.status === 'rejected' || sub.status === 'needs_correction'
+                                ? 'Perlu Diperbaiki'
+                                : sub.status === 'stale'
+                                  ? 'Perlu Cek Ulang'
+                                  : 'Belum Diperiksa'}
                       </span>
                       <div className="text-[10px] text-slate-500">
                         {eligible ? 'Layak persetujuan massal' : sub.isException ? 'Pengecualian (tinjau manual)' : 'Tidak masuk massal otomatis'}
@@ -465,13 +477,23 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                       {sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString('id-ID') : '-'}
                     </td>
                     <td className="py-2.5 px-3 text-right">
-                      <button
-                        onClick={() => openDetail(sub.studentId)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold inline-flex items-center gap-1"
-                      >
-                        <Eye size={12} />
-                        <span>Detail</span>
-                      </button>
+                      <div className="inline-flex items-center gap-1.5">
+                        {onOpenStudentPrep && (
+                          <button
+                            onClick={() => onOpenStudentPrep(sub.studentId)}
+                            className="px-2.5 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-bold inline-flex items-center gap-1"
+                          >
+                            <span>Lihat / Atur Sesi</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openDetail(sub.studentId)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold inline-flex items-center gap-1"
+                        >
+                          <Eye size={12} />
+                          <span>Detail</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

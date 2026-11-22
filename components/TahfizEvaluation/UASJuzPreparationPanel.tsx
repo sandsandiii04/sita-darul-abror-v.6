@@ -109,7 +109,9 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         }))
       );
       setServerSessions(
-        (juzRes.sessions || []).map((s: any) => ({
+        (juzRes.sessions || [])
+          .filter((s: any) => s.status !== 'void')
+          .map((s: any) => ({
           id: s.id,
           examPeriodId: s.exam_period_id,
           studentId: s.student_id,
@@ -590,6 +592,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           parts={serverParts}
           sessions={serverSessions}
           onRefresh={loadRemote}
+          onOpenStudentPrep={(sid) => setFullManualStudentId(sid)}
         />
       ) : (
     <div className="bg-white rounded-3xl border border-teal-200/80 shadow-sm p-5 space-y-4">
@@ -764,35 +767,39 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         </div>
       </div>
 
-      {/* Simplified Mobile-Friendly Cards for Guru Halaqah */}
-      {isTeacher ? (
+      {/* Unified Simplified Mobile-Friendly Cards for Both Guru Halaqah & Admin (Section B & C) */}
+      {(
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredRows.slice(0, 60).map(row => {
             const subSt = row.submission?.status;
             const hasParts = row.analysis.parts.length > 0;
             const allVerified = hasParts && row.analysis.parts.every(p => Boolean(p.verifiedAt) || p.teacherStatus === 'teacher_verified' || p.teacherStatus === 'admin_approved');
-            const firstUnverifiedValidPart = row.analysis.parts.find(p => {
-              const hasBad = /(melebihi batas|terbalik|anomali|tidak valid|tidak dikenali)/i.test(p.reviewReason || '');
-              return !p.verifiedAt && p.status !== 'excluded' && !hasBad;
+            const allGenerated = row.sessions.length > 0 && row.sessions.every(s => Boolean(s.questionSetId));
+            const hasSessionCoverageMismatch = row.sessions.some(s => {
+              const pt = row.analysis.parts.find(p => p.id === s.primaryPartId || p.juzNumber === s.juzNumber);
+              return s.sessionType === 'full_juz' && (!pt || pt.coverageRatio < 1 || pt.hasGap || pt.partType !== 'full_juz');
             });
             const hasIssue =
               row.analysis.anomalies.length > 0 ||
               row.analysis.hasUnverifiedGaps ||
               row.analysis.needsAdminDecision ||
+              hasSessionCoverageMismatch ||
               Boolean(row.submission?.rejectedReason);
 
             const statusBadge =
-              subSt === 'admin_approved'
-                ? { label: 'Disetujui Admin', cls: 'bg-emerald-100 text-emerald-800' }
-                : subSt === 'pending_admin_approval' || subSt === 'exception_pending'
-                  ? { label: 'Menunggu Admin', cls: 'bg-sky-100 text-sky-800' }
-                  : subSt === 'rejected' || subSt === 'needs_correction'
-                    ? { label: 'Perlu Revisi', cls: 'bg-rose-100 text-rose-800' }
-                    : allVerified
-                      ? { label: 'Sudah Diverifikasi', cls: 'bg-teal-100 text-teal-800' }
-                      : row.analysis.parts.some(p => p.teacherStatus === 'draft_manual')
-                        ? { label: 'Draft Materi', cls: 'bg-indigo-100 text-indigo-800' }
-                        : { label: 'Belum Diperiksa', cls: 'bg-amber-100 text-amber-800' };
+              subSt === 'admin_approved' && allGenerated
+                ? { label: 'Siap Ujian', cls: 'bg-teal-100 text-teal-900' }
+                : subSt === 'admin_approved'
+                  ? { label: 'Disetujui', cls: 'bg-emerald-100 text-emerald-800' }
+                  : subSt === 'pending_admin_approval' || subSt === 'exception_pending'
+                    ? { label: 'Menunggu Admin', cls: 'bg-sky-100 text-sky-800' }
+                    : subSt === 'rejected' || subSt === 'needs_correction' || subSt === 'stale' || hasSessionCoverageMismatch
+                      ? { label: 'Perlu Diperbaiki', cls: 'bg-rose-100 text-rose-800' }
+                      : allVerified
+                        ? { label: 'Sudah Diverifikasi', cls: 'bg-teal-100 text-teal-800' }
+                        : row.analysis.parts.some(p => p.teacherStatus === 'draft_manual')
+                          ? { label: 'Draft Materi', cls: 'bg-indigo-100 text-indigo-800' }
+                          : { label: 'Belum Diperiksa', cls: 'bg-amber-100 text-amber-800' };
 
             return (
               <div key={row.participant.studentId} className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between gap-3">
@@ -800,23 +807,29 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="font-bold text-sm text-slate-900">{row.participant.studentName}</div>
-                      <div className="text-xs text-slate-500">{row.participant.class} • {row.participant.halaqah}</div>
+                      <div className="text-xs text-slate-500">
+                        {row.participant.class} • {row.participant.halaqah}
+                        {isAdmin && row.submission?.teacherName ? ` • Guru: ${row.submission.teacherName}` : ''}
+                      </div>
                     </div>
                     <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${statusBadge.cls}`}>
                       {statusBadge.label}
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700 pt-1">
                     <span className="font-semibold text-slate-500">Materi:</span>
                     {!hasParts ? (
                       <span className="text-slate-400 italic">Belum diatur</span>
                     ) : (
-                      row.analysis.parts.map(pt => (
-                        <span key={pt.id} className="px-2 py-0.5 rounded-lg bg-slate-100 font-bold text-slate-800">
-                          Juz {pt.juzNumber} ({pt.partType === 'full_juz' ? '1 Juz Penuh' : pt.partType === 'partial_half' ? 'Setengah Juz' : '< ½ Juz'})
-                        </span>
-                      ))
+                      row.analysis.parts.map(pt => {
+                        const isValidFull = pt.partType === 'full_juz' && pt.coverageRatio >= 1 && !pt.hasGap;
+                        return (
+                          <span key={pt.id} className="px-2 py-0.5 rounded-lg bg-slate-100 font-bold text-slate-800">
+                            Juz {pt.juzNumber} ({isValidFull ? '1 Juz Penuh' : pt.coverageRatio >= 0.5 ? 'Parsial' : '< ½ Juz'})
+                          </span>
+                        );
+                      })
                     )}
                   </div>
 
@@ -825,7 +838,11 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                     <span className="font-bold text-teal-700">{row.sessions.length} Sesi</span>
                     {row.sessions.length > 0 && (
                       <span className="text-slate-500 ml-1.5">
-                        ({row.sessions.map(s => `S${s.sessionNumber}: Juz ${s.juzNumber}`).join(', ')})
+                        ({row.sessions.map((s, idx) => {
+                          const pt = row.analysis.parts.find(p => p.id === s.primaryPartId || p.juzNumber === s.juzNumber);
+                          const isValidFull = s.sessionType === 'full_juz' && pt && pt.coverageRatio >= 1 && !pt.hasGap && pt.partType === 'full_juz';
+                          return `S${idx + 1}: Juz ${s.juzNumber} ${isValidFull ? '9 Soal' : '4 Soal'}`;
+                        }).join(', ')})
                       </span>
                     )}
                   </div>
@@ -834,11 +851,11 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                     <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs text-amber-900">
                       <span className="inline-flex items-center gap-1.5 font-semibold">
                         <AlertTriangle size={14} className="text-amber-600 shrink-0" />
-                        {row.submission?.rejectedReason
-                          ? 'Pengajuan perlu diperbaiki.'
-                          : row.analysis.anomalies.length > 0
-                            ? 'Perlu periksa data setoran.'
-                            : 'Ada catatan materi yang perlu dicek.'}
+                        {hasSessionCoverageMismatch
+                          ? 'Materi perlu diperiksa (cakupan < 100%).'
+                          : row.submission?.rejectedReason
+                            ? 'Pengajuan perlu diperbaiki.'
+                            : 'Materi perlu diperiksa.'}
                       </span>
                       <button
                         type="button"
@@ -852,14 +869,25 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                 </div>
 
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                  {subSt !== 'admin_approved' ? (
-                    <button
-                      type="button"
-                      onClick={() => setFullManualStudentId(row.participant.studentId)}
-                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <Sliders size={14} /> {row.sessions.length > 0 ? 'Ubah Materi & Sesi' : 'Atur Materi & Sesi'}
-                    </button>
+                  {subSt !== 'admin_approved' || isAdmin ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setFullManualStudentId(row.participant.studentId)}
+                        className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Sliders size={14} /> {isAdmin ? 'Lihat / Atur Sesi' : (row.sessions.length > 0 ? 'Ubah Materi & Sesi' : 'Atur Materi & Sesi')}
+                      </button>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setTeacherDetailStudentId(row.participant.studentId)}
+                          className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold"
+                        >
+                          Lihat Detail
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <button
@@ -888,7 +916,8 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             </div>
           )}
         </div>
-      ) : (
+      )}
+      {false && (
       /* Per-Student Juz Parts Table (Admin full view) */
       <div className="overflow-x-auto border border-slate-200 rounded-2xl">
         <table className="w-full text-xs text-left">
@@ -1178,7 +1207,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             studentName={targetRow.participant.studentName}
             studentClass={targetRow.participant.class}
             halaqah={targetRow.participant.halaqah || '-'}
-            teacherName={user.name}
+            teacherName={targetRow.submission?.teacherName || (isAdmin ? 'Belum diajukan Guru' : user.name)}
             records={records}
             serverParts={serverParts.filter(p => p.studentId === targetRow.participant.studentId)}
             suggestedParts={targetRow.analysis.parts}
@@ -1242,7 +1271,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                   }}
                   className="px-3.5 py-2 rounded-xl bg-teal-700 text-white font-bold"
                 >
-                  Atur Materi &amp; Sesi Manual
+                  Lihat / Atur Sesi
                 </button>
               </div>
             </div>

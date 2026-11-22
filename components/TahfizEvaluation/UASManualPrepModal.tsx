@@ -53,6 +53,7 @@ interface UASManualPrepModalProps {
 interface DraftSessionItem {
   localId: string;
   serverId?: string;
+  originalSessionNumber?: number;
   juzNumber: number;
   sessionType: 'full_juz' | 'partial_half';
   source: 'auto' | 'manual';
@@ -117,7 +118,19 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   onSaved
 }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const isLockedByAdmin = submissionStatus === 'admin_approved' && user.role !== 'admin';
+  const isAdmin = user.role === 'admin';
+  const isLockedByAdmin = submissionStatus === 'admin_approved' && !isAdmin;
+
+  const resolveValidSessionType = (
+    requested: 'full_juz' | 'partial_half',
+    part?: ExamMaterialPart | null
+  ): { type: 'full_juz' | 'partial_half'; mismatch: boolean } => {
+    const canBeFull = Boolean(part && part.partType === 'full_juz' && part.coverageRatio >= 1 && !part.hasGap);
+    if (requested === 'full_juz' && !canBeFull) {
+      return { type: 'partial_half', mismatch: true };
+    }
+    return { type: requested, mismatch: false };
+  };
 
   // Filter relevant semester records (sabaq/ziyadah <= cutoff)
   const relevantRecords = useMemo(() => {
@@ -143,14 +156,16 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>(() => validRecords.map(r => r.id));
   const [showAnomalyDetail, setShowAnomalyDetail] = useState(false);
 
-  // Step 2 state: working list of sessions (auto-numbered by index + 1)
+  // Step 2 state: working list of active (non-void) sessions
   const [draftSessions, setDraftSessions] = useState<DraftSessionItem[]>(() => {
-    if (sessions.length > 0) {
-      return [...sessions]
+    const activeSessions = sessions.filter(s => s.status !== 'void');
+    if (activeSessions.length > 0) {
+      return [...activeSessions]
         .sort((a, b) => a.sessionNumber - b.sessionNumber)
         .map(s => ({
           localId: s.id,
           serverId: s.id,
+          originalSessionNumber: s.sessionNumber,
           juzNumber: s.juzNumber,
           sessionType: s.sessionType,
           source: s.source || 'auto',
@@ -341,18 +356,20 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
     setFeedback({ type: 'success', text: `Sesi baru untuk Juz ${juzNum} ditambahkan.` });
   };
 
-  const removeSession = (item: DraftSessionItem) => {
+  const removeSession = (item: DraftSessionItem, displayIndex: number) => {
     if (item.hasAttempt || item.hasQuestionSet || item.isLocked) {
       setFeedback({ type: 'error', text: 'Sesi yang sudah terkunci atau memiliki paket/nilai ujian tidak dapat dihapus.' });
       return;
     }
-    if (item.serverId && item.source === 'manual') {
+    const ok = window.confirm(`Hapus Sesi ${displayIndex + 1} (Juz ${item.juzNumber}) dari rencana ujian ${studentName}?`);
+    if (!ok) return;
+    if (item.serverId) {
       setDeletedServerSessionIds(prev => (prev.includes(item.serverId!) ? prev : [...prev, item.serverId!]));
     }
     setDraftSessions(prev => prev.filter(s => s.localId !== item.localId));
     if (editingLocalId === item.localId) setEditingLocalId(null);
     setIsDirty(true);
-    setFeedback(null);
+    setFeedback({ type: 'success', text: `Sesi ${displayIndex + 1} (Juz ${item.juzNumber}) dihapus dari daftar. Klik Simpan untuk menerapkan.` });
   };
 
   const openDetailEditor = (item: DraftSessionItem) => {
@@ -453,7 +470,21 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       }
     }
 
-    // 4. Upsert every session with clean automatic sequential numbering (1, 2, 3...)
+    // 4. Upsert every editable session, preserving locked/used session numbers & identities
+    const reservedNumbers = new Set<number>(
+      draftSessions
+        .filter(ds => (ds.hasAttempt || ds.hasQuestionSet || ds.isLocked) && ds.originalSessionNumber)
+        .map(ds => ds.originalSessionNumber!)
+    );
+    let nextFreeNum = 1;
+    const allocSessionNumber = () => {
+      while (reservedNumbers.has(nextFreeNum)) nextFreeNum += 1;
+      const chosen = nextFreeNum;
+      reservedNumbers.add(chosen);
+      nextFreeNum += 1;
+      return chosen;
+    };
+
     const seenJuz = new Set<number>();
     for (let i = 0; i < draftSessions.length; i++) {
       const ds = draftSessions[i];
@@ -463,18 +494,20 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       seenJuz.add(ds.juzNumber);
       if (ds.hasAttempt || ds.hasQuestionSet || ds.isLocked) continue;
 
+      const assignedNum = allocSessionNumber();
       const part = effectivePartsByJuz.get(ds.juzNumber);
       const partId = savedPartIdByJuz.get(ds.juzNumber) || part?.id;
       if (!part || !partId) {
-        throw new Error(`Materi Juz ${ds.juzNumber} tidak ditemukan untuk Sesi ${i + 1}.`);
+        throw new Error(`Materi Juz ${ds.juzNumber} tidak ditemukan untuk Sesi ${assignedNum}.`);
       }
+      const { type: safeSessionType } = resolveValidSessionType(ds.sessionType, part);
       const sessRes = await api.upsertUASManualSession(
         period.id,
         studentId,
         {
           id: ds.serverId || undefined,
-          sessionNumber: i + 1,
-          sessionType: ds.sessionType,
+          sessionNumber: assignedNum,
+          sessionType: safeSessionType,
           primaryPartId: partId,
           juzNumber: ds.juzNumber,
           coveredPages: part.coveredPages,
@@ -485,11 +518,11 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
           startPage: part.startPage,
           endPage: part.endPage
         },
-        DEFAULT_SESSION_REASON,
+        isAdmin ? 'Sesi disesuaikan oleh Admin' : DEFAULT_SESSION_REASON,
         user
       );
       if (!sessRes.success) {
-        throw new Error(sessRes.message || `Gagal menyimpan Sesi ${i + 1} (Juz ${ds.juzNumber}).`);
+        throw new Error(sessRes.message || `Gagal menyimpan Sesi ${assignedNum} (Juz ${ds.juzNumber}).`);
       }
     }
 
@@ -539,6 +572,58 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
       onClose();
     } catch (e: any) {
       setFeedback({ type: 'error', text: e?.message || 'Gagal mengirim pengajuan ke Admin.' });
+    } finally {
+      inFlightRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const handleAdminApprove = async () => {
+    if (inFlightRef.current || !isAdmin) return;
+    if (draftSessions.length === 0) {
+      setFeedback({ type: 'error', text: 'Belum ada sesi ujian untuk disetujui.' });
+      return;
+    }
+    inFlightRef.current = true;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      if (isDirty || deletedServerSessionIds.length > 0 || submissionStatus !== 'pending_admin_approval') {
+        await persistAllChanges(true);
+        const subRes = await api.submitUASPrepForApproval(period.id, studentId, false, undefined, user);
+        if (!subRes.success) throw new Error(subRes.message || 'Validasi pengajuan gagal.');
+      }
+      const res = await api.adminBulkDecideUASPrep(period.id, [studentId], 'approve', 'Disetujui Admin melalui pemeriksaan detail', user);
+      if (!res.success || (res.failedCount || 0) > 0 || (res.skippedCount || 0) > 0) {
+        const firstReason = res.results?.[0]?.reason || res.message || 'Persetujuan ditolak oleh validasi server.';
+        throw new Error(firstReason);
+      }
+      setIsDirty(false);
+      await onSaved(`${studentName} berhasil disetujui Admin.`);
+      onClose();
+    } catch (e: any) {
+      setFeedback({ type: 'error', text: e?.message || 'Gagal menyetujui pengajuan.' });
+    } finally {
+      inFlightRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const handleAdminReturnToTeacher = async () => {
+    if (inFlightRef.current || !isAdmin) return;
+    const reason = window.prompt(`Alasan mengembalikan materi ${studentName} ke Guru Halaqah (min. 5 karakter):`, 'Mohon periksa kembali cakupan hafalan dan susunan sesi.');
+    if (!reason || reason.trim().length < 5) return;
+    inFlightRef.current = true;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.adminBulkDecideUASPrep(period.id, [studentId], 'reject', reason.trim(), user);
+      if (!res.success) throw new Error(res.message || 'Gagal mengembalikan pengajuan.');
+      setIsDirty(false);
+      await onSaved(`Pengajuan ${studentName} dikembalikan ke Guru Halaqah.`);
+      onClose();
+    } catch (e: any) {
+      setFeedback({ type: 'error', text: e?.message || 'Gagal mengembalikan pengajuan.' });
     } finally {
       inFlightRef.current = false;
       setBusy(false);
@@ -736,34 +821,40 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                     const part = effectivePartsByJuz.get(sess.juzNumber);
                     const pct = part ? Math.round(part.coverageRatio * 100) : 0;
                     const effPages = part ? formatEffectivePages(part.coverageRatio, part.juzTotalPages) : '0';
+                    const resolved = resolveValidSessionType(sess.sessionType, part);
                     const locked = Boolean(sess.hasAttempt || sess.hasQuestionSet || sess.isLocked || isLockedByAdmin);
                     return (
                       <div key={sess.localId} className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="text-[11px] font-bold text-teal-700 uppercase">Sesi {idx + 1}</div>
-                            <div className="font-extrabold text-base text-slate-900">Juz {sess.juzNumber}</div>
+                            <div className="font-extrabold text-sm sm:text-base text-slate-900">
+                              Sesi {idx + 1} — Juz {sess.juzNumber}
+                            </div>
                             <div className="text-xs font-semibold text-slate-600 mt-0.5">
-                              {sess.sessionType === 'full_juz' ? '1 Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
+                              {resolved.type === 'full_juz' ? '1 Juz Penuh — 9 Soal' : 'Parsial — 4 Soal'}
                               {part && <span className="text-slate-400"> • {pct}% ({effPages}/{part.juzTotalPages} hal)</span>}
                             </div>
+                            {resolved.mismatch && (
+                              <div className="mt-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg inline-block">
+                                Cakupan &lt; 100% — otomatis disesuaikan ke Parsial (4 Soal) saat disimpan.
+                              </div>
+                            )}
                           </div>
                           {!locked && (
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 shrink-0">
                               <button
                                 type="button"
                                 onClick={() => openDetailEditor(sess)}
                                 className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs inline-flex items-center gap-1"
                               >
-                                <Sliders size={13} /> Ubah Detail
+                                <Sliders size={13} /> Ubah
                               </button>
                               <button
                                 type="button"
-                                onClick={() => removeSession(sess)}
-                                className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
-                                aria-label="Hapus Sesi"
+                                onClick={() => removeSession(sess, idx)}
+                                className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs inline-flex items-center gap-1"
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={13} /> Hapus
                               </button>
                             </div>
                           )}
@@ -930,6 +1021,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                       const pt = effectivePartsByJuz.get(s.juzNumber);
                       const pct = pt ? Math.round(pt.coverageRatio * 100) : 0;
                       const effPages = pt ? formatEffectivePages(pt.coverageRatio, pt.juzTotalPages) : '0';
+                      const resolved = resolveValidSessionType(s.sessionType, pt);
                       return (
                         <div key={s.localId} className="p-3 rounded-xl bg-white border border-slate-200 flex items-center justify-between gap-2">
                           <div>
@@ -941,7 +1033,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                             )}
                           </div>
                           <span className="px-2 py-1 rounded-lg bg-teal-50 text-teal-800 font-bold text-[11px] shrink-0">
-                            {s.sessionType === 'full_juz' ? '9 Soal' : '4 Soal'}
+                            {resolved.type === 'full_juz' ? '1 Juz Penuh (9 Soal)' : 'Parsial (4 Soal)'}
                           </span>
                         </div>
                       );
@@ -1018,7 +1110,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                 Lanjut <ArrowRight size={14} />
               </button>
             )}
-            {step === 3 && !isLockedByAdmin && (
+            {step === 3 && !isLockedByAdmin && !isAdmin && (
               <button
                 type="button"
                 disabled={busy || draftSessions.length === 0}
@@ -1028,6 +1120,28 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                 {busy ? <CheckCircle2 size={14} className="animate-pulse" /> : <Send size={14} />}
                 {busy ? 'Memproses...' : 'Periksa & Kirim ke Admin'}
               </button>
+            )}
+            {step === 3 && isAdmin && (
+              <>
+                {submissionStatus === 'pending_admin_approval' && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handleAdminReturnToTeacher}
+                    className="px-3.5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs disabled:opacity-40"
+                  >
+                    Kembalikan ke Guru
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={busy || draftSessions.length === 0}
+                  onClick={handleAdminApprove}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs inline-flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <CheckCircle2 size={14} /> {busy ? 'Memproses...' : 'Setujui Pengajuan'}
+                </button>
+              </>
             )}
           </div>
         </div>
