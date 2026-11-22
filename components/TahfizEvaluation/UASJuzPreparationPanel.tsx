@@ -851,54 +851,28 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                   )}
                 </div>
 
-                <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
                   {subSt !== 'admin_approved' ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setFullManualStudentId(row.participant.studentId)}
-                        className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1"
-                      >
-                        <Sliders size={13} /> Atur Materi
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openManualSessionModal(row)}
-                        className="px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1"
-                      >
-                        <Plus size={13} /> Tambah Sesi
-                      </button>
-                      {firstUnverifiedValidPart && (
-                        <button
-                          type="button"
-                          onClick={() => handlePartAction(firstUnverifiedValidPart, 'verify', row)}
-                          disabled={busyPartId === firstUnverifiedValidPart.id}
-                          className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold disabled:opacity-40"
-                        >
-                          Verifikasi
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleSubmitForApproval(row, false)}
-                        className="px-3 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold inline-flex items-center gap-1"
-                      >
-                        <Send size={13} /> Kirim ke Admin
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={() => setFullManualStudentId(row.participant.studentId)}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Sliders size={14} /> {row.sessions.length > 0 ? 'Ubah Materi & Sesi' : 'Atur Materi & Sesi'}
+                    </button>
                   ) : (
                     <>
                       <button
                         type="button"
                         onClick={() => handleReopenRevision(row)}
-                        className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold inline-flex items-center gap-1"
+                        className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold inline-flex items-center gap-1"
                       >
                         <RotateCcw size={13} /> Ajukan Revisi Baru
                       </button>
                       <button
                         type="button"
                         onClick={() => setTeacherDetailStudentId(row.participant.studentId)}
-                        className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold"
+                        className="px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold"
                       >
                         Lihat Detail
                       </button>
@@ -1195,6 +1169,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
         if (!targetRow) return null;
         return (
           <UASManualPrepModal
+            key={targetRow.participant.studentId}
             isOpen={true}
             onClose={() => setFullManualStudentId(null)}
             period={period}
