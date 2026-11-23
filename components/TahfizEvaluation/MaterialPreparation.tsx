@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { AcademicTerm, ExamPeriod, ExamParticipant, ExamMaterialSnapshot, Student, TahfidzRecord, User, ExamQuestionSet, ExamQuestion } from '../../types';
+import { AcademicTerm, ExamPeriod, ExamParticipant, ExamMaterialSnapshot, Student, TahfidzRecord, User, ExamQuestionSet, ExamQuestion, QuestionBankFilter } from '../../types';
 import { api } from '../../api';
 import { quranService } from '../../services/quranService';
 import { materialDetectionService } from '../../services/materialDetectionService';
@@ -32,6 +32,7 @@ interface MaterialPreparationProps {
   records: TahfidzRecord[];
   initialPeriodId?: string | null;
   onNavigateToPeriods: () => void;
+  onNavigateToQuestionBank?: (filter?: Partial<QuestionBankFilter>) => void;
 }
 
 export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
@@ -39,7 +40,8 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
   students,
   records,
   initialPeriodId,
-  onNavigateToPeriods
+  onNavigateToPeriods,
+  onNavigateToQuestionBank
 }) => {
   const [examPeriods, setExamPeriods] = useState<ExamPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>(initialPeriodId || '');
@@ -868,6 +870,7 @@ export const MaterialPreparation: React.FC<MaterialPreparationProps> = ({
           questionSetMap={questionSetMap}
           user={user}
           targetStudentId={bulkGenStudentId}
+          onNavigateToQuestionBank={onNavigateToQuestionBank}
           onSuccess={async () => {
             if (selectedPeriodId) {
               await loadQuestionSets(selectedPeriodId);

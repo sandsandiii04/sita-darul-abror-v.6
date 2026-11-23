@@ -33,6 +33,7 @@ import {
   Trash2,
   X
 } from 'lucide-react';
+import { UASMaterialRevisionModal } from './UASMaterialRevisionModal';
 
 interface UASManualPrepModalProps {
   isOpen: boolean;
@@ -123,6 +124,7 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   onSaved
 }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [revisionTargetSession, setRevisionTargetSession] = useState<ExamUASSession | null>(null);
   const isAdmin = user.role === 'admin';
   const isLockedByAdmin = submissionStatus === 'admin_approved' && !isAdmin;
 
@@ -1159,11 +1161,30 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                               </button>
                             </div>
                           ) : (
-                            (sess.hasAttempt || sess.hasQuestionSet || sess.isLocked) && (
-                              <div className="w-full text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-1">
-                                Sesi ini sudah memiliki soal atau riwayat ujian. Hubungi Admin untuk melakukan perubahan.
-                              </div>
-                            )
+                            (sess.hasAttempt || sess.hasQuestionSet || sess.isLocked || isLockedByAdmin) && (() => {
+                              const matchedServerSess = (serverSessions || sessions).find(
+                                s => s.id === sess.serverId && s.status !== 'void'
+                              );
+                              return (
+                                <div className="w-full text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-1 flex flex-wrap items-center justify-between gap-2">
+                                  <span>
+                                    {sess.hasAttempt || sess.hasQuestionSet
+                                      ? 'Sesi ini sudah memiliki soal atau riwayat ujian. Ajukan revisi resmi ke Admin untuk melakukan perubahan.'
+                                      : 'Materi sesi ini sudah disetujui Admin. Ajukan revisi resmi ke Admin jika terdapat kesalahan materi.'}
+                                  </span>
+                                  {matchedServerSess && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setRevisionTargetSession(matchedServerSess)}
+                                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
+                                    >
+                                      <Edit3 size={12} />
+                                      <span>Ajukan Revisi Materi</span>
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()
                           )}
                         </div>
                       </div>
@@ -1547,6 +1568,28 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
           </div>
         </div>
       </div>
+
+      {revisionTargetSession && (
+        <UASMaterialRevisionModal
+          isOpen={Boolean(revisionTargetSession)}
+          onClose={() => setRevisionTargetSession(null)}
+          period={period}
+          studentId={studentId}
+          studentName={studentName}
+          studentClass={studentClass}
+          halaqah={halaqah}
+          session={revisionTargetSession}
+          existingSessionNumbers={(serverSessions || sessions)
+            .filter(s => s.status !== 'void')
+            .map(s => s.sessionNumber)}
+          user={user}
+          onSubmitted={async (msgText) => {
+            setRevisionTargetSession(null);
+            setFeedback({ type: 'success', text: msgText });
+            await onSaved(msgText);
+          }}
+        />
+      )}
     </div>
   );
 };

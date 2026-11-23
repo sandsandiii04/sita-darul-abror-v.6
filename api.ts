@@ -1435,14 +1435,29 @@ export const api = {
           serverItems = rpcData.data.map(mapQuestionBankFromDb);
           this.saveLocalQuestionBankCache(serverItems);
         } else {
-          // Fallback direct table select jika RPC belum ter-apply
-          const { data: dbRows, error: tableError } = await supabase
-            .from('question_bank')
-            .select('*')
-            .order('updated_at', { ascending: false });
+          // Fallback direct table select dengan pagination agar tidak terpotong batas 1000 baris PostgREST
+          const allDbRows: any[] = [];
+          const pageSize = 1000;
+          let offset = 0;
+          let tableError: any = null;
+          while (true) {
+            const { data: chunk, error: chunkErr } = await supabase
+              .from('question_bank')
+              .select('*')
+              .order('updated_at', { ascending: false })
+              .range(offset, offset + pageSize - 1);
+            if (chunkErr) {
+              tableError = chunkErr;
+              break;
+            }
+            if (!chunk || chunk.length === 0) break;
+            allDbRows.push(...chunk);
+            if (chunk.length < pageSize) break;
+            offset += pageSize;
+          }
 
-          if (!tableError && dbRows && Array.isArray(dbRows)) {
-            serverItems = dbRows.map(mapQuestionBankFromDb);
+          if (!tableError) {
+            serverItems = allDbRows.map(mapQuestionBankFromDb);
             this.saveLocalQuestionBankCache(serverItems);
           } else {
             isOffline = true;
@@ -5483,6 +5498,119 @@ export const api = {
       return data;
     } catch (e: any) {
       return { success: false, message: e?.message || 'Gagal membuka revisi baru.' };
+    }
+  },
+
+  async requestUASMaterialRevision(
+    params: {
+      periodId: string;
+      studentId: string;
+      uasSessionId: string;
+      proposedMaterial: import('./types').UASMaterialRevisionSnapshot;
+      reason: string;
+      idempotencyKey?: string;
+    },
+    userOverride?: User | null
+  ): Promise<{
+    success: boolean;
+    revisionId?: string;
+    alreadySubmitted?: boolean;
+    duplicateActive?: boolean;
+    status?: string;
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) {
+      return { success: false, message: 'Akses ditolak.' };
+    }
+    try {
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('request_uas_material_revision_secure', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_period_id: params.periodId,
+          p_student_id: params.studentId,
+          p_uas_session_id: params.uasSessionId,
+          p_proposed_material: params.proposedMaterial,
+          p_reason: params.reason,
+          p_idempotency_key: params.idempotencyKey || null
+        }),
+        20000,
+        'Waktu koneksi habis saat mengirim pengajuan revisi materi.'
+      );
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal mengirim pengajuan revisi materi UAS.' };
+    }
+  },
+
+  async getUASMaterialRevisions(
+    periodId: string,
+    studentId?: string | null,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; revisions?: import('./types').ExamUASMaterialRevision[]; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || (u.role !== 'admin' && u.role !== 'teacher') || !supabase) {
+      return { success: false, message: 'Akses ditolak.' };
+    }
+    try {
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('get_uas_material_revisions_secure', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_period_id: periodId,
+          p_student_id: studentId || null
+        }),
+        20000,
+        'Waktu koneksi habis saat memuat daftar pengajuan revisi materi.'
+      );
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memuat daftar pengajuan revisi materi UAS.' };
+    }
+  },
+
+  async decideUASMaterialRevision(
+    params: {
+      revisionId: string;
+      decision: 'approve' | 'reject' | 'mark_academic_decision';
+      reason?: string;
+      idempotencyKey?: string;
+    },
+    userOverride?: User | null
+  ): Promise<{
+    success: boolean;
+    status?: string;
+    applicationStatus?: string;
+    blockedCondition?: 'in_progress' | 'submitted';
+    alreadyDecided?: boolean;
+    deactivatedOldPacket?: boolean;
+    oldQuestionSetId?: string | null;
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin' || !supabase) {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak memutuskan pengajuan revisi.' };
+    }
+    try {
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('decide_uas_material_revision_secure', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_revision_id: params.revisionId,
+          p_decision: params.decision,
+          p_reason: params.reason || null,
+          p_idempotency_key: params.idempotencyKey || null
+        }),
+        20000,
+        'Waktu koneksi habis saat menyimpan keputusan revisi.'
+      );
+      if (error) return { success: false, message: error.message };
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal memproses keputusan revisi materi UAS.' };
     }
   },
 

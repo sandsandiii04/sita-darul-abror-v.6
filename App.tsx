@@ -432,6 +432,7 @@ const App: React.FC = () => {
   const [targetAttendanceDate, setTargetAttendanceDate] = useState<string | undefined>(undefined);
   const [targetAttendanceSession, setTargetAttendanceSession] = useState<'pagi' | 'malam' | undefined>(undefined);
   const [mushafInitialDraft, setMushafInitialDraft] = useState<QuestionDraft | null>(null);
+  const [questionBankInitialFilter, setQuestionBankInitialFilter] = useState<Partial<import('./types').QuestionBankFilter> | null>(null);
   const [selectedEvaluationPeriodId, setSelectedEvaluationPeriodId] = useState<string | null>(null);
 
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -1135,6 +1136,7 @@ const App: React.FC = () => {
         return (
           <QuestionBankView
             user={user!}
+            initialFilter={questionBankInitialFilter}
             onNavigateToMushafBuilder={(draft) => {
               setMushafInitialDraft(draft || null);
               setActiveTab('mushaf_digital');
@@ -1168,6 +1170,10 @@ const App: React.FC = () => {
             initialPeriodId={selectedEvaluationPeriodId}
             onNavigateToPeriods={() => {
               setActiveTab('evaluation_periods');
+            }}
+            onNavigateToQuestionBank={(filter) => {
+              setQuestionBankInitialFilter(filter || null);
+              setActiveTab('question_bank');
             }}
           />
         );

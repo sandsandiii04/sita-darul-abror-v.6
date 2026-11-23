@@ -4,14 +4,16 @@ import {
   ExamParticipant,
   ExamMaterialSnapshot,
   User,
-  QuestionBankItem
+  QuestionBankItem,
+  QuestionBankFilter
 } from '../../types';
 import { api } from '../../api';
 import { uasQuestionGenerator } from '../../services/uasQuestionGenerator';
 import {
   evaluateUASMultiSessionEligibility,
   UASEligibilityItem,
-  UASEligibilityStatus
+  UASEligibilityStatus,
+  UASSessionEligibilityResult
 } from '../../services/uasBulkEligibilityService';
 import {
   Sparkles,
@@ -23,7 +25,9 @@ import {
   Lock,
   Search,
   Play,
-  ShieldAlert
+  ShieldAlert,
+  Info,
+  ExternalLink
 } from 'lucide-react';
 
 interface UASBulkGeneratorModalProps {
@@ -35,6 +39,7 @@ interface UASBulkGeneratorModalProps {
   questionSetMap: Map<string, { status: string; version: number; id: string }>;
   user: User;
   onSuccess: () => Promise<void>;
+  onNavigateToQuestionBank?: (filter?: Partial<QuestionBankFilter>) => void;
   initialClassFilter?: string;
   initialHalaqahFilter?: string;
   targetStudentId?: string | null;
@@ -77,6 +82,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   questionSetMap,
   user,
   onSuccess,
+  onNavigateToQuestionBank,
   initialClassFilter = 'all',
   initialHalaqahFilter = 'all',
   targetStudentId = null
@@ -87,11 +93,15 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const [bankQuestions, setBankQuestions] = useState<QuestionBankItem[]>([]);
+  const [isBankOfflineCache, setIsBankOfflineCache] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const [juzParts, setJuzParts] = useState<any[]>([]);
   const [juzSessions, setJuzSessions] = useState<any[]>([]);
   const [juzSubmissions, setJuzSubmissions] = useState<any[]>([]);
   const [juzSessionsByStudent, setJuzSessionsByStudent] = useState<Map<string, any[]>>(new Map());
   const [loadingBank, setLoadingBank] = useState(false);
+
+  const [detailShortageItem, setDetailShortageItem] = useState<UASEligibilityItem | null>(null);
 
   const [isExecuting, setIsExecuting] = useState(false);
   const inFlightRef = useRef(false);
@@ -108,18 +118,21 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
       setProcessedCount(0);
       setTotalToProcess(0);
       setCurrentStudentName(null);
+      setDetailShortageItem(null);
       return;
     }
 
     let cancelled = false;
     setLoadingBank(true);
     Promise.all([
-      api.getQuestionBankList({ status: 'active' }),
+      api.getQuestionBankList({ status: 'all' }, user),
       api.getUASJuzPartsAndSessions(period.id, user)
     ])
       .then(([res, juzRes]) => {
         if (!cancelled) {
           setBankQuestions(res?.data || []);
+          setIsBankOfflineCache(Boolean(res?.isOfflineCache));
+          setLastCheckedAt(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
           const mappedParts = (juzRes?.parts || []).map((pt: any) => ({
             id: pt.id,
             examPeriodId: pt.exam_period_id || pt.examPeriodId,
@@ -142,7 +155,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
           const allSess: any[] = [];
           if (juzRes?.success && Array.isArray(juzRes.sessions)) {
             juzRes.sessions
-              .filter((s: any) => s.status !== 'void')
+              .filter((s: any) => s.status !== 'void' && (!s.exam_period_id || s.exam_period_id === period.id))
               .forEach((s: any) => {
               const sid = s.student_id || s.studentId;
               const obj = {
@@ -189,7 +202,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, reloadTick]);
+  }, [isOpen, reloadTick, period.id]);
 
   const distinctClasses = useMemo(() => {
     const set = new Set<string>();
@@ -221,29 +234,19 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
     });
   }, [scopedParticipants, juzParts, juzSessions, juzSubmissions, snapshots, bankQuestions, selectedClass, selectedHalaqah, targetStudentId]);
 
-  // Session-level preview breakdown (Section C)
+  // Session-level preview breakdown — STRICTLY from filtered eligibilitySummary.sessionStats
   const sessionPreview = useMemo(() => {
-    const readyIds = new Set(eligibilitySummary.items.filter(i => i.status === 'SIAP_GENERATE').map(i => i.studentId));
-    let fullCount = 0;
-    let partialCount = 0;
-    let toCreate = 0;
-    let alreadyHave = 0;
-    let unapproved = 0;
-    const scopedIds = new Set(scopedParticipants.map(p => p.studentId));
-    juzSessions.forEach(s => {
-      if (!scopedIds.has(s.studentId) || s.status === 'void') return;
-      if (s.questionSetId) {
-        alreadyHave++;
-      } else if (s.approvalStatus !== 'admin_approved') {
-        unapproved++;
-      } else if (readyIds.has(s.studentId)) {
-        toCreate++;
-        if (s.sessionType === 'full_juz') fullCount++;
-        else partialCount++;
-      }
-    });
-    return { fullCount, partialCount, toCreate, alreadyHave, unapproved };
-  }, [eligibilitySummary.items, juzSessions, scopedParticipants]);
+    const st = eligibilitySummary.sessionStats;
+    return {
+      fullCount: st?.readyFullSessions ?? 0,
+      partialCount: st?.readyPartialSessions ?? 0,
+      toCreate: st?.readySessions ?? 0,
+      alreadyHave: st?.alreadyHaveSessions ?? 0,
+      unapproved: st?.waitingAdminSessions ?? 0,
+      bankShort: st?.bankShortSessions ?? 0,
+      totalActive: st?.totalActiveSessions ?? 0
+    };
+  }, [eligibilitySummary.sessionStats]);
 
   const displayedItems = useMemo(() => {
     return eligibilitySummary.items.filter(item => {
@@ -457,53 +460,88 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
             <div className="min-w-0">
               <h3 className="font-bold text-sm sm:text-base text-slate-900 truncate">Siapkan Soal UAS</h3>
               <p className="text-xs text-slate-500 truncate">
-                {period.name} • Juz Penuh: 7 acak + 2 wajib • Parsial: 4 acak
+                {period.name} • Juz Penuh: 7 acak + 2 wajib • Parsial: 4 acak • Soal Bank Soal dapat digunakan ulang antar-santri
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            disabled={isExecuting}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 shrink-0"
-            aria-label="Tutup"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setReloadTick(t => t + 1)}
+              disabled={isExecuting || loadingBank}
+              className="px-3 py-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Hitung ulang kesiapan dari data terbaru server tanpa mengubah paket atau nilai"
+            >
+              <RefreshCw size={13} className={loadingBank ? 'animate-spin' : ''} />
+              <span className="hidden sm:inline">Periksa Ulang Kesiapan</span>
+            </button>
+            <button
+              onClick={onClose}
+              disabled={isExecuting}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 shrink-0"
+              aria-label="Tutup"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Summary Cards */}
         <div className="p-5 border-b border-slate-100 bg-slate-50/70 space-y-4">
+          {isBankOfflineCache && !loadingBank && (
+            <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>Menampilkan data cache Bank Soal karena koneksi server sempat terganggu. Klik <strong>Periksa Ulang Kesiapan</strong> untuk menyegarkan dari server.</span>
+            </div>
+          )}
           {loadingBank ? (
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <RefreshCw size={14} className="animate-spin text-teal-600" />
-              <span>Memeriksa kelayakan sesi disetujui Admin & zona acak Bank Soal...</span>
+              <span>Memeriksa kelayakan sesi disetujui Admin &amp; zona acak Bank Soal dari server...</span>
             </div>
           ) : (
             <div className="space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                <span>
+                  Menampilkan <strong>{eligibilitySummary.total} santri</strong> ({sessionPreview.totalActive} sesi aktif) sesuai filter.
+                </span>
+                {lastCheckedAt && (
+                  <span>Diperiksa dari server pukul {lastCheckedAt}</span>
+                )}
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-sm">
                   <p className="text-[11px] font-semibold text-emerald-700">Siap Disiapkan</p>
-                  <p className="text-2xl font-black text-emerald-800">{eligibilitySummary.siapGenerate}</p>
-                  <p className="text-[10px] text-emerald-700 font-semibold">{sessionPreview.toCreate} paket sesi</p>
+                  <p className="text-2xl font-black text-emerald-800">
+                    {eligibilitySummary.siapGenerate} <span className="text-xs font-semibold text-emerald-600">santri</span>
+                  </p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">{sessionPreview.toCreate} sesi siap generate</p>
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-teal-200 shadow-sm">
                   <p className="text-[11px] font-semibold text-teal-700">Rincian Sesi Siap</p>
                   <p className="text-sm font-black text-teal-900 mt-1">{sessionPreview.fullCount} Penuh • {sessionPreview.partialCount} Parsial</p>
-                  <p className="text-[10px] text-slate-500">7 acak+2 wajib / 4 acak</p>
+                  <p className="text-[10px] text-slate-500">Jumlah sesi siap (7+2 / 4 acak)</p>
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-sky-200 shadow-sm">
                   <p className="text-[11px] font-semibold text-sky-700">Menunggu Admin</p>
-                  <p className="text-2xl font-black text-sky-800">{eligibilitySummary.materiBelumFinal}</p>
+                  <p className="text-2xl font-black text-sky-800">
+                    {eligibilitySummary.materiBelumFinal} <span className="text-xs font-semibold text-sky-600">santri</span>
+                  </p>
                   <p className="text-[10px] text-slate-500">{sessionPreview.unapproved} sesi belum disetujui</p>
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-purple-200 shadow-sm">
-                  <p className="text-[11px] font-semibold text-purple-700">Bank Soal Kurang</p>
-                  <p className="text-2xl font-black text-purple-800">{eligibilitySummary.bankSoalKurang}</p>
+                  <p className="text-[11px] font-semibold text-purple-700">Bank Soal Belum Cukup</p>
+                  <p className="text-2xl font-black text-purple-800">
+                    {eligibilitySummary.bankSoalKurang} <span className="text-xs font-semibold text-purple-600">santri</span>
+                  </p>
+                  <p className="text-[10px] text-purple-700 font-semibold">{sessionPreview.bankShort} sesi kurang zona soal</p>
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
                   <p className="text-[11px] font-semibold text-slate-600">Sudah Ada Paket</p>
-                  <p className="text-2xl font-black text-slate-800">{eligibilitySummary.sudahAda}</p>
-                  <p className="text-[10px] text-slate-500">{sessionPreview.alreadyHave} sesi dilewati</p>
+                  <p className="text-2xl font-black text-slate-800">
+                    {eligibilitySummary.sudahAda} <span className="text-xs font-semibold text-slate-500">santri</span>
+                  </p>
+                  <p className="text-[10px] text-slate-500">{sessionPreview.alreadyHave} paket sesi (dilewati)</p>
                 </div>
               </div>
             </div>
@@ -543,13 +581,13 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               className="text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 bg-white"
             >
               <option value="all">Semua Status ({eligibilitySummary.total})</option>
-              <option value="SIAP_GENERATE">SIAP_GENERATE ({eligibilitySummary.siapGenerate})</option>
-              <option value="SUDAH_ADA">SUDAH_ADA ({eligibilitySummary.sudahAda})</option>
-              <option value="MENUNGGU_PERSETUJUAN_ADMIN">Menunggu Persetujuan Admin ({eligibilitySummary.materiBelumFinal})</option>
-              <option value="MATERI_PERLU_REVIEW">MATERI_PERLU_REVIEW ({eligibilitySummary.materiPerluReview})</option>
-              <option value="MATERI_TIDAK_CUKUP">MATERI_TIDAK_CUKUP ({eligibilitySummary.materiTidakCukup})</option>
-              <option value="BANK_SOAL_KURANG">BANK_SOAL_KURANG ({eligibilitySummary.bankSoalKurang})</option>
-              <option value="STALE">STALE ({eligibilitySummary.stale})</option>
+              <option value="SIAP_GENERATE">Siap Disiapkan ({eligibilitySummary.siapGenerate})</option>
+              <option value="SUDAH_ADA">Sudah Ada Paket ({eligibilitySummary.sudahAda})</option>
+              <option value="MENUNGGU_PERSETUJUAN_ADMIN">Menunggu Admin ({eligibilitySummary.materiBelumFinal})</option>
+              <option value="MATERI_PERLU_REVIEW">Perlu Review ({eligibilitySummary.materiPerluReview})</option>
+              <option value="MATERI_TIDAK_CUKUP">Materi Tidak Cukup ({eligibilitySummary.materiTidakCukup})</option>
+              <option value="BANK_SOAL_KURANG">Bank Soal Belum Cukup ({eligibilitySummary.bankSoalKurang})</option>
+              <option value="STALE">Paket Usang / Stale ({eligibilitySummary.stale})</option>
             </select>
           </div>
         </div>
@@ -668,7 +706,21 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                           {item.statusLabel}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-600">{item.reason}</td>
+                      <td className="px-3 py-2 text-slate-600">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span>{item.reason}</span>
+                          {item.status === 'BANK_SOAL_KURANG' && (
+                            <button
+                              type="button"
+                              onClick={() => setDetailShortageItem(item)}
+                              className="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-[11px] font-bold inline-flex items-center gap-1 shrink-0"
+                            >
+                              <Info size={12} />
+                              <span>Detail Kekurangan</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {displayedItems.length === 0 && (
@@ -708,11 +760,169 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
               className="px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 disabled:opacity-50"
             >
               <Play size={14} />
-              <span>Generate Soal UAS ({readyItems.length} Santri Siap)</span>
+              <span>Generate Soal UAS ({readyItems.length} Santri • {sessionPreview.toCreate} Sesi)</span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Modal Detail Kekurangan Bank Soal */}
+      {detailShortageItem && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 bg-purple-50/70">
+              <div>
+                <h4 className="font-bold text-sm text-purple-950">Detail Kekurangan Bank Soal</h4>
+                <p className="text-xs text-purple-800">
+                  {detailShortageItem.studentName} • Kelas {detailShortageItem.studentClass} • Halaqah {detailShortageItem.halaqah}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailShortageItem(null)}
+                className="p-1.5 rounded-lg text-purple-700 hover:bg-purple-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900">
+                <strong>Kebijakan Resmi Bank Soal:</strong> Soal Bank Soal <strong>boleh digunakan ulang antar-santri yang berbeda</strong> (tidak habis saat dipakai santri lain). Namun dalam satu paket santri, setiap zona harus memiliki minimal 1 soal acak unik yang aktif.
+              </div>
+
+              {(detailShortageItem.sessionEligibilities || [])
+                .filter((se: UASSessionEligibilityResult) => se.status === 'BANK_SOAL_KURANG')
+                .map((se: UASSessionEligibilityResult) => {
+                  const diag = se.diagnostic;
+                  const disq = diag?.disqualifiedSummary;
+                  const disqReasons: string[] = [];
+                  if (disq?.inactiveCount) disqReasons.push(`${disq.inactiveCount} soal berstatus nonaktif/draft/arsip`);
+                  if (disq?.outOfPageCoverageCount) disqReasons.push(`${disq.outOfPageCoverageCount} soal melintasi batas halaman sesi`);
+                  if (disq?.wrongTypeCount) disqReasons.push(`${disq.wrongTypeCount} soal bertipe wajib (bukan soal acak)`);
+                  if (disq?.wrongExamTypeCount) disqReasons.push(`${disq.wrongExamTypeCount} soal khusus UTS (bukan UAS/Umum)`);
+                  if (disq?.invalidCoordsCount) disqReasons.push(`${disq.invalidCoordsCount} soal memiliki koordinat ayat tidak valid`);
+
+                  return (
+                    <div key={se.sessionId} className="border border-slate-200 rounded-2xl overflow-hidden">
+                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            Sesi {se.sessionNumber} — Juz {se.juzNumber} ({se.sessionType === 'partial_half' ? 'Parsial · 4 Soal Acak' : 'Juz Penuh · 7 Soal Acak + 2 Wajib'})
+                          </div>
+                          <div className="text-[11px] text-slate-600 mt-0.5">
+                            Kebutuhan: <strong>{se.requiredZones} soal acak</strong> • Tersedia: <strong>{se.coveredZones} zona valid</strong> ({diag?.totalValidUniqueInSession ?? se.coveredZones} soal unik aktif) • Kekurangan: <strong className="text-purple-800">{se.missingZones.length} zona (minimal +{se.missingZones.length} soal valid)</strong>
+                          </div>
+                          <div className="text-[11px] text-purple-800 font-semibold mt-0.5">
+                            Zona yang kurang: Zona {se.missingZones.join(', Zona ')}
+                          </div>
+                        </div>
+                        {onNavigateToQuestionBank && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const preferAllStatus = Boolean(disq?.inactiveCount && disq.inactiveCount > 0);
+                              onNavigateToQuestionBank({
+                                juz: se.juzNumber,
+                                examType: 'uas',
+                                questionType: 'random',
+                                status: preferAllStatus ? 'all' : 'active'
+                              });
+                              setDetailShortageItem(null);
+                              onClose();
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5"
+                          >
+                            <ExternalLink size={12} />
+                            <span>Lihat Bank Soal (Juz {se.juzNumber})</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {disqReasons.length > 0 && (
+                        <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-900 text-[11px]">
+                          <strong>Alasan soal yang ada di Juz {se.juzNumber} tidak memenuhi syarat:</strong> {disqReasons.join('; ')}.
+                        </div>
+                      )}
+
+                      {diag && diag.zonesDetail.length > 0 && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-[11px]">
+                            <thead className="bg-white text-slate-500 border-b border-slate-100">
+                              <tr>
+                                <th className="px-3 py-2 font-bold">Zona</th>
+                                <th className="px-3 py-2 font-bold">Rentang Ayat &amp; Halaman</th>
+                                <th className="px-3 py-2 font-bold">Soal Unik Aktif</th>
+                                <th className="px-3 py-2 font-bold">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {diag.zonesDetail.map(z => {
+                                const isMissing = z.validUniqueCount === 0;
+                                const zNotes: string[] = [];
+                                if (z.inactiveCount > 0) zNotes.push(`${z.inactiveCount} nonaktif`);
+                                if (z.outOfPageCoverageCount > 0) zNotes.push(`${z.outOfPageCoverageCount} lintas halaman`);
+                                if (z.wrongTypeCount > 0) zNotes.push(`${z.wrongTypeCount} tipe wajib`);
+                                if (z.wrongExamTypeCount > 0) zNotes.push(`${z.wrongExamTypeCount} khusus UTS`);
+                                if (z.invalidCoordsCount > 0) zNotes.push(`${z.invalidCoordsCount} koordinat invalid`);
+                                return (
+                                  <tr key={z.zoneNumber} className={isMissing ? 'bg-purple-50/50' : ''}>
+                                    <td className="px-3 py-1.5 font-bold text-slate-800">Zona {z.zoneNumber}</td>
+                                    <td className="px-3 py-1.5 text-slate-600">
+                                      {z.startRef} s.d. {z.endRef} (Hal. {z.startPage}–{z.endPage})
+                                    </td>
+                                    <td className="px-3 py-1.5 font-bold text-slate-800">
+                                      {z.validUniqueCount} soal
+                                      {zNotes.length > 0 && (
+                                        <span className="block text-[10px] font-normal text-amber-700">{zNotes.join(', ')}</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-1.5">
+                                      {isMissing ? (
+                                        <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[10px]">
+                                          Kurang (+1 soal)
+                                        </span>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                          Terpenuhi
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailShortageItem(null);
+                  setReloadTick(t => t + 1);
+                }}
+                className="px-3 py-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <RefreshCw size={12} />
+                <span>Periksa Ulang Kesiapan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailShortageItem(null)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -29,11 +29,13 @@ import DeleteAllQuestionsModal from './DeleteAllQuestionsModal';
 
 interface QuestionBankViewProps {
   user?: User;
+  initialFilter?: Partial<QuestionBankFilter> | null;
   onNavigateToMushafBuilder: (draftToRestore?: QuestionDraft | null) => void;
 }
 
 export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
   user,
+  initialFilter,
   onNavigateToMushafBuilder
 }) => {
   const isAdmin = user?.role === 'admin';
@@ -41,13 +43,29 @@ export const QuestionBankView: React.FC<QuestionBankViewProps> = ({
   const [items, setItems] = useState<QuestionBankItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [filter, setFilter] = useState<QuestionBankFilter>({
-    status: 'active',
-    questionType: 'all',
-    examType: 'all',
-    difficulty: 'all',
-    juz: 'all',
-    surah: 'all'
+    status: initialFilter?.status || 'active',
+    questionType: initialFilter?.questionType || 'all',
+    examType: initialFilter?.examType || 'all',
+    difficulty: initialFilter?.difficulty || 'all',
+    juz: initialFilter?.juz ?? 'all',
+    surah: initialFilter?.surah ?? 'all',
+    search: initialFilter?.search || ''
   });
+
+  useEffect(() => {
+    if (initialFilter) {
+      setFilter(prev => ({
+        ...prev,
+        status: initialFilter.status ?? prev.status,
+        questionType: initialFilter.questionType ?? prev.questionType,
+        examType: initialFilter.examType ?? prev.examType,
+        difficulty: initialFilter.difficulty ?? prev.difficulty,
+        juz: initialFilter.juz ?? prev.juz,
+        surah: initialFilter.surah ?? prev.surah,
+        search: initialFilter.search ?? prev.search
+      }));
+    }
+  }, [initialFilter]);
 
   // Modals state
   const [selectedDetailItem, setSelectedDetailItem] = useState<QuestionBankItem | null>(null);

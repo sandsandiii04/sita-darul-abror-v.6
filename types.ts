@@ -558,6 +558,105 @@ export interface ExamUASPrepSubmission {
   rejectedReason?: string | null;
 }
 
+export interface UASZoneBankDiagnostic {
+  zoneNumber: number;
+  label: string;
+  startPage: number;
+  endPage: number;
+  startRef: string;
+  endRef: string;
+  validUniqueCount: number;
+  validCandidateIds: string[];
+  inactiveCount: number;
+  wrongTypeCount: number;
+  wrongExamTypeCount: number;
+  outOfPageCoverageCount: number;
+  invalidCoordsCount: number;
+}
+
+export interface UASSessionBankDiagnostic {
+  requiredZones: 4 | 7;
+  coveredZones: number;
+  missingZones: number[];
+  totalValidUniqueInSession: number;
+  additionalNeeded: number;
+  zonesDetail: UASZoneBankDiagnostic[];
+  disqualifiedSummary: {
+    inactiveCount: number;
+    wrongTypeCount: number;
+    wrongExamTypeCount: number;
+    outOfPageCoverageCount: number;
+    invalidCoordsCount: number;
+  };
+}
+
+export interface UASMaterialRevisionSnapshot {
+  sessionNumber: number;
+  juzNumber: number;
+  sessionType: UASSessionType;
+  startSurah: number;
+  startAyah: number;
+  endSurah: number;
+  endAyah: number;
+  startPage: number;
+  endPage: number;
+  coveredPages: number[];
+  primaryPartId?: string | null;
+}
+
+export type UASMaterialRevisionStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'needs_academic_decision'
+  | 'on_hold_in_progress';
+
+export type UASMaterialRevisionApplicationStatus =
+  | 'not_applied'
+  | 'applied'
+  | 'held_in_progress'
+  | 'requires_academic_decision'
+  | 'rejected';
+
+export interface ExamUASMaterialRevision {
+  id: string;
+  idempotencyKey?: string | null;
+  examPeriodId: string;
+  studentId: string;
+  studentName?: string | null;
+  studentNis?: string | null;
+  studentClass?: string | null;
+  halaqah?: string | null;
+  uasSessionId: string;
+  sessionNumber: number;
+  oldQuestionSetId?: string | null;
+  oldAttemptId?: string | null;
+  oldApprovalStatus?: string | null;
+  oldSessionStatus?: string | null;
+  oldPacketStatus?: 'none' | 'unused_packet' | 'in_progress' | 'submitted' | string;
+  oldAttemptStatus?: 'none' | 'in_progress' | 'submitted' | string;
+  livePacketStatus?: 'none' | 'unused_packet' | 'in_progress' | 'submitted' | string;
+  liveAttemptStatus?: 'none' | 'in_progress' | 'submitted' | string;
+  liveSessionStatus?: string | null;
+  liveQuestionSetId?: string | null;
+  oldMaterial: UASMaterialRevisionSnapshot;
+  proposedMaterial: UASMaterialRevisionSnapshot;
+  reason: string;
+  requestedBy: string;
+  requestedByName: string;
+  requestedByRole: string;
+  requestedAt: string;
+  status: UASMaterialRevisionStatus;
+  applicationStatus: UASMaterialRevisionApplicationStatus;
+  decidedBy?: string | null;
+  decidedByName?: string | null;
+  decidedAt?: string | null;
+  decisionReason?: string | null;
+  replacementQuestionSetId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ExamUASPrepAuditLog {
   id: string;
   examPeriodId: string;

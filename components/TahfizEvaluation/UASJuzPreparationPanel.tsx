@@ -5,6 +5,7 @@ import {
   ExamMaterialSnapshot,
   ExamParticipant,
   ExamPeriod,
+  ExamUASMaterialRevision,
   ExamUASPrepSubmission,
   ExamUASSession,
   QuestionBankItem,
@@ -16,6 +17,7 @@ import { api } from '../../api';
 import { analyzeStudentJuzPartsAndSessions } from '../../services/uasJuzSegmentationService';
 import { evaluateUASSessionEligibility } from '../../services/uasBulkEligibilityService';
 import { UASAdminApprovalPanel } from './UASAdminApprovalPanel';
+import { UASAdminRevisionPanel } from './UASAdminRevisionPanel';
 import { UASManualPrepModal } from './UASManualPrepModal';
 import {
   BookOpen,
@@ -61,6 +63,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const [serverParts, setServerParts] = useState<ExamMaterialPart[]>([]);
   const [serverSessions, setServerSessions] = useState<ExamUASSession[]>([]);
   const [serverSubmissions, setServerSubmissions] = useState<ExamUASPrepSubmission[]>([]);
+  const [serverRevisions, setServerRevisions] = useState<ExamUASMaterialRevision[]>([]);
   const [bankQuestions, setBankQuestions] = useState<QuestionBankItem[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [busyPartId, setBusyPartId] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [showAdvancedSummary, setShowAdvancedSummary] = useState(false);
   const [showExamRules, setShowExamRules] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'prep' | 'approval'>('prep');
+  const [activeAdminTab, setActiveAdminTab] = useState<'prep' | 'approval' | 'revisions'>('prep');
   const [manualModal, setManualModal] = useState<{
     studentId: string;
     studentName: string;
@@ -97,10 +100,14 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const canEditPrep = isAdmin || isTeacher;
 
   const loadRemote = async () => {
-    const [juzRes, bankRes] = await Promise.all([
+    const [juzRes, bankRes, revRes] = await Promise.all([
       api.getUASJuzPartsAndSessions(period.id, user),
-      api.getQuestionBankList({ status: 'active', examType: 'uas' })
+      api.getQuestionBankList({ status: 'active', examType: 'uas' }),
+      api.getUASMaterialRevisions(period.id, null, user).catch(() => ({ success: false, revisions: [] }))
     ]);
+    if (revRes?.success && Array.isArray(revRes.revisions)) {
+      setServerRevisions(revRes.revisions);
+    }
     if (juzRes.success) {
       setServerParts(
         (juzRes.parts || []).map((p: any) => ({
@@ -688,6 +695,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   };
 
   const pendingApprovalCount = serverSubmissions.filter(s => s.status === 'pending_admin_approval' || s.status === 'exception_pending').length;
+  const pendingRevisionCount = serverRevisions.filter(r => r.status === 'pending' || r.status === 'on_hold_in_progress').length;
 
   return (
     <div className="space-y-4">
@@ -713,6 +721,17 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                 <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black">{pendingApprovalCount}</span>
               )}
             </button>
+            <button
+              onClick={() => setActiveAdminTab('revisions')}
+              className={`px-4 py-2 rounded-2xl text-xs font-extrabold border transition-colors flex items-center gap-2 ${
+                activeAdminTab === 'revisions' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <span>Pengajuan Revisi Materi UAS</span>
+              {pendingRevisionCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black">{pendingRevisionCount}</span>
+              )}
+            </button>
             {onOpenPrepareQuestions && (
               <button
                 onClick={() => onOpenPrepareQuestions()}
@@ -735,6 +754,17 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           onRefresh={loadRemote}
           onOpenStudentPrep={(sid) => setFullManualStudentId(sid)}
           onPrepareQuestions={onOpenPrepareQuestions}
+        />
+      ) : isAdmin && activeAdminTab === 'revisions' ? (
+        <UASAdminRevisionPanel
+          user={user}
+          period={period}
+          revisions={serverRevisions}
+          onRefresh={async () => {
+            await loadRemote();
+            onSessionsUpdated?.();
+          }}
+          onPrepareReplacementPacket={(sid) => onOpenPrepareQuestions?.(sid)}
         />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">

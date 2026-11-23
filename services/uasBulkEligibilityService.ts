@@ -1,4 +1,4 @@
-import { ExamParticipant, ExamMaterialSnapshot, QuestionBankItem, ExamMaterialPart, ExamUASSession } from '../types';
+import { ExamParticipant, ExamMaterialSnapshot, QuestionBankItem, ExamMaterialPart, ExamUASSession, UASSessionBankDiagnostic } from '../types';
 import { uasQuestionGenerator } from './uasQuestionGenerator';
 import { comparePositions } from './quranService';
 import { MUSHAF_604_PAGE_BOUNDARIES } from '../constants/mushafPageBoundaries';
@@ -14,6 +14,7 @@ export interface UASSessionEligibilityResult {
   coveredZones: number;
   missingZones: number[];
   fullPagesCount: number;
+  diagnostic?: UASSessionBankDiagnostic;
 }
 
 /**
@@ -108,7 +109,7 @@ export function evaluateUASSessionEligibility(params: {
     };
   }
 
-  const path = uasQuestionGenerator.buildMaterialPathForCoveredPages(session.coveredPages);
+  const { diagnostic, path } = uasQuestionGenerator.evaluateSessionBankCoverage(session, bankQuestions);
   if (path.nodes.length < requiredZones) {
     return {
       sessionId: session.id,
@@ -120,34 +121,12 @@ export function evaluateUASSessionEligibility(params: {
       requiredZones,
       coveredZones: 0,
       missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
-      fullPagesCount
+      fullPagesCount,
+      diagnostic
     };
   }
 
-  const zones = uasQuestionGenerator.divideIntoZonesCount(path, requiredZones);
-  const activeRandomBank = (bankQuestions || []).filter(
-    q =>
-      q.status === 'active' &&
-      q.questionType === 'random' &&
-      (q.examType === 'uas' || q.examType === 'generic') &&
-      q.promptStart && q.promptEnd && q.answerStart && q.answerEnd &&
-      comparePositions(q.promptStart, q.promptEnd) <= 0 &&
-      comparePositions(q.promptEnd, q.answerStart) < 0 &&
-      comparePositions(q.answerStart, q.answerEnd) <= 0
-  );
-
-  const missingZones: number[] = [];
-  let coveredZones = 0;
-  for (let i = 0; i < zones.length; i++) {
-    const z = zones[i];
-    const ok = activeRandomBank.some(bq =>
-      coveredSet.has(bq.startPage) &&
-      coveredSet.has(bq.endPage) &&
-      z.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber)
-    );
-    if (ok) coveredZones++;
-    else missingZones.push(i + 1);
-  }
+  const { missingZones, coveredZones } = diagnostic;
 
   if (missingZones.length > 0) {
     return {
@@ -156,11 +135,12 @@ export function evaluateUASSessionEligibility(params: {
       sessionType: session.sessionType,
       juzNumber: session.juzNumber,
       status: 'BANK_SOAL_KURANG',
-      reason: `Sesi ${session.sessionNumber} (Juz ${session.juzNumber}): butuh ${requiredZones} soal acak, tersedia ${coveredZones}, zona kurang: ${missingZones.join(', ')}.`,
+      reason: `Sesi ${session.sessionNumber} (Juz ${session.juzNumber}, ${isPartial ? 'Parsial' : 'Juz Penuh'}): butuh ${requiredZones} soal acak, tersedia ${coveredZones} zona valid (kurang ${missingZones.length} soal — Zona ${missingZones.join(', Zona ')}).`,
       requiredZones,
       coveredZones,
       missingZones,
-      fullPagesCount
+      fullPagesCount,
+      diagnostic
     };
   }
 
@@ -174,7 +154,8 @@ export function evaluateUASSessionEligibility(params: {
     requiredZones,
     coveredZones,
     missingZones: [],
-    fullPagesCount
+    fullPagesCount,
+    diagnostic
   };
 }
 
@@ -204,6 +185,18 @@ export interface UASEligibilityItem {
   sessionEligibilities?: UASSessionEligibilityResult[];
 }
 
+export interface UASSessionSummaryStats {
+  totalActiveSessions: number;
+  readySessions: number;
+  readyFullSessions: number;
+  readyPartialSessions: number;
+  waitingAdminSessions: number;
+  bankShortSessions: number;
+  alreadyHaveSessions: number;
+  staleSessions: number;
+  otherUnreadySessions: number;
+}
+
 export interface UASEligibilitySummary {
   total: number;
   siapGenerate: number;
@@ -214,17 +207,18 @@ export interface UASEligibilitySummary {
   bankSoalKurang: number;
   stale: number;
   items: UASEligibilityItem[];
+  sessionStats?: UASSessionSummaryStats;
 }
 
 export const UAS_ELIGIBILITY_LABELS: Record<UASEligibilityStatus, string> = {
-  SIAP_GENERATE: 'SIAP_GENERATE',
-  SUDAH_ADA: 'SUDAH_ADA',
-  MENUNGGU_PERSETUJUAN_ADMIN: 'MENUNGGU_PERSETUJUAN_ADMIN',
-  MATERI_BELUM_FINAL: 'MATERI_BELUM_FINAL',
-  MATERI_PERLU_REVIEW: 'MATERI_PERLU_REVIEW',
-  MATERI_TIDAK_CUKUP: 'MATERI_TIDAK_CUKUP',
-  BANK_SOAL_KURANG: 'BANK_SOAL_KURANG',
-  STALE: 'STALE'
+  SIAP_GENERATE: 'Siap Disiapkan',
+  SUDAH_ADA: 'Sudah Ada Paket',
+  MENUNGGU_PERSETUJUAN_ADMIN: 'Menunggu Admin',
+  MATERI_BELUM_FINAL: 'Materi Belum Final',
+  MATERI_PERLU_REVIEW: 'Perlu Review',
+  MATERI_TIDAK_CUKUP: 'Materi Tidak Cukup',
+  BANK_SOAL_KURANG: 'Bank Soal Belum Cukup',
+  STALE: 'Paket Usang (Stale)'
 };
 
 /**
@@ -464,6 +458,7 @@ export function evaluateUASMultiSessionEligibility(params: {
 
   const sessionsByStudent = new Map<string, ExamUASSession[]>();
   sessions.forEach(s => {
+    if (!s || s.status === 'void') return;
     const arr = sessionsByStudent.get(s.studentId) || [];
     arr.push(s);
     sessionsByStudent.set(s.studentId, arr);
@@ -478,12 +473,26 @@ export function evaluateUASMultiSessionEligibility(params: {
   let bankSoalKurang = 0;
   let stale = 0;
 
+  const sessionStats: UASSessionSummaryStats = {
+    totalActiveSessions: 0,
+    readySessions: 0,
+    readyFullSessions: 0,
+    readyPartialSessions: 0,
+    waitingAdminSessions: 0,
+    bankShortSessions: 0,
+    alreadyHaveSessions: 0,
+    staleSessions: 0,
+    otherUnreadySessions: 0
+  };
+
   for (const p of filteredParticipants) {
     const snap = snapMap.get(p.studentId);
     const subStatus = subMap.get(p.studentId);
     const stParts = partsByStudent.get(p.studentId) || [];
     const stSessions = (sessionsByStudent.get(p.studentId) || []).sort((a, b) => a.sessionNumber - b.sessionNumber);
     const estPages = stParts.reduce((acc, pt) => acc + (pt.coveredPagesCount || 0), 0) || snap?.estimatedPages || 0;
+
+    sessionStats.totalActiveSessions += stSessions.length;
 
     let status: UASEligibilityStatus;
     let reason: string;
@@ -500,6 +509,10 @@ export function evaluateUASMultiSessionEligibility(params: {
             ? 'Materi berubah (STALE) — Menunggu pengajuan ulang & Persetujuan Admin'
             : 'Menunggu Persetujuan Admin (Guru Halaqah belum mengirim/disetujui)';
       materiBelumFinal++;
+      stSessions.forEach(sess => {
+        if (sess.questionSetId) sessionStats.alreadyHaveSessions++;
+        else sessionStats.waitingAdminSessions++;
+      });
     } else if (stSessions.length === 0) {
       status = 'MATERI_TIDAK_CUKUP';
       reason = 'Belum ada sesi UAS yang disusun untuk santri ini.';
@@ -508,6 +521,24 @@ export function evaluateUASMultiSessionEligibility(params: {
       sessionEligibilities = stSessions.map(sess => {
         const primaryPart = stParts.find(pt => pt.id === sess.primaryPartId) || null;
         return evaluateUASSessionEligibility({ session: sess, primaryPart, bankQuestions });
+      });
+
+      sessionEligibilities.forEach(se => {
+        if (se.status === 'SIAP_GENERATE') {
+          sessionStats.readySessions++;
+          if (se.sessionType === 'full_juz') sessionStats.readyFullSessions++;
+          else sessionStats.readyPartialSessions++;
+        } else if (se.status === 'SUDAH_ADA') {
+          sessionStats.alreadyHaveSessions++;
+        } else if (se.status === 'BANK_SOAL_KURANG') {
+          sessionStats.bankShortSessions++;
+        } else if (se.status === 'MENUNGGU_PERSETUJUAN_ADMIN') {
+          sessionStats.waitingAdminSessions++;
+        } else if (se.status === 'STALE') {
+          sessionStats.staleSessions++;
+        } else {
+          sessionStats.otherUnreadySessions++;
+        }
       });
 
       coveredRandomZones = sessionEligibilities.reduce((acc, se) => acc + se.coveredZones, 0);
@@ -528,7 +559,7 @@ export function evaluateUASMultiSessionEligibility(params: {
         stale++;
       } else if (hasBankKurang.length > 0) {
         status = 'BANK_SOAL_KURANG';
-        reason = `${p.studentName}: ${hasBankKurang.map(b => b.reason).join(' | ')}`;
+        reason = hasBankKurang.map(b => b.reason).join(' | ');
         bankSoalKurang++;
       } else if (anyReady) {
         status = 'SIAP_GENERATE';
@@ -570,6 +601,7 @@ export function evaluateUASMultiSessionEligibility(params: {
     materiTidakCukup,
     bankSoalKurang,
     stale,
-    items
+    items,
+    sessionStats
   };
 }

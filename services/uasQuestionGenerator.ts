@@ -15,7 +15,9 @@ import {
   QuestionBankItem,
   UASGenerationStrategy,
   MemorizationDirection,
-  QuestionSourceType
+  QuestionSourceType,
+  UASSessionBankDiagnostic,
+  UASZoneBankDiagnostic
 } from '../types';
 import { quranService, SURAH_TOTAL_AYAHS, comparePositions } from './quranService';
 import { SURAH_LIST } from '../constants';
@@ -1132,10 +1134,177 @@ export class UASQuestionGenerator {
   }
 
   /**
+   * SINGLE SOURCE OF TRUTH: Evaluasi cakupan Bank Soal per zona untuk satu sesi UAS.
+   * Kebijakan resmi SITA:
+   * - Soal Bank Soal BOLEH digunakan ulang antar-santri yang berbeda (tidak pernah dianggap habis).
+   * - Dalam SATU paket ujian, tidak boleh ada duplikasi soal (baik questionBankId maupun titik answerStart).
+   * - Hanya soal aktif (`status === 'active'`), tipe `random`, `examType` `uas`/`generic`,
+   *   koordinat valid, dan `startPage` + `endPage` berada di dalam `coveredPages` sesi yang lolos.
+   * - Mendiagnosis secara tepat mengapa soal di zona tertentu tidak memenuhi syarat.
+   */
+  public evaluateSessionBankCoverage(
+    session: Pick<ExamUASSession, 'sessionNumber' | 'sessionType' | 'juzNumber' | 'coveredPages'>,
+    bankQuestions: QuestionBankItem[]
+  ): {
+    diagnostic: UASSessionBankDiagnostic;
+    candidatesByZone: QuestionBankItem[][];
+    zones: MaterialZone[];
+    path: MaterialPath;
+  } {
+    const isPartial = session.sessionType === 'partial_half';
+    const requiredZones: 4 | 7 = isPartial ? 4 : 7;
+    const path = this.buildMaterialPathForCoveredPages(session.coveredPages || []);
+    const coveredPageSet = new Set(session.coveredPages || []);
+
+    // Deduplikasi Bank Soal berdasarkan ID agar tidak pernah dihitung ganda
+    const uniqueBankMap = new Map<string, QuestionBankItem>();
+    for (const bq of (bankQuestions || [])) {
+      if (bq && bq.id && !uniqueBankMap.has(bq.id)) {
+        uniqueBankMap.set(bq.id, bq);
+      }
+    }
+    const dedupedBank = Array.from(uniqueBankMap.values());
+
+    if (path.nodes.length < requiredZones) {
+      return {
+        diagnostic: {
+          requiredZones,
+          coveredZones: 0,
+          missingZones: Array.from({ length: requiredZones }, (_, i) => i + 1),
+          totalValidUniqueInSession: 0,
+          additionalNeeded: requiredZones,
+          zonesDetail: [],
+          disqualifiedSummary: {
+            inactiveCount: 0,
+            wrongTypeCount: 0,
+            wrongExamTypeCount: 0,
+            outOfPageCoverageCount: 0,
+            invalidCoordsCount: 0
+          }
+        },
+        candidatesByZone: Array.from({ length: requiredZones }, () => []),
+        zones: [],
+        path
+      };
+    }
+
+    const zones = this.divideIntoZonesCount(path, requiredZones);
+    const zonesDetail: UASZoneBankDiagnostic[] = [];
+    const candidatesByZone: QuestionBankItem[][] = [];
+    const allValidUniqueIds = new Set<string>();
+    const missingZones: number[] = [];
+
+    const totalDisq = {
+      inactiveCount: 0,
+      wrongTypeCount: 0,
+      wrongExamTypeCount: 0,
+      outOfPageCoverageCount: 0,
+      invalidCoordsCount: 0
+    };
+
+    for (let zIdx = 0; zIdx < zones.length; zIdx++) {
+      const zone = zones[zIdx];
+      const zoneNumber = zIdx + 1;
+      const nodeKeySet = new Set(zone.nodes.map(n => `${n.surahNumber}:${n.ayahNumber}`));
+      const firstNode = zone.nodes[0];
+      const lastNode = zone.nodes[zone.nodes.length - 1];
+      const zonePages = zone.nodes.map(n => n.pageNumber);
+      const zoneStartPage = zonePages.length > 0 ? Math.min(...zonePages) : 0;
+      const zoneEndPage = zonePages.length > 0 ? Math.max(...zonePages) : 0;
+
+      const validCandidates: QuestionBankItem[] = [];
+      let inactiveCount = 0;
+      let wrongTypeCount = 0;
+      let wrongExamTypeCount = 0;
+      let outOfPageCoverageCount = 0;
+      let invalidCoordsCount = 0;
+
+      for (const bq of dedupedBank) {
+        if (!bq.answerStart) continue;
+        const aKey = `${bq.answerStart.surahNumber}:${bq.answerStart.ayahNumber}`;
+        if (!nodeKeySet.has(aKey)) continue;
+
+        if (bq.status !== 'active') {
+          inactiveCount++;
+          continue;
+        }
+        if (bq.questionType !== 'random') {
+          wrongTypeCount++;
+          continue;
+        }
+        if (bq.examType !== 'uas' && bq.examType !== 'generic') {
+          wrongExamTypeCount++;
+          continue;
+        }
+        if (
+          !bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd ||
+          comparePositions(bq.promptStart, bq.promptEnd) > 0 ||
+          comparePositions(bq.promptEnd, bq.answerStart) >= 0 ||
+          comparePositions(bq.answerStart, bq.answerEnd) > 0
+        ) {
+          invalidCoordsCount++;
+          continue;
+        }
+        if (!coveredPageSet.has(bq.startPage) || !coveredPageSet.has(bq.endPage)) {
+          outOfPageCoverageCount++;
+          continue;
+        }
+
+        validCandidates.push(bq);
+        allValidUniqueIds.add(bq.id);
+      }
+
+      totalDisq.inactiveCount += inactiveCount;
+      totalDisq.wrongTypeCount += wrongTypeCount;
+      totalDisq.wrongExamTypeCount += wrongExamTypeCount;
+      totalDisq.outOfPageCoverageCount += outOfPageCoverageCount;
+      totalDisq.invalidCoordsCount += invalidCoordsCount;
+
+      if (validCandidates.length === 0) {
+        missingZones.push(zoneNumber);
+      }
+
+      candidatesByZone.push(validCandidates);
+      zonesDetail.push({
+        zoneNumber,
+        label: zone.label,
+        startPage: zoneStartPage,
+        endPage: zoneEndPage,
+        startRef: firstNode ? `${this.getSurahName(firstNode.surahNumber)}:${firstNode.ayahNumber}` : '-',
+        endRef: lastNode ? `${this.getSurahName(lastNode.surahNumber)}:${lastNode.ayahNumber}` : '-',
+        validUniqueCount: validCandidates.length,
+        validCandidateIds: validCandidates.map(c => c.id),
+        inactiveCount,
+        wrongTypeCount,
+        wrongExamTypeCount,
+        outOfPageCoverageCount,
+        invalidCoordsCount
+      });
+    }
+
+    const coveredZones = requiredZones - missingZones.length;
+    return {
+      diagnostic: {
+        requiredZones,
+        coveredZones,
+        missingZones,
+        totalValidUniqueInSession: allValidUniqueIds.size,
+        additionalNeeded: missingZones.length,
+        zonesDetail,
+        disqualifiedSummary: totalDisq
+      },
+      candidatesByZone,
+      zones,
+      path
+    };
+  }
+
+  /**
    * GENERATOR PAKET SOAL PER SESI UAS (FULL JUZ vs PARTIAL HALF JUZ):
    * - full_juz: 7 soal acak Bank Soal (10 poin/soal) -> status 'pending_mandatory' (2 soal wajib x 15 poin dipilih penguji = 100).
    * - partial_half: 4 soal acak Bank Soal (25 poin/soal = 100 poin) dari 4 zona -> status 'locked' (tanpa soal wajib).
-   * Dilarang membuat soal sintetis jika Bank Soal pada zona kosong.
+   * - Soal Bank Soal BOLEH dipakai ulang antar-santri yang berbeda, tetapi TIDAK BOLEH duplikat dalam 1 paket.
+   * - Dilarang membuat soal sintetis jika Bank Soal pada zona kosong.
    */
   public async generateUASSessionRandomDraft(params: {
     period: ExamPeriod;
@@ -1155,39 +1324,26 @@ export class UASQuestionGenerator {
     const maxScorePerRandom = isPartial ? 25 : 10;
     const questionStartNumber = isPartial ? 1 : 3;
 
-    const path = this.buildMaterialPathForCoveredPages(session.coveredPages);
+    const { diagnostic, candidatesByZone, path } = this.evaluateSessionBankCoverage(session, bankQuestions);
     if (path.nodes.length < zoneCount) {
       throw new Error(`Materi Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) terlalu sempit (${path.nodes.length} ayat untuk ${zoneCount} zona).`);
     }
 
-    const zones = this.divideIntoZonesCount(path, zoneCount);
-    const coveredPageSet = new Set(session.coveredPages);
     const seed = params.seed || `seed_uas_s${session.sessionNumber}_${period.id}_${session.studentId}_${Date.now()}`;
     const prng = createPRNG(seed);
 
+    const usedQuestionIds = new Set<string>();
     const usedBKeys = new Set<string>();
     const makeBKey = (pos: QuranPosition) => `${pos.surahNumber}:${pos.ayahNumber}:${pos.wordPosition}`;
     const questions: GeneratedUASQuestion[] = [];
     const missingZones: number[] = [];
 
     for (let zIdx = 0; zIdx < zoneCount; zIdx++) {
-      const zone = zones[zIdx];
       const zoneNumber = zIdx + 1;
       const questionNumber = zIdx + questionStartNumber;
 
-      const bankCandidates = bankQuestions.filter(bq => {
-        if (bq.status !== 'active') return false;
-        if (bq.questionType !== 'random') return false;
-        if (bq.examType !== 'uas' && bq.examType !== 'generic') return false;
-        if (!bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd) return false;
-        if (comparePositions(bq.promptStart, bq.promptEnd) > 0) return false;
-        if (comparePositions(bq.promptEnd, bq.answerStart) >= 0) return false;
-        if (comparePositions(bq.answerStart, bq.answerEnd) > 0) return false;
-        // Wajib seluruh rentang soal berada di halaman sah sesi ini
-        if (!coveredPageSet.has(bq.startPage) || !coveredPageSet.has(bq.endPage)) return false;
-
-        const bInZone = zone.nodes.some(n => n.surahNumber === bq.answerStart.surahNumber && n.ayahNumber === bq.answerStart.ayahNumber);
-        if (!bInZone) return false;
+      const bankCandidates = (candidatesByZone[zIdx] || []).filter(bq => {
+        if (usedQuestionIds.has(bq.id)) return false;
         if (usedBKeys.has(makeBKey(bq.answerStart))) return false;
         return true;
       });
@@ -1198,6 +1354,7 @@ export class UASQuestionGenerator {
       }
 
       const chosen = bankCandidates[Math.floor(prng() * bankCandidates.length)];
+      usedQuestionIds.add(chosen.id);
       usedBKeys.add(makeBKey(chosen.answerStart));
 
       questions.push({
@@ -1230,7 +1387,7 @@ export class UASQuestionGenerator {
     }
 
     if (missingZones.length > 0) {
-      throw new Error(`Bank Soal UAS kurang pada Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) zona kosong: ${missingZones.join(', ')}.`);
+      throw new Error(`Bank Soal Belum Cukup pada Sesi ${session.sessionNumber} (Juz ${session.juzNumber}) — butuh ${zoneCount} soal acak, tersedia ${diagnostic.coveredZones}, zona kurang: Zona ${missingZones.join(', Zona ')}.`);
     }
 
     const nowIso = new Date().toISOString();
