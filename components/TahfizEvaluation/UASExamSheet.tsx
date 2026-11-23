@@ -92,8 +92,14 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
   const [saveMessage, setSaveMessage] = useState<string>('Tersimpan');
   const [isSavingNext, setIsSavingNext] = useState(false);
   const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
+  const [pinExpiredMessage, setPinExpiredMessage] = useState<string | null>(null);
+  const [isReloadingFromServer, setIsReloadingFromServer] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [isExitingSave, setIsExitingSave] = useState(false);
+  const [exitError, setExitError] = useState<string | null>(null);
+  const [unsavedCount, setUnsavedCount] = useState(0);
 
   const sessionType = attempt.sessionType || (initialQuestions.length === 4 ? 'partial_half' : 'full_juz');
   const totalQuestionsCount = initialQuestions.length || (sessionType === 'partial_half' ? 4 : 9);
@@ -120,16 +126,91 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     version: 1
   };
 
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const assessmentsRef = useRef<ExamQuestionAssessment[]>(initialAssessments);
+  const debounceTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const saveSeqByQuestionRef = useRef<Map<number, number>>(new Map());
+  const dirtyQuestionsRef = useRef<Set<number>>(new Set());
+  const inFlightByQuestionRef = useRef<Map<number, Promise<boolean>>>(new Map());
+  const isMountedRef = useRef(true);
 
-  // Load dynamic Quran texts for all 9 questions
+  // Pulihkan cadangan penilaian offline milik penguji yang sama setelah refresh halaman
+  useEffect(() => {
+    const pendingList = api.getPendingUASAssessmentsForExaminer(attempt.id, user);
+    if (!pendingList || pendingList.length === 0) return;
+
+    const merged = assessmentsRef.current.map((srv) => {
+      const pending = pendingList.find(p => p.questionNumber === srv.questionNumber);
+      if (!pending) return srv;
+      const qObj = initialQuestions.find(q => q.questionNumber === srv.questionNumber);
+      const isMand = sessionType === 'partial_half'
+        ? false
+        : isMandatoryQuestion(srv.questionNumber, (qObj as any)?.questionRole || (qObj as any)?.question_role);
+      const fEvents = pending.fluencyEvents || [];
+      const tEvents = pending.tajwidEvents || [];
+      const mEvents = pending.makhrajEvents || [];
+      const { score: fScore } = calculateUASFluencyScore(fEvents, isMand, sessionType);
+      const { score: tScore } = calculateUASTajwidScore(tEvents, isMand, sessionType);
+      const { score: mScore } = calculateUASMakhrajScore(mEvents, isMand, sessionType);
+      const qScore = calculateUASQuestionScore(fScore, tScore, mScore, isMand, sessionType);
+      dirtyQuestionsRef.current.add(srv.questionNumber);
+      return {
+        ...srv,
+        fluencyEvents: fEvents,
+        tajwidEvents: tEvents,
+        makhrajEvents: mEvents,
+        fluencyScore: fScore,
+        tajwidScore: tScore,
+        makhrajScore: mScore,
+        questionScore: qScore,
+        notes: pending.notes ?? srv.notes,
+        completedAt: pending.completedAt ?? srv.completedAt
+      };
+    });
+
+    if (dirtyQuestionsRef.current.size > 0) {
+      assessmentsRef.current = merged;
+      setAssessments(merged);
+      setUnsavedCount(dirtyQuestionsRef.current.size);
+      setSaveStatus('local');
+      setSaveMessage('Belum Tersimpan');
+    }
+  }, [attempt.id]);
+
+  useEffect(() => {
+    assessmentsRef.current = assessments;
+  }, [assessments]);
+
+  // Cleanup seluruh timer debounce saat unmount agar tidak terjadi leak atau state update setelah unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      debounceTimersRef.current.forEach((timer) => clearTimeout(timer));
+      debounceTimersRef.current.clear();
+    };
+  }, []);
+
+  const hasUnsavedChanges =
+    unsavedCount > 0 || saveStatus === 'saving' || saveStatus === 'local' || saveStatus === 'error';
+
+  // Lindungi tab dari refresh/tutup tidak sengaja saat masih ada nilai belum tersimpan
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Load dynamic Quran texts progressively (soal pertama tampil segera tanpa menunggu seluruh 9 soal)
   useEffect(() => {
     let isMounted = true;
 
     const loadAllTexts = async () => {
-      const texts: Record<number, ReconstructedQuestionText> = {};
-
       for (const q of initialQuestions) {
+        if (!isMounted) return;
         const startSurahInfo = quranService.getSurah(q.promptStartSurah || q.answerStartSurah);
         const endSurahInfo = quranService.getSurah(q.answerEndSurah);
         const startSurahName = startSurahInfo?.name || `Surat ${q.promptStartSurah || q.answerStartSurah}`;
@@ -195,7 +276,8 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           console.warn('Gagal memuat teks Quran UAS:', e);
         }
 
-        texts[q.questionNumber] = {
+        if (!isMounted) return;
+        const reconstructed: ReconstructedQuestionText = {
           promptText,
           answerText,
           startSurahName,
@@ -204,10 +286,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           juzNumber: juzNum,
           isLoading: false
         };
-      }
-
-      if (isMounted) {
-        setQTexts(texts);
+        setQTexts(prev => ({ ...prev, [q.questionNumber]: reconstructed }));
       }
     };
 
@@ -216,59 +295,225 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [initialQuestions]);
+  }, [initialQuestions, sessionType]);
 
-  // Trigger debounced autosave
-  const triggerAutosave = (updatedAsm: ExamQuestionAssessment) => {
-    setSaveStatus('saving');
-    setSaveMessage('Menyimpan...');
-
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
+  // Serialized per-question save with generation tracking (mencegah race condition & stale overwrite)
+  const saveQuestionToServer = (qNum: number): Promise<boolean> => {
+    const existingTimer = debounceTimersRef.current.get(qNum);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      debounceTimersRef.current.delete(qNum);
     }
 
-    debounceTimerRef.current = setTimeout(async () => {
+    const existingFlight = inFlightByQuestionRef.current.get(qNum);
+    if (existingFlight) {
+      return existingFlight.then(async (prevOk) => {
+        if (!isMountedRef.current) return prevOk;
+        if (dirtyQuestionsRef.current.has(qNum)) {
+          return saveQuestionToServer(qNum);
+        }
+        return prevOk;
+      });
+    }
+
+    const runSave = (async (): Promise<boolean> => {
+      const snapshot = assessmentsRef.current.find(a => a.questionNumber === qNum);
+      if (!snapshot) {
+        dirtyQuestionsRef.current.delete(qNum);
+        if (isMountedRef.current) setUnsavedCount(dirtyQuestionsRef.current.size);
+        return true;
+      }
+
+      const sentSeq = saveSeqByQuestionRef.current.get(qNum) || 0;
+      if (isMountedRef.current) {
+        setSaveStatus('saving');
+        setSaveMessage('Menyimpan...');
+      }
+
       try {
         const res = await api.saveUASQuestionAssessment({
           attemptId: attempt.id,
-          questionNumber: updatedAsm.questionNumber,
-          expectedVersion: updatedAsm.version,
-          markCompleted: !!updatedAsm.completedAt,
+          questionNumber: snapshot.questionNumber,
+          expectedVersion: snapshot.version,
+          markCompleted: !!snapshot.completedAt,
+          periodId,
+          uasSessionId: attempt.uasSessionId || undefined,
           assessmentData: {
-            fluencyEvents: updatedAsm.fluencyEvents,
-            tajwidEvents: updatedAsm.tajwidEvents,
-            makhrajEvents: updatedAsm.makhrajEvents,
-            notes: updatedAsm.notes,
-            isCompleted: !!updatedAsm.completedAt
+            fluencyEvents: snapshot.fluencyEvents,
+            tajwidEvents: snapshot.tajwidEvents,
+            makhrajEvents: snapshot.makhrajEvents,
+            notes: snapshot.notes,
+            isCompleted: !!snapshot.completedAt
           }
         }, user);
 
-        if (res.success) {
-          setSaveStatus('saved');
-          setSaveMessage('Tersimpan');
+        if (!isMountedRef.current) return Boolean(res.success);
+
+        const latestSeq = saveSeqByQuestionRef.current.get(qNum) || 0;
+
+        if (res.success && res.savedToServer !== false) {
           const nextVer = (res as any).version ?? res.assessment?.version;
           if (nextVer) {
-            setAssessments(prev => prev.map(a => 
-              a.questionNumber === updatedAsm.questionNumber 
-                ? { ...a, version: nextVer } 
+            assessmentsRef.current = assessmentsRef.current.map(a =>
+              a.questionNumber === qNum
+                ? { ...a, version: Math.max(a.version || 1, nextVer) }
+                : a
+            );
+            setAssessments(prev => prev.map(a =>
+              a.questionNumber === qNum
+                ? { ...a, version: Math.max(a.version || 1, nextVer) }
                 : a
             ));
           }
-        } else if (res.isConflict) {
-          setSaveStatus('error');
-          setSaveMessage('Konflik data. Muat ulang halaman.');
-        } else if (res.savedLocally) {
-          setSaveStatus('local');
-          setSaveMessage('Tersimpan lokal');
-        } else {
-          setSaveStatus('error');
-          setSaveMessage(res.message || 'Gagal menyimpan');
+          if (latestSeq === sentSeq) {
+            dirtyQuestionsRef.current.delete(qNum);
+          }
+          setUnsavedCount(dirtyQuestionsRef.current.size);
+          setConflictMessage(null);
+          setPinExpiredMessage(null);
+
+          if (dirtyQuestionsRef.current.size === 0 && inFlightByQuestionRef.current.size <= 1) {
+            setSaveStatus('saved');
+            setSaveMessage('Tersimpan');
+          }
+          return true;
         }
-      } catch (err: any) {
+
+        if (res.isConflict) {
+          setSaveStatus('error');
+          setSaveMessage('Belum Tersimpan (Konflik)');
+          setConflictMessage(
+            res.message || 'Soal ini sudah diperbarui dari perangkat lain. Muat data terbaru dari server agar tidak saling menimpa.'
+          );
+          return false;
+        }
+
+        if (res.isPinExpired) {
+          setSaveStatus('error');
+          setSaveMessage('Belum Tersimpan (PIN habis)');
+          setPinExpiredMessage(
+            res.message || 'Verifikasi PIN penguji sudah kedaluwarsa. Nilai diamankan sementara di perangkat ini.'
+          );
+          return false;
+        }
+
+        if (res.localStorageError) {
+          setSaveStatus('error');
+          setSaveMessage('Belum Tersimpan (Penyimpanan penuh)');
+          setNavigationError(
+            res.message || 'Gagal menyimpan ke server maupun penyimpanan lokal perangkat. Jangan tutup halaman ini sebelum koneksi pulih.'
+          );
+          return false;
+        }
+
+        if (res.savedLocally) {
+          setSaveStatus('local');
+          setSaveMessage('Belum Tersimpan');
+          return false;
+        }
+
         setSaveStatus('error');
-        setSaveMessage('Koneksi terputus');
+        setSaveMessage('Belum Tersimpan');
+        return false;
+      } catch {
+        if (!isMountedRef.current) return false;
+        setSaveStatus('error');
+        setSaveMessage('Belum Tersimpan');
+        return false;
+      } finally {
+        inFlightByQuestionRef.current.delete(qNum);
       }
+    })();
+
+    inFlightByQuestionRef.current.set(qNum, runSave);
+
+    return runSave.then(async (ok) => {
+      if (!isMountedRef.current) return ok;
+      // Jika selama request berlangsung ada edit baru untuk soal yang sama, segera simpan snapshot terbarunya
+      if (ok && dirtyQuestionsRef.current.has(qNum)) {
+        return saveQuestionToServer(qNum);
+      }
+      return ok;
+    });
+  };
+
+  // Flush seluruh soal yang masih dirty atau pending timer ke server
+  const flushAllDirtyQuestions = async (): Promise<boolean> => {
+    const qNums = new Set<number>([
+      ...Array.from(dirtyQuestionsRef.current),
+      ...Array.from(debounceTimersRef.current.keys())
+    ]);
+    let allOk = true;
+    for (const qNum of qNums) {
+      const ok = await saveQuestionToServer(qNum);
+      if (!ok) allOk = false;
+    }
+    const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
+    if (!syncRes.success) {
+      allOk = false;
+      if (isMountedRef.current) {
+        setSaveStatus('local');
+        setSaveMessage('Belum Tersimpan');
+      }
+    } else if (allOk && dirtyQuestionsRef.current.size === 0 && isMountedRef.current) {
+      setSaveStatus('saved');
+      setSaveMessage('Tersimpan');
+    }
+    return allOk && dirtyQuestionsRef.current.size === 0;
+  };
+
+  // Pemulihan otomatis saat jaringan kembali online
+  useEffect(() => {
+    const handleOnline = () => {
+      if (dirtyQuestionsRef.current.size > 0 || saveStatus === 'local' || saveStatus === 'error') {
+        flushAllDirtyQuestions();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [saveStatus]);
+
+  // Reload data terbaru dari server saat terjadi konflik 2 perangkat
+  const handleReloadFromServer = async () => {
+    if (isReloadingFromServer) return;
+    setIsReloadingFromServer(true);
+    try {
+      const res = await api.getUASAttempt(attempt.id, user);
+      if (res.success && res.assessments) {
+        debounceTimersRef.current.forEach((timer) => clearTimeout(timer));
+        debounceTimersRef.current.clear();
+        dirtyQuestionsRef.current.clear();
+        assessmentsRef.current = res.assessments;
+        setAssessments(res.assessments);
+        setUnsavedCount(0);
+        setConflictMessage(null);
+        setSaveStatus('saved');
+        setSaveMessage('Tersimpan');
+      } else {
+        setNavigationError(res.message || 'Gagal memuat ulang data terbaru dari server.');
+      }
+    } catch (err: any) {
+      setNavigationError(err?.message || 'Gagal menghubungi server saat memuat ulang data.');
+    } finally {
+      if (isMountedRef.current) setIsReloadingFromServer(false);
+    }
+  };
+
+  // Trigger per-question debounced autosave (tidak membatalkan soal lain!)
+  const triggerAutosave = (updatedAsm: ExamQuestionAssessment) => {
+    const qNum = updatedAsm.questionNumber;
+    const prevTimer = debounceTimersRef.current.get(qNum);
+    if (prevTimer) {
+      clearTimeout(prevTimer);
+    }
+    setSaveStatus('saving');
+    setSaveMessage('Menyimpan...');
+
+    const timer = setTimeout(() => {
+      debounceTimersRef.current.delete(qNum);
+      saveQuestionToServer(qNum);
     }, 600);
+    debounceTimersRef.current.set(qNum, timer);
   };
 
   // Event dispatchers for counters
@@ -424,56 +669,34 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
   };
 
   const updateCurrentAssessmentState = (updated: ExamQuestionAssessment, immediateSave = false) => {
-    setAssessments(prev => prev.map(a => a.questionNumber === updated.questionNumber ? updated : a));
+    const qNum = updated.questionNumber;
+    const nextList = assessmentsRef.current.some(a => a.questionNumber === qNum)
+      ? assessmentsRef.current.map(a => a.questionNumber === qNum ? updated : a)
+      : [...assessmentsRef.current, updated];
+    assessmentsRef.current = nextList;
+    setAssessments(nextList);
+
+    dirtyQuestionsRef.current.add(qNum);
+    saveSeqByQuestionRef.current.set(qNum, (saveSeqByQuestionRef.current.get(qNum) || 0) + 1);
+    setUnsavedCount(dirtyQuestionsRef.current.size);
+
     if (immediateSave) {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      setSaveStatus('saving');
-      setSaveMessage('Menyimpan...');
-      api.saveUASQuestionAssessment({
-        attemptId: attempt.id,
-        questionNumber: updated.questionNumber,
-        expectedVersion: updated.version,
-        markCompleted: !!updated.completedAt,
-        assessmentData: {
-          fluencyEvents: updated.fluencyEvents,
-          tajwidEvents: updated.tajwidEvents,
-          makhrajEvents: updated.makhrajEvents,
-          notes: updated.notes,
-          isCompleted: !!updated.completedAt
-        }
-      }, user).then(res => {
-        if (res.success) {
-          setSaveStatus('saved');
-          setSaveMessage('Tersimpan');
-          const nextVer = (res as any).version ?? res.assessment?.version;
-          if (nextVer) {
-            setAssessments(prev => prev.map(a => 
-              a.questionNumber === updated.questionNumber 
-                ? { ...a, version: nextVer } 
-                : a
-            ));
-          }
-        } else if (res.isConflict) {
-          setSaveStatus('error');
-          setSaveMessage('Konflik data. Muat ulang halaman.');
-        } else if (res.savedLocally) {
-          setSaveStatus('local');
-          setSaveMessage('Tersimpan lokal');
-        } else {
-          setSaveStatus('error');
-          setSaveMessage(res.message || 'Gagal menyimpan');
-        }
-      }).catch(() => {
-        setSaveStatus('error');
-        setSaveMessage('Koneksi terputus');
-      });
+      saveQuestionToServer(qNum);
     } else {
       triggerAutosave(updated);
     }
   };
 
+  // Flush timer soal aktif saat berpindah soal agar tidak pernah membatalkan/meninggalkan edit
+  const flushCurrentQuestionIfPending = () => {
+    if (debounceTimersRef.current.has(currentQNum) || dirtyQuestionsRef.current.has(currentQNum)) {
+      saveQuestionToServer(currentQNum);
+    }
+  };
+
   // Direct question navigation
   const navigateToQuestion = (qNum: number) => {
+    flushCurrentQuestionIfPending();
     const targetIdx = initialQuestions.findIndex(q => q.questionNumber === qNum);
     if (targetIdx >= 0) {
       setCurrentQIndex(targetIdx);
@@ -482,28 +705,36 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     }
   };
 
-  // Next Question button with auto-complete prompt
+  // Next Question button with auto-complete & double-click guard
   const handleNextQuestion = async () => {
-    if (!currentAssessment.completedAt) {
-      // Auto-mark completed when advancing
-      const updated: ExamQuestionAssessment = {
-        ...currentAssessment,
-        completedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      updateCurrentAssessmentState(updated, true);
-    }
+    if (isSavingNext) return;
+    setIsSavingNext(true);
+    try {
+      if (!currentAssessment.completedAt) {
+        const updated: ExamQuestionAssessment = {
+          ...currentAssessment,
+          completedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        updateCurrentAssessmentState(updated, true);
+      } else {
+        flushCurrentQuestionIfPending();
+      }
 
-    if (currentQIndex < initialQuestions.length - 1) {
-      setCurrentQIndex(prev => prev + 1);
-      setNotesOpen(false);
-      setNavigationError(null);
-    } else {
-      setShowReviewModal(true);
+      if (currentQIndex < initialQuestions.length - 1) {
+        setCurrentQIndex(prev => prev + 1);
+        setNotesOpen(false);
+        setNavigationError(null);
+      } else {
+        setShowReviewModal(true);
+      }
+    } finally {
+      setIsSavingNext(false);
     }
   };
 
   const handlePrevQuestion = () => {
+    flushCurrentQuestionIfPending();
     if (currentQIndex > 0) {
       setCurrentQIndex(prev => prev - 1);
       setNotesOpen(false);
@@ -535,13 +766,16 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
     : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans select-none pb-8">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans select-none pb-24 sm:pb-10">
       {/* Compact Light Header */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-5 py-2.5">
         <div className="max-w-3xl lg:max-w-6xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <button
-              onClick={() => setShowExitConfirm(true)}
+              onClick={() => {
+                setExitError(null);
+                setShowExitConfirm(true);
+              }}
               className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
               title="Keluar Sesi Ujian"
               aria-label="Keluar Sesi Ujian"
@@ -579,24 +813,13 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
                   >
                     {saveMessage}
                   </span>
-                  {saveStatus === 'local' && (
+                  {(saveStatus === 'local' || saveStatus === 'error') && (
                     <button
                       type="button"
-                      onClick={async () => {
-                        setSaveStatus('saving');
-                        setSaveMessage('Menyinkronkan...');
-                        const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
-                        if (syncRes.success) {
-                          setSaveStatus('saved');
-                          setSaveMessage('Tersimpan');
-                        } else {
-                          setSaveStatus('local');
-                          setSaveMessage('Belum sync');
-                        }
-                      }}
+                      onClick={() => flushAllDirtyQuestions()}
                       className="ml-1 px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
                     >
-                      Sinkronkan
+                      Coba Simpan Ulang
                     </button>
                   )}
                 </span>
@@ -676,6 +899,47 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
 
       {/* Main Examination Sheet Area: 1-col on mobile/tablet, 2-col (60% Left Question / 40% Right Sticky Scoring) on desktop >= lg */}
       <main className="max-w-3xl lg:max-w-6xl w-full mx-auto p-3 sm:p-5 space-y-4 flex-1">
+        {(conflictMessage || pinExpiredMessage || navigationError) && (
+          <div className="space-y-2">
+            {conflictMessage && (
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl text-xs text-amber-950 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                  <span className="break-words">{conflictMessage}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleReloadFromServer}
+                  disabled={isReloadingFromServer}
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 disabled:opacity-50"
+                >
+                  {isReloadingFromServer ? 'Memuat...' : 'Muat Data Terbaru'}
+                </button>
+              </div>
+            )}
+            {pinExpiredMessage && (
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                  <span className="break-words">{pinExpiredMessage}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => flushAllDirtyQuestions()}
+                  className="px-3 py-1.5 rounded-xl bg-white border border-rose-300 text-rose-800 hover:bg-rose-100 text-xs font-bold shrink-0"
+                >
+                  Coba Simpan Ulang
+                </button>
+              </div>
+            )}
+            {navigationError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center justify-between gap-2">
+                <span>{navigationError}</span>
+                <button type="button" onClick={() => setNavigationError(null)} className="font-bold text-rose-500">✕</button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           {/* LEFT COLUMN (Desktop ~60%): SOAL & CATATAN */}
           <section data-testid="uas-question-column" className="lg:col-span-7 space-y-3.5 min-w-0">
@@ -795,7 +1059,7 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
                     onChange={(e) => handleNotesChange(e.target.value)}
                     placeholder="Catatan singkat penguji (opsional)..."
                     rows={2}
-                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
+                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none select-text"
                   />
                 </div>
               )}
@@ -1011,9 +1275,9 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
           assessments={assessments}
           sessionType={sessionType}
           onSubmitFinal={async () => {
-            const syncRes = await api.syncPendingUASAssessments(attempt.id, user);
-            if (!syncRes.success) {
-              throw new Error(syncRes.message || 'Masih ada penilaian lokal yang belum tersinkron ke server. Periksa koneksi internet dan coba lagi.');
+            const flushed = await flushAllDirtyQuestions();
+            if (!flushed) {
+              throw new Error('Masih ada penilaian yang belum tersimpan ke server. Periksa koneksi internet lalu coba simpan ulang sebelum menyelesaikan ujian.');
             }
             const res = await api.submitUASAttempt(attempt.id, user);
             if (res.success) {
@@ -1034,28 +1298,68 @@ export const UASExamSheet: React.FC<UASExamSheetProps> = ({
       {showExitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 border border-slate-200 shadow-xl space-y-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+              hasUnsavedChanges
+                ? 'bg-rose-50 border-rose-200 text-rose-600'
+                : 'bg-amber-50 border-amber-200 text-amber-600'
+            }`}>
               <AlertTriangle size={20} />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-slate-900">Keluar dari Lembar Ujian?</h4>
+              <h4 className="text-sm font-bold text-slate-900">
+                {hasUnsavedChanges ? 'Ada Penilaian Belum Tersimpan' : 'Keluar dari Lembar Ujian?'}
+              </h4>
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                Penilaian yang sudah diisi tersimpan otomatis. Anda dapat melanjutkan ujian kembali kapan saja.
+                {hasUnsavedChanges
+                  ? 'Perubahan penilaian terakhir belum terkonfirmasi tersimpan di server. Simpan terlebih dahulu agar nilai tidak tertinggal.'
+                  : 'Seluruh penilaian yang sudah diisi telah tersimpan di server. Anda dapat melanjutkan ujian kembali kapan saja.'}
               </p>
+              {exitError && (
+                <div className="mt-2.5 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-800">
+                  {exitError}
+                </div>
+              )}
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setShowExitConfirm(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors"
+                type="button"
+                disabled={isExitingSave}
+                onClick={() => {
+                  setExitError(null);
+                  setShowExitConfirm(false);
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
                 Tetap Menilai
               </button>
-              <button
-                onClick={onExit}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors"
-              >
-                Keluar
-              </button>
+              {hasUnsavedChanges ? (
+                <button
+                  type="button"
+                  disabled={isExitingSave}
+                  onClick={async () => {
+                    setIsExitingSave(true);
+                    setExitError(null);
+                    const ok = await flushAllDirtyQuestions();
+                    setIsExitingSave(false);
+                    if (ok) {
+                      onExit();
+                    } else {
+                      setExitError('Penyimpanan ke server gagal. Halaman tidak ditutup agar nilai tetap aman. Periksa koneksi lalu coba lagi.');
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 transition-colors disabled:opacity-50"
+                >
+                  {isExitingSave ? 'Menyimpan...' : 'Simpan & Keluar'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onExit}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors"
+                >
+                  Keluar
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -3458,14 +3458,46 @@ export const api = {
     return [];
   },
 
-  saveLocalQuestionAssessments(attemptId: string, assessments: ExamQuestionAssessment[]) {
+  saveLocalQuestionAssessments(attemptId: string, assessments: ExamQuestionAssessment[]): boolean {
     try {
-      if (attemptId.includes('uas')) {
-        localStorage.setItem(`sita_uas_assessments_${attemptId}`, JSON.stringify(assessments));
-      } else {
-        localStorage.setItem(`sita_uts_assessments_${attemptId}`, JSON.stringify(assessments));
+      const key = attemptId.includes('uas')
+        ? `sita_uas_assessments_${attemptId}`
+        : `sita_uts_assessments_${attemptId}`;
+      localStorage.setItem(key, JSON.stringify(assessments));
+      return true;
+    } catch (e) {
+      console.warn('Gagal menulis cadangan penilaian ke localStorage:', e);
+      return false;
+    }
+  },
+
+  clearSyncedLocalUASAssessments(attemptId: string): void {
+    try {
+      const current = this.getLocalQuestionAssessments(attemptId) as any[];
+      const stillPending = current.some(a => a && a.pendingSync === true);
+      if (!stillPending) {
+        localStorage.removeItem(`sita_uas_assessments_${attemptId}`);
       }
-    } catch (e) {}
+    } catch {
+      // Ignore storage cleanup error
+    }
+  },
+
+  getPendingUASAssessmentsForExaminer(
+    attemptId: string,
+    userOverride?: User | null
+  ): ExamQuestionAssessment[] {
+    const u = userOverride || getLoggedUser();
+    if (!u) return [];
+    const currentExaminerId = u.verifiedExaminer?.teacherId || u.id;
+    const localAsms = this.getLocalQuestionAssessments(attemptId) as any[];
+    return localAsms.filter(a => {
+      if (!a || a.pendingSync !== true) return false;
+      // Isolasi ketat: hanya pulihkan / sinkronkan data pending milik penguji yang sama
+      if (a.pendingExaminerId && a.pendingExaminerId !== currentExaminerId) return false;
+      if (a.pendingLoginUserId && a.pendingLoginUserId !== u.id) return false;
+      return true;
+    });
   },
 
   getLocalUASAttempts(periodId: string): ExamAttempt[] {
@@ -4223,10 +4255,39 @@ export const api = {
   // TAHAP 6B: PELAKSANAAN & PENILAIAN UAS TAHFIZ (PENGUJI)
   // ============================================================
 
+  runUASRpcWithTimeout<T>(
+    rpcPromise: PromiseLike<T>,
+    timeoutMs = 20000,
+    timeoutMessage = 'Koneksi ke server terlalu lambat (timeout). Silakan coba lagi.'
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+      Promise.resolve(rpcPromise)
+        .then((res) => {
+          clearTimeout(timer);
+          resolve(res);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  },
+
+  isUASPinExpiredMessage(msg?: string | null): boolean {
+    if (!msg) return false;
+    const lower = msg.toLowerCase();
+    return (
+      lower.includes('pin') && (lower.includes('kadaluarsa') || lower.includes('kedaluwarsa') || lower.includes('expired') || lower.includes('verifikasi ulang'))
+    ) || lower.includes('belum diverifikasi') || lower.includes('verifikasi identitas penguji');
+  },
+
   async getExaminerUASStudents(
     periodId: string,
     userOverride?: User | null
-  ): Promise<{ success: boolean; message?: string; period?: any; students?: ExaminerStudentItem[] }> {
+  ): Promise<{ success: boolean; message?: string; period?: any; students?: ExaminerStudentItem[]; isPinExpired?: boolean }> {
     const u = userOverride || getLoggedUser();
     if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
@@ -4234,11 +4295,15 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_examiner_uas_students', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_period_id: periodId
-        });
+        const { data, error } = await this.runUASRpcWithTimeout(
+          supabase.rpc('get_examiner_uas_students', {
+            p_username: u.username,
+            p_password: u.sessionToken || u.password,
+            p_period_id: periodId
+          }),
+          20000,
+          'Gagal memuat daftar santri UAS: waktu koneksi habis (timeout).'
+        );
 
         if (!error && data?.success) {
           return {
@@ -4247,9 +4312,11 @@ export const api = {
             students: data.students || []
           };
         }
+        const errMsg = data?.message || error?.message || 'Gagal memuat daftar santri UAS dari server database.';
         return {
           success: false,
-          message: data?.message || error?.message || 'Gagal memuat daftar santri UAS dari server database.'
+          isPinExpired: this.isUASPinExpiredMessage(errMsg),
+          message: errMsg
         };
       } catch (e: any) {
         console.error("getExaminerUASStudents remote error:", e);
@@ -4365,10 +4432,14 @@ export const api = {
     const u = userOverride || getLoggedUser();
     if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
     try {
-      const { data, error } = await supabase.rpc('get_uas_active_teachers', {
-        p_username: u.username,
-        p_password: u.sessionToken || u.password
-      });
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('get_uas_active_teachers', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password
+        }),
+        15000,
+        'Gagal memuat daftar penguji: waktu koneksi habis (timeout).'
+      );
       if (error) return { success: false, message: error.message };
       return data;
     } catch (e: any) {
@@ -4388,12 +4459,16 @@ export const api = {
     const u = userOverride || getLoggedUser();
     if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
     try {
-      const { data, error } = await supabase.rpc('verify_uas_examiner_identity', {
-        p_username: u.username,
-        p_password: u.sessionToken || u.password,
-        p_teacher_id: teacherId,
-        p_pin: pin
-      });
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('verify_uas_examiner_identity', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_teacher_id: teacherId,
+          p_pin: pin
+        }),
+        15000,
+        'Verifikasi PIN melewati batas waktu. Periksa koneksi internet dan coba lagi.'
+      );
       if (error) return { success: false, message: error.message };
       if (data?.success && data?.verifiedExaminer && u) {
         const updatedUser = { ...u, verifiedExaminer: data.verifiedExaminer };
@@ -4693,6 +4768,8 @@ export const api = {
       questionNumber: number;
       expectedVersion?: number;
       markCompleted?: boolean;
+      periodId?: string;
+      uasSessionId?: string;
       assessmentData: {
         fluencyEvents: UASAssessmentEvent[];
         tajwidEvents: UASAssessmentEvent[];
@@ -4702,48 +4779,87 @@ export const api = {
       };
     },
     userOverride?: User | null
-  ): Promise<{ success: boolean; savedToServer?: boolean; savedLocally?: boolean; isConflict?: boolean; message?: string; assessment?: any }> {
+  ): Promise<{ success: boolean; savedToServer?: boolean; savedLocally?: boolean; localStorageError?: boolean; isConflict?: boolean; isPinExpired?: boolean; message?: string; assessment?: any }> {
     const u = userOverride || getLoggedUser();
     if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, message: 'Akses ditolak.' };
     }
+    const currentExaminerId = u.verifiedExaminer?.teacherId || u.id;
 
     let remoteFailMessage: string | null = null;
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('save_uas_question_assessment', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_attempt_id: params.attemptId,
-          p_question_number: params.questionNumber,
-          p_assessment_data: params.assessmentData,
-          p_expected_version: params.expectedVersion ?? null,
-          p_mark_completed: params.markCompleted ?? params.assessmentData.isCompleted ?? false
-        });
+        const { data, error } = await this.runUASRpcWithTimeout(
+          supabase.rpc('save_uas_question_assessment', {
+            p_username: u.username,
+            p_password: u.sessionToken || u.password,
+            p_attempt_id: params.attemptId,
+            p_question_number: params.questionNumber,
+            p_assessment_data: params.assessmentData,
+            p_expected_version: params.expectedVersion ?? null,
+            p_mark_completed: params.markCompleted ?? params.assessmentData.isCompleted ?? false
+          }),
+          15000,
+          'Waktu simpan ke server habis (timeout).'
+        );
 
         if (!error && data) {
           if (data.success && data.assessment) {
-            const localAsms = this.getLocalQuestionAssessments(params.attemptId);
-            const lIdx = localAsms.findIndex(a => a.questionNumber === params.questionNumber);
-            if (lIdx >= 0) {
-              localAsms[lIdx] = {
-                ...localAsms[lIdx],
-                fluencyEvents: params.assessmentData.fluencyEvents || [],
-                tajwidEvents: params.assessmentData.tajwidEvents || [],
-                makhrajEvents: params.assessmentData.makhrajEvents || [],
-                notes: params.assessmentData.notes || '',
-                fluencyScore: data.assessment.fluencyScore ?? localAsms[lIdx].fluencyScore,
-                tajwidScore: data.assessment.tajwidScore ?? localAsms[lIdx].tajwidScore,
-                makhrajScore: data.assessment.makhrajScore ?? localAsms[lIdx].makhrajScore,
-                questionScore: data.assessment.questionScore ?? localAsms[lIdx].questionScore,
-                completedAt: data.assessment.completedAt ?? localAsms[lIdx].completedAt,
-                version: data.assessment.version ?? localAsms[lIdx].version,
-                pendingSync: false
-              } as any;
-              this.saveLocalQuestionAssessments(params.attemptId, localAsms);
+            const localAsms = this.getLocalQuestionAssessments(params.attemptId) as any[];
+            const nextAsms = localAsms.map(a =>
+              a.questionNumber === params.questionNumber && (!a.pendingExaminerId || a.pendingExaminerId === currentExaminerId)
+                ? {
+                    ...a,
+                    fluencyEvents: params.assessmentData.fluencyEvents || [],
+                    tajwidEvents: params.assessmentData.tajwidEvents || [],
+                    makhrajEvents: params.assessmentData.makhrajEvents || [],
+                    notes: params.assessmentData.notes || '',
+                    fluencyScore: data.assessment.fluencyScore ?? a.fluencyScore,
+                    tajwidScore: data.assessment.tajwidScore ?? a.tajwidScore,
+                    makhrajScore: data.assessment.makhrajScore ?? a.makhrajScore,
+                    questionScore: data.assessment.questionScore ?? a.questionScore,
+                    completedAt: data.assessment.completedAt ?? a.completedAt,
+                    version: data.assessment.version ?? a.version,
+                    pendingSync: false
+                  }
+                : a
+            );
+            this.saveLocalQuestionAssessments(params.attemptId, nextAsms);
+            this.clearSyncedLocalUASAssessments(params.attemptId);
+          } else if (data.isConflict) {
+            // Rekonsiliasi timeout: jika sebelumnya timeout di klien tapi server sebenarnya sudah menyimpan payload identik
+            const serverCheck = await this.getUASAttempt(params.attemptId, u).catch(() => null);
+            const srvAsm = serverCheck?.success && Array.isArray(serverCheck.assessments)
+              ? serverCheck.assessments.find((a: any) => a.questionNumber === params.questionNumber)
+              : null;
+            if (srvAsm) {
+              const sameEvents =
+                JSON.stringify(srvAsm.fluencyEvents || []) === JSON.stringify(params.assessmentData.fluencyEvents || []) &&
+                JSON.stringify(srvAsm.tajwidEvents || []) === JSON.stringify(params.assessmentData.tajwidEvents || []) &&
+                JSON.stringify(srvAsm.makhrajEvents || []) === JSON.stringify(params.assessmentData.makhrajEvents || []) &&
+                String(srvAsm.notes || '') === String(params.assessmentData.notes || '') &&
+                Boolean(srvAsm.completedAt) === Boolean(params.markCompleted ?? params.assessmentData.isCompleted ?? false);
+              if (sameEvents) {
+                const localAsms = this.getLocalQuestionAssessments(params.attemptId) as any[];
+                const cleaned = localAsms.map(a =>
+                  a.questionNumber === params.questionNumber ? { ...a, version: srvAsm.version, pendingSync: false } : a
+                );
+                this.saveLocalQuestionAssessments(params.attemptId, cleaned);
+                this.clearSyncedLocalUASAssessments(params.attemptId);
+                return {
+                  success: true,
+                  savedToServer: true,
+                  assessment: srvAsm,
+                  message: 'Penilaian sudah tersinkronisasi di server.'
+                };
+              }
             }
           }
-          return { ...data, savedToServer: Boolean(data.success) };
+          return {
+            ...data,
+            savedToServer: Boolean(data.success),
+            isPinExpired: !data.success && this.isUASPinExpiredMessage(data.message)
+          };
         }
         remoteFailMessage = error?.message || 'Gagal menyimpan ke server database.';
       } catch (e: any) {
@@ -4753,28 +4869,58 @@ export const api = {
     }
 
     // Jika Supabase aktif tetapi gagal, jangan pernah mengembalikan success: true palsu!
-    // Amankan salinan lokal agar penguji tidak kehilangan progres, lalu laporkan savedLocally: true.
+    // Amankan salinan lokal terikat pada (attemptId, periodId, uasSessionId, examinerId) tanpa PIN/password/token.
     if (supabase && remoteFailMessage) {
-      const localAsms = this.getLocalQuestionAssessments(params.attemptId);
-      const lIdx = localAsms.findIndex(a => a.questionNumber === params.questionNumber);
-      if (lIdx >= 0) {
-        localAsms[lIdx] = {
-          ...localAsms[lIdx],
-          fluencyEvents: params.assessmentData.fluencyEvents || [],
-          tajwidEvents: params.assessmentData.tajwidEvents || [],
-          makhrajEvents: params.assessmentData.makhrajEvents || [],
-          notes: params.assessmentData.notes || '',
-          completedAt: (params.markCompleted ?? params.assessmentData.isCompleted) ? (localAsms[lIdx].completedAt || new Date().toISOString()) : localAsms[lIdx].completedAt,
-          pendingSync: true,
-          updatedAt: new Date().toISOString()
-        } as any;
-        this.saveLocalQuestionAssessments(params.attemptId, localAsms);
+      const isPinExpired = this.isUASPinExpiredMessage(remoteFailMessage);
+      const localAsms = this.getLocalQuestionAssessments(params.attemptId) as any[];
+      const lIdx = localAsms.findIndex(
+        a => a.questionNumber === params.questionNumber && (!a.pendingExaminerId || a.pendingExaminerId === currentExaminerId)
+      );
+      const existing = lIdx >= 0 ? localAsms[lIdx] : null;
+      const shouldMarkCompleted = Boolean(params.markCompleted ?? params.assessmentData.isCompleted);
+      const pendingEntry = {
+        ...(existing || {
+          id: '',
+          examAttemptId: params.attemptId,
+          examQuestionId: '',
+          questionNumber: params.questionNumber
+        }),
+        periodId: params.periodId || existing?.periodId || null,
+        uasSessionId: params.uasSessionId || existing?.uasSessionId || null,
+        pendingExaminerId: currentExaminerId,
+        pendingLoginUserId: u.id,
+        fluencyEvents: params.assessmentData.fluencyEvents || [],
+        tajwidEvents: params.assessmentData.tajwidEvents || [],
+        makhrajEvents: params.assessmentData.makhrajEvents || [],
+        notes: params.assessmentData.notes || '',
+        completedAt: shouldMarkCompleted ? (existing?.completedAt || new Date().toISOString()) : null,
+        version: existing?.version ?? params.expectedVersion ?? 1,
+        pendingSync: true,
+        updatedAt: new Date().toISOString()
+      } as any;
+      if (lIdx >= 0) localAsms[lIdx] = pendingEntry;
+      else localAsms.push(pendingEntry);
+      const savedLocally = this.saveLocalQuestionAssessments(params.attemptId, localAsms);
+
+      if (!savedLocally) {
+        return {
+          success: false,
+          savedToServer: false,
+          savedLocally: false,
+          localStorageError: true,
+          isPinExpired,
+          message: 'Gagal menyimpan ke server maupun penyimpanan lokal perangkat (penyimpanan penuh atau diblokir). Jangan tutup halaman ini sebelum koneksi pulih.'
+        };
       }
+
       return {
         success: false,
         savedToServer: false,
         savedLocally: true,
-        message: `Tersimpan lokal sementara (${remoteFailMessage})`
+        isPinExpired,
+        message: isPinExpired
+          ? 'Verifikasi PIN kedaluwarsa. Nilai diamankan sementara di perangkat ini; silakan verifikasi PIN ulang.'
+          : `Belum tersimpan ke server (${remoteFailMessage})`
       };
     }
 
@@ -4891,8 +5037,7 @@ export const api = {
     if (!u || (u.role !== 'admin' && u.role !== 'teacher' && u.role !== 'shared_uas_examiner')) {
       return { success: false, syncedCount: 0, remainingCount: 0, message: 'Akses ditolak.' };
     }
-    const localAsms = this.getLocalQuestionAssessments(attemptId) as any[];
-    const pending = localAsms.filter(a => a.pendingSync === true);
+    const pending = this.getPendingUASAssessmentsForExaminer(attemptId, u) as any[];
     if (pending.length === 0) {
       return { success: true, syncedCount: 0, remainingCount: 0 };
     }
@@ -4904,6 +5049,8 @@ export const api = {
         questionNumber: item.questionNumber,
         expectedVersion: item.version,
         markCompleted: Boolean(item.completedAt),
+        periodId: item.periodId || undefined,
+        uasSessionId: item.uasSessionId || undefined,
         assessmentData: {
           fluencyEvents: item.fluencyEvents || [],
           tajwidEvents: item.tajwidEvents || [],
@@ -4922,6 +5069,7 @@ export const api = {
       }
       syncedCount++;
     }
+    this.clearSyncedLocalUASAssessments(attemptId);
     return { success: true, syncedCount, remainingCount: 0, message: `${syncedCount} penilaian lokal berhasil disinkronkan ke server.` };
   },
 
@@ -4943,11 +5091,15 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_uas_attempt', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_attempt_id: attemptId
-        });
+        const { data, error } = await this.runUASRpcWithTimeout(
+          supabase.rpc('get_uas_attempt', {
+            p_username: u.username,
+            p_password: u.sessionToken || u.password,
+            p_attempt_id: attemptId
+          }),
+          15000,
+          'Waktu muat detail ujian habis (timeout).'
+        );
 
         if (!error && data) {
           return data;
@@ -4996,11 +5148,15 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('submit_uas_attempt', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_attempt_id: attemptId
-        });
+        const { data, error } = await this.runUASRpcWithTimeout(
+          supabase.rpc('submit_uas_attempt', {
+            p_username: u.username,
+            p_password: u.sessionToken || u.password,
+            p_attempt_id: attemptId
+          }),
+          20000,
+          'Waktu finalisasi ujian habis (timeout). Memeriksa status di server...'
+        );
 
         if (!error && data) {
           if (!data.success && data.message) {
@@ -5008,15 +5164,41 @@ export const api = {
           }
           return data;
         }
+        // Cek apakah server sebenarnya sudah memproses submit meski respons error
+        const verifyAfterErr = await this.getUASAttempt(attemptId, u).catch(() => null);
+        if (verifyAfterErr?.success && verifyAfterErr.attempt?.status === 'submitted') {
+          return {
+            success: true,
+            isExisting: true,
+            totalScore: verifyAfterErr.attempt.totalScore,
+            kkm: verifyAfterErr.kkm ?? 75,
+            isPassed: (verifyAfterErr.attempt.totalScore ?? 0) >= (verifyAfterErr.kkm ?? 75),
+            submittedAt: verifyAfterErr.attempt.submittedAt || new Date().toISOString(),
+            message: 'Ujian telah tersimpan resmi di server.'
+          };
+        }
         return {
           success: false,
           message: this.formatFriendlyUASRpcError(error?.message, 'submit')
         };
       } catch (e: any) {
         console.error('[UAS_DIAG]', { stage: 'submit', detail: e?.message });
+        // Idempotent recovery: jika submit sukses di server tetapi respons gagal diterima klien
+        const verifyAfterCatch = await this.getUASAttempt(attemptId, u).catch(() => null);
+        if (verifyAfterCatch?.success && verifyAfterCatch.attempt?.status === 'submitted') {
+          return {
+            success: true,
+            isExisting: true,
+            totalScore: verifyAfterCatch.attempt.totalScore,
+            kkm: verifyAfterCatch.kkm ?? 75,
+            isPassed: (verifyAfterCatch.attempt.totalScore ?? 0) >= (verifyAfterCatch.kkm ?? 75),
+            submittedAt: verifyAfterCatch.attempt.submittedAt || new Date().toISOString(),
+            message: 'Ujian sudah tersimpan resmi di server.'
+          };
+        }
         return {
           success: false,
-          message: 'Koneksi terputus: Hasil ujian UAS belum tersimpan resmi di server. Silakan coba lagi saat koneksi stabil.'
+          message: 'Koneksi terputus atau timeout: Hasil ujian UAS belum terkonfirmasi di server. Silakan coba lagi saat koneksi stabil.'
         };
       }
     }
@@ -5121,11 +5303,15 @@ export const api = {
     const u = userOverride || getLoggedUser();
     if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
     try {
-      const { data, error } = await supabase.rpc('get_uas_juz_parts_and_sessions', {
-        p_username: u.username,
-        p_password: u.sessionToken || u.password,
-        p_period_id: periodId
-      });
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('get_uas_juz_parts_and_sessions', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_period_id: periodId
+        }),
+        20000,
+        'Gagal memuat sesi UAS: waktu koneksi habis (timeout).'
+      );
       if (error) return { success: false, message: error.message };
       return data;
     } catch (e: any) {
@@ -5386,16 +5572,24 @@ export const api = {
     const u = userOverride || getLoggedUser();
     if (!u || !supabase) return { success: false, message: 'Koneksi Supabase tidak tersedia.' };
     try {
-      const { data, error } = await supabase.rpc('start_uas_session_attempt', {
-        p_username: u.username,
-        p_password: u.sessionToken || u.password,
-        p_period_id: periodId,
-        p_student_id: studentId,
-        p_uas_session_id: uasSessionId
-      });
+      const { data, error } = await this.runUASRpcWithTimeout(
+        supabase.rpc('start_uas_session_attempt', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_period_id: periodId,
+          p_student_id: studentId,
+          p_uas_session_id: uasSessionId
+        }),
+        20000,
+        'Gagal memulai sesi ujian: waktu koneksi habis (timeout). Silakan coba lagi.'
+      );
       if (error) return { success: false, message: this.formatFriendlyUASRpcError(error.message, 'start', { rpcName: 'start_uas_session_attempt', code: (error as any).code }) };
       if (data && !data.success && data.message) {
-        return { ...data, message: this.formatFriendlyUASRpcError(data.message, 'start', { rpcName: 'start_uas_session_attempt' }) };
+        return {
+          ...data,
+          isPinExpired: this.isUASPinExpiredMessage(data.message),
+          message: this.formatFriendlyUASRpcError(data.message, 'start', { rpcName: 'start_uas_session_attempt' })
+        };
       }
       return data;
     } catch (e: any) {
