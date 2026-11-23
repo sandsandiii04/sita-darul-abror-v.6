@@ -5453,6 +5453,44 @@ export const api = {
     }
   },
 
+  async adminCancelUASSession(
+    params: {
+      uasSessionId: string;
+      reason: string;
+      idempotencyKey?: string;
+    },
+    userOverride?: User | null
+  ): Promise<{
+    success: boolean;
+    alreadyCancelled?: boolean;
+    blockedCondition?: 'submitted' | 'in_progress' | 'has_assessment';
+    sessionId?: string;
+    sessionNumber?: number;
+    juzNumber?: number;
+    oldQuestionSetId?: string | null;
+    deactivatedOldPacket?: boolean;
+    closedPendingRevisions?: number;
+    message?: string;
+  }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role !== 'admin' || !supabase) {
+      return { success: false, message: 'Akses ditolak: Hanya Admin yang berwenang membatalkan sesi UAS.' };
+    }
+    try {
+      const { data, error } = await supabase.rpc('admin_cancel_uas_session_secure', {
+        p_username: u.username,
+        p_password: u.sessionToken || u.password,
+        p_uas_session_id: params.uasSessionId,
+        p_reason: params.reason,
+        p_idempotency_key: params.idempotencyKey || null
+      });
+      if (error) return { success: false, message: error.message };
+      return data || { success: false, message: 'Respons server kosong saat membatalkan sesi.' };
+    } catch (e: any) {
+      return { success: false, message: e?.message || 'Gagal membatalkan sesi UAS.' };
+    }
+  },
+
   async submitUASPrepForApproval(
     periodId: string,
     studentId: string,

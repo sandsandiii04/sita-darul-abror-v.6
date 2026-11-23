@@ -518,6 +518,10 @@ export interface ExamUASSession {
   actualExaminerId?: string | null;
   actualExaminerName?: string | null;
   examinerHistory?: Array<{ teacher_id?: string; teacher_name?: string; session_number?: number; verified_at?: string }>;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
+  cancelledByName?: string | null;
+  cancelledReason?: string | null;
 }
 
 export interface ExamUASPrepSubmission {

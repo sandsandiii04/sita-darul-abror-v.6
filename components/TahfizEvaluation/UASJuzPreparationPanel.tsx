@@ -20,6 +20,7 @@ import { UASAdminApprovalPanel } from './UASAdminApprovalPanel';
 import { UASAdminRevisionPanel } from './UASAdminRevisionPanel';
 import { UASManualPrepModal } from './UASManualPrepModal';
 import { UASMaterialRevisionModal } from './UASMaterialRevisionModal';
+import { UASCancelSessionModal } from './UASCancelSessionModal';
 import {
   BookOpen,
   RefreshCw,
@@ -63,6 +64,7 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
 }) => {
   const [serverParts, setServerParts] = useState<ExamMaterialPart[]>([]);
   const [serverSessions, setServerSessions] = useState<ExamUASSession[]>([]);
+  const [cancelledServerSessions, setCancelledServerSessions] = useState<ExamUASSession[]>([]);
   const [serverSubmissions, setServerSubmissions] = useState<ExamUASPrepSubmission[]>([]);
   const [serverRevisions, setServerRevisions] = useState<ExamUASMaterialRevision[]>([]);
   const [bankQuestions, setBankQuestions] = useState<QuestionBankItem[]>([]);
@@ -79,6 +81,13 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const [fullManualStudentId, setFullManualStudentId] = useState<string | null>(null);
   const [teacherDetailStudentId, setTeacherDetailStudentId] = useState<string | null>(null);
   const [directRevisionTarget, setDirectRevisionTarget] = useState<{
+    studentId: string;
+    studentName: string;
+    studentClass: string;
+    halaqah: string;
+    session: ExamUASSession;
+  } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<{
     studentId: string;
     studentName: string;
     studentClass: string;
@@ -189,8 +198,41 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           predikat: s.predikat,
           actualExaminerId: s.actual_examiner_id,
           actualExaminerName: s.actual_examiner_name,
-          examinerHistory: s.examiner_history || []
+          examinerHistory: s.examiner_history || [],
+          cancelledAt: s.cancelled_at || null,
+          cancelledBy: s.cancelled_by || null,
+          cancelledByName: s.cancelled_by_name || null,
+          cancelledReason: s.cancelled_reason || null
         }))
+      );
+      setCancelledServerSessions(
+        (juzRes.sessions || [])
+          .filter((s: any) => s.status === 'void' && (s.cancelled_at || s.cancelled_reason))
+          .map((s: any) => ({
+            id: s.id,
+            examPeriodId: s.exam_period_id,
+            studentId: s.student_id,
+            sessionNumber: s.session_number,
+            sessionType: s.session_type,
+            primaryPartId: s.primary_part_id,
+            juzNumber: s.juz_number,
+            supplementalParts: s.supplemental_parts || [],
+            coveredPages: s.covered_pages || [],
+            startSurah: s.start_surah,
+            startAyah: s.start_ayah,
+            endSurah: s.end_surah,
+            endAyah: s.end_ayah,
+            startPage: s.start_page,
+            endPage: s.end_page,
+            questionSetId: s.question_set_id,
+            attemptId: s.attempt_id,
+            source: s.source || 'auto',
+            status: 'void' as const,
+            cancelledAt: s.cancelled_at || null,
+            cancelledBy: s.cancelled_by || null,
+            cancelledByName: s.cancelled_by_name || null,
+            cancelledReason: s.cancelled_reason || null
+          }))
       );
       setServerSubmissions(
         (juzRes.submissions || []).map((sub: any) => ({
@@ -1440,12 +1482,86 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                                 </button>
                               )
                             )}
+                            {isAdmin &&
+                              matchedServer &&
+                              s.status !== 'submitted' &&
+                              s.status !== 'in_progress' &&
+                              !s.attemptId && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTeacherDetailStudentId(null);
+                                    setCancelTarget({
+                                      studentId: detailRow.participant.studentId,
+                                      studentName: detailRow.participant.studentName,
+                                      studentClass: detailRow.participant.class,
+                                      halaqah: detailRow.participant.halaqah || '-',
+                                      session: matchedServer
+                                    });
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px]"
+                                >
+                                  Batalkan Sesi
+                                </button>
+                              )}
                           </div>
                         </div>
                       );
                     })
                   )}
                 </div>
+
+                {(() => {
+                  const studentCancelled = cancelledServerSessions.filter(
+                    cs => cs.studentId === detailRow.participant.studentId
+                  );
+                  if (studentCancelled.length === 0) return null;
+                  return (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="font-bold text-rose-800 flex items-center justify-between gap-2">
+                        <span>{isAdmin ? `Riwayat Sesi Dibatalkan (${studentCancelled.length})` : `Sesi Dibatalkan oleh Admin (${studentCancelled.length})`}</span>
+                        {isAdmin && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+                            Menunggu Guru Membuat Sesi Baru
+                          </span>
+                        )}
+                      </div>
+                      {studentCancelled.map(cs => (
+                        <div key={cs.id} className="p-2.5 rounded-xl border border-rose-200 bg-rose-50/70 space-y-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-bold text-rose-950">
+                              Sesi {cs.sessionNumber} • Juz {cs.juzNumber} ({cs.sessionType === 'full_juz' ? 'Juz Penuh' : 'Parsial'})
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-rose-200/80 text-rose-900 font-bold text-[10px]">
+                              Dibatalkan (Void)
+                            </span>
+                          </div>
+                          {cs.cancelledReason && (
+                            <div className="text-[11px] text-rose-900">
+                              <strong>Alasan Pembatalan:</strong> {cs.cancelledReason}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-rose-700">
+                            Dibatalkan oleh {cs.cancelledByName || 'Admin'}
+                            {cs.cancelledAt ? ` • ${new Date(cs.cancelledAt).toLocaleString('id-ID')}` : ''}
+                          </div>
+                        </div>
+                      ))}
+                      {!isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTeacherDetailStudentId(null);
+                            setFullManualStudentId(detailRow.participant.studentId);
+                          }}
+                          className="w-full py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs"
+                        >
+                          Buat Sesi Baru &amp; Kirim untuk Persetujuan Admin
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
@@ -1519,6 +1635,37 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           user={user}
           onSubmitted={async (msgText) => {
             setDirectRevisionTarget(null);
+            await loadRemote();
+            onSessionsUpdated?.();
+            setMsg({ type: 'success', text: msgText });
+          }}
+        />
+      )}
+
+      {cancelTarget && (
+        <UASCancelSessionModal
+          isOpen={true}
+          onClose={() => setCancelTarget(null)}
+          studentName={cancelTarget.studentName}
+          studentClass={cancelTarget.studentClass}
+          halaqah={cancelTarget.halaqah}
+          session={cancelTarget.session}
+          hasPendingRevision={serverRevisions.some(
+            r =>
+              r.uasSessionId === cancelTarget.session.id &&
+              (r.status === 'pending' || r.status === 'on_hold_in_progress')
+          )}
+          otherActiveSessionCount={
+            serverSessions.filter(
+              s =>
+                s.studentId === cancelTarget.studentId &&
+                s.id !== cancelTarget.session.id &&
+                s.status !== 'void'
+            ).length
+          }
+          user={user}
+          onCancelled={async (msgText) => {
+            setCancelTarget(null);
             await loadRemote();
             onSessionsUpdated?.();
             setMsg({ type: 'success', text: msgText });
