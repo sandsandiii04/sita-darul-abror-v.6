@@ -1245,7 +1245,9 @@ export class UASQuestionGenerator {
           invalidCoordsCount++;
           continue;
         }
-        if (!coveredPageSet.has(bq.startPage) || !coveredPageSet.has(bq.endPage)) {
+        const actualStartPage = quranService.getAyahPage(bq.promptStart.surahNumber, bq.promptStart.ayahNumber);
+        const actualEndPage = quranService.getAyahPage(bq.answerEnd.surahNumber, bq.answerEnd.ayahNumber);
+        if (!coveredPageSet.has(actualStartPage) || !coveredPageSet.has(actualEndPage)) {
           outOfPageCoverageCount++;
           continue;
         }
@@ -1356,6 +1358,8 @@ export class UASQuestionGenerator {
       const chosen = bankCandidates[Math.floor(prng() * bankCandidates.length)];
       usedQuestionIds.add(chosen.id);
       usedBKeys.add(makeBKey(chosen.answerStart));
+      const trueStartPage = quranService.getAyahPage(chosen.promptStart.surahNumber, chosen.promptStart.ayahNumber);
+      const trueEndPage = quranService.getAyahPage(chosen.answerEnd.surahNumber, chosen.answerEnd.ayahNumber);
 
       questions.push({
         questionNumber,
@@ -1363,14 +1367,14 @@ export class UASQuestionGenerator {
         zoneNumber,
         sourceType: 'bank',
         questionBankId: chosen.id,
-        pageNumber: chosen.startPage,
+        pageNumber: trueStartPage,
         maxScore: maxScorePerRandom,
         promptStart: chosen.promptStart,
         promptEnd: chosen.promptEnd,
         answerStart: chosen.answerStart,
         answerEnd: chosen.answerEnd,
-        startPage: chosen.startPage,
-        endPage: chosen.endPage,
+        startPage: trueStartPage,
+        endPage: trueEndPage,
         metadata: {
           juzNumber: session.juzNumber,
           sessionNumber: session.sessionNumber,

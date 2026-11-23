@@ -1,8 +1,9 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AcademicTerm,
   ExamMaterialPart,
   ExamPeriod,
+  ExamUASMaterialRevision,
   ExamUASSession,
   TahfidzRecord,
   User
@@ -50,9 +51,11 @@ interface UASManualPrepModalProps {
   suggestedParts: ExamMaterialPart[];
   sessions: ExamUASSession[];
   serverSessions?: ExamUASSession[];
+  pendingRevisions?: ExamUASMaterialRevision[];
   submissionStatus?: string;
   user: User;
   onSaved: (msgText?: string) => Promise<void>;
+  onOpenRevisionsTab?: () => void;
 }
 
 interface DraftSessionItem {
@@ -119,9 +122,11 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
   serverParts,
   sessions,
   serverSessions,
+  pendingRevisions,
   submissionStatus,
   user,
-  onSaved
+  onSaved,
+  onOpenRevisionsTab
 }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [revisionTargetSession, setRevisionTargetSession] = useState<ExamUASSession | null>(null);
@@ -221,6 +226,30 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
 
   // Track deleted server session IDs (only manual unlocked draft sessions)
   const [deletedServerSessionIds, setDeletedServerSessionIds] = useState<string[]>([]);
+
+  // Sinkronkan status server (questionSetId, attemptId, isLocked, serverId) bila data server diperbarui saat modal terbuka
+  useEffect(() => {
+    if (!serverSessions) return;
+    const serverById = new Map(
+      serverSessions
+        .filter(s => s.status !== 'void' && (!s.examPeriodId || s.examPeriodId === period.id))
+        .map(s => [s.id, s])
+    );
+    setDraftSessions(prev =>
+      prev.map(ds => {
+        const matched = serverById.get(ds.serverId || ds.localId);
+        if (!matched) return ds;
+        return {
+          ...ds,
+          serverId: matched.id,
+          originalSessionNumber: matched.sessionNumber,
+          isLocked: matched.isLocked,
+          hasAttempt: Boolean(matched.attemptId),
+          hasQuestionSet: Boolean(matched.questionSetId)
+        };
+      })
+    );
+  }, [serverSessions, period.id]);
 
   // Advanced editor ("Ubah Detail") & manual add-session picker
   const [editingLocalId, setEditingLocalId] = useState<string | null>(null);
@@ -1162,25 +1191,52 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
                             </div>
                           ) : (
                             (sess.hasAttempt || sess.hasQuestionSet || sess.isLocked || isLockedByAdmin) && (() => {
-                              const matchedServerSess = (serverSessions || sessions).find(
-                                s => s.id === sess.serverId && s.status !== 'void'
+                              const canRequestRevisionRole = user.role === 'admin' || user.role === 'teacher';
+                              const serverSource = serverSessions !== undefined ? serverSessions : sessions;
+                              const matchedServerSess = serverSource.find(
+                                s => (s.id === sess.serverId || s.id === sess.localId) && s.status !== 'void'
                               );
+                              const activeRev = matchedServerSess
+                                ? (pendingRevisions || []).find(
+                                    r =>
+                                      r.uasSessionId === matchedServerSess.id &&
+                                      (r.status === 'pending' || r.status === 'on_hold_in_progress')
+                                  )
+                                : undefined;
                               return (
                                 <div className="w-full text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-1 flex flex-wrap items-center justify-between gap-2">
                                   <span>
-                                    {sess.hasAttempt || sess.hasQuestionSet
-                                      ? 'Sesi ini sudah memiliki soal atau riwayat ujian. Ajukan revisi resmi ke Admin untuk melakukan perubahan.'
-                                      : 'Materi sesi ini sudah disetujui Admin. Ajukan revisi resmi ke Admin jika terdapat kesalahan materi.'}
+                                    {activeRev
+                                      ? 'Sudah ada pengajuan revisi materi aktif untuk sesi ini yang menunggu keputusan Admin.'
+                                      : sess.hasAttempt || sess.hasQuestionSet
+                                        ? 'Sesi ini sudah memiliki soal atau riwayat ujian. Ajukan revisi resmi ke Admin untuk melakukan perubahan.'
+                                        : 'Materi sesi ini sudah disetujui Admin. Ajukan revisi resmi ke Admin jika terdapat kesalahan materi.'}
                                   </span>
-                                  {matchedServerSess && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setRevisionTargetSession(matchedServerSess)}
-                                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
-                                    >
-                                      <Edit3 size={12} />
-                                      <span>Ajukan Revisi Materi</span>
-                                    </button>
+                                  {activeRev ? (
+                                    isAdmin && onOpenRevisionsTab ? (
+                                      <button
+                                        type="button"
+                                        onClick={onOpenRevisionsTab}
+                                        className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
+                                      >
+                                        <span>Buka Tab Revisi Materi</span>
+                                      </button>
+                                    ) : (
+                                      <span className="px-2.5 py-1 rounded-lg bg-amber-200/80 text-amber-950 font-bold text-[10px] shrink-0">
+                                        Menunggu Admin
+                                      </span>
+                                    )
+                                  ) : (
+                                    canRequestRevisionRole && matchedServerSess && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setRevisionTargetSession(matchedServerSess)}
+                                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
+                                      >
+                                        <Edit3 size={12} />
+                                        <span>Ajukan Revisi Materi</span>
+                                      </button>
+                                    )
                                   )}
                                 </div>
                               );
@@ -1476,12 +1532,21 @@ export const UASManualPrepModal: React.FC<UASManualPrepModalProps> = ({
         {/* Sticky Feedback Banner (always visible above footer) */}
         {feedback && (
           <div className="px-4 sm:px-6 py-2.5 border-t border-slate-100 bg-white text-xs">
-            <div className={`p-2.5 rounded-xl font-semibold border ${
+            <div className={`p-2.5 rounded-xl font-semibold border flex flex-wrap items-center justify-between gap-2 ${
               feedback.type === 'success'
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                 : 'bg-rose-50 border-rose-200 text-rose-800'
             }`}>
-              {feedback.text}
+              <span>{feedback.text}</span>
+              {feedback.type === 'success' && isAdmin && onOpenRevisionsTab && feedback.text.toLowerCase().includes('revisi') && (
+                <button
+                  type="button"
+                  onClick={onOpenRevisionsTab}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] shrink-0"
+                >
+                  Buka Tab Pengajuan Revisi
+                </button>
+              )}
             </div>
           </div>
         )}

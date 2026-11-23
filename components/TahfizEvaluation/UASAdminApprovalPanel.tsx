@@ -519,12 +519,16 @@ export const UASAdminApprovalPanel: React.FC<UASAdminApprovalPanelProps> = ({
                             </button>
                           ) : null;
                         })()}
-                        {onOpenStudentPrep && sub.status !== 'admin_approved' && (
+                        {onOpenStudentPrep && (
                           <button
                             onClick={() => onOpenStudentPrep(sub.studentId)}
-                            className="px-2.5 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-bold inline-flex items-center gap-1"
+                            className={`px-2.5 py-1 rounded-lg font-bold inline-flex items-center gap-1 ${
+                              sub.status === 'admin_approved'
+                                ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                : 'bg-teal-700 hover:bg-teal-800 text-white'
+                            }`}
                           >
-                            <span>Lihat / Atur Sesi</span>
+                            <span>{sub.status === 'admin_approved' ? 'Lihat / Revisi Sesi' : 'Lihat / Atur Sesi'}</span>
                           </button>
                         )}
                         <button

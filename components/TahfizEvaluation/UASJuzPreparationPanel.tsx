@@ -19,6 +19,7 @@ import { evaluateUASSessionEligibility } from '../../services/uasBulkEligibility
 import { UASAdminApprovalPanel } from './UASAdminApprovalPanel';
 import { UASAdminRevisionPanel } from './UASAdminRevisionPanel';
 import { UASManualPrepModal } from './UASManualPrepModal';
+import { UASMaterialRevisionModal } from './UASMaterialRevisionModal';
 import {
   BookOpen,
   RefreshCw,
@@ -77,6 +78,13 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
   const [pageSize, setPageSize] = useState<number>(20);
   const [fullManualStudentId, setFullManualStudentId] = useState<string | null>(null);
   const [teacherDetailStudentId, setTeacherDetailStudentId] = useState<string | null>(null);
+  const [directRevisionTarget, setDirectRevisionTarget] = useState<{
+    studentId: string;
+    studentName: string;
+    studentClass: string;
+    halaqah: string;
+    session: ExamUASSession;
+  } | null>(null);
   const [showSyncPreview, setShowSyncPreview] = useState(false);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [showAdvancedSummary, setShowAdvancedSummary] = useState(false);
@@ -1262,6 +1270,9 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
             suggestedParts={targetRow.analysis.parts}
             sessions={targetRow.sessions}
             serverSessions={serverSessions.filter(s => s.studentId === targetRow.participant.studentId && s.status !== 'void')}
+            pendingRevisions={serverRevisions.filter(
+              r => r.studentId === targetRow.participant.studentId && (r.status === 'pending' || r.status === 'on_hold_in_progress')
+            )}
             submissionStatus={targetRow.submission?.status}
             user={user}
             onSaved={async (msgText) => {
@@ -1269,6 +1280,14 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
               onSessionsUpdated?.();
               if (msgText) setMsg({ type: 'success', text: msgText });
             }}
+            onOpenRevisionsTab={
+              isAdmin
+                ? () => {
+                    setFullManualStudentId(null);
+                    setActiveAdminTab('revisions');
+                  }
+                : undefined
+            }
           />
         );
       })()}
@@ -1361,24 +1380,70 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
                   {detailRow.sessions.length === 0 ? (
                     <p className="text-slate-400 italic">Belum ada sesi ujian.</p>
                   ) : (
-                    detailRow.sessions.map(s => (
-                      <div key={s.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
-                        <div>
-                          <div className="font-bold text-slate-800">
-                            Sesi {s.sessionNumber} • Juz {s.juzNumber} ({s.sessionType === 'full_juz' ? 'Juz Penuh' : 'Parsial'})
+                    detailRow.sessions.map(s => {
+                      const matchedServer = serverSessions.find(ss => ss.id === s.id && ss.status !== 'void');
+                      const canRequestRevision =
+                        (isAdmin || isTeacher) &&
+                        Boolean(matchedServer) &&
+                        Boolean(
+                          s.questionSetId ||
+                            s.attemptId ||
+                            s.isLocked ||
+                            s.approvalStatus === 'admin_approved' ||
+                            detailRow.submission?.status === 'admin_approved'
+                        );
+                      const hasPendingRev =
+                        Boolean(matchedServer) &&
+                        serverRevisions.some(
+                          r =>
+                            r.uasSessionId === matchedServer!.id &&
+                            (r.status === 'pending' || r.status === 'on_hold_in_progress')
+                        );
+                      return (
+                        <div key={s.id} className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-800">
+                              Sesi {s.sessionNumber} • Juz {s.juzNumber} ({s.sessionType === 'full_juz' ? 'Juz Penuh' : 'Parsial'})
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[11px] font-bold text-teal-700">
+                              {s.status === 'submitted'
+                                ? 'Selesai'
+                                : s.questionSetId
+                                  ? 'Paket Siap'
+                                  : s.approvalStatus === 'admin_approved'
+                                    ? 'Disetujui'
+                                    : 'Menunggu Admin'}
+                            </span>
+                            {hasPendingRev ? (
+                              <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 font-bold text-[10px]">
+                                Revisi Menunggu Admin
+                              </span>
+                            ) : (
+                              canRequestRevision && matchedServer && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTeacherDetailStudentId(null);
+                                    setDirectRevisionTarget({
+                                      studentId: detailRow.participant.studentId,
+                                      studentName: detailRow.participant.studentName,
+                                      studentClass: detailRow.participant.class,
+                                      halaqah: detailRow.participant.halaqah || '-',
+                                      session: matchedServer
+                                    });
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px]"
+                                >
+                                  Ajukan Revisi Materi
+                                </button>
+                              )
+                            )}
                           </div>
                         </div>
-                        <span className="text-[11px] font-bold text-teal-700 shrink-0">
-                          {s.status === 'submitted'
-                            ? 'Selesai'
-                            : s.questionSetId
-                              ? 'Paket Siap'
-                              : s.approvalStatus === 'admin_approved'
-                                ? 'Disetujui'
-                                : 'Menunggu Admin'}
-                        </span>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -1437,6 +1502,29 @@ export const UASJuzPreparationPanel: React.FC<UASJuzPreparationPanelProps> = ({
           </div>
         );
       })()}
+
+      {directRevisionTarget && (
+        <UASMaterialRevisionModal
+          isOpen={true}
+          onClose={() => setDirectRevisionTarget(null)}
+          period={period}
+          studentId={directRevisionTarget.studentId}
+          studentName={directRevisionTarget.studentName}
+          studentClass={directRevisionTarget.studentClass}
+          halaqah={directRevisionTarget.halaqah}
+          session={directRevisionTarget.session}
+          existingSessionNumbers={serverSessions
+            .filter(s => s.studentId === directRevisionTarget.studentId && s.status !== 'void')
+            .map(s => s.sessionNumber)}
+          user={user}
+          onSubmitted={async (msgText) => {
+            setDirectRevisionTarget(null);
+            await loadRemote();
+            onSessionsUpdated?.();
+            setMsg({ type: 'success', text: msgText });
+          }}
+        />
+      )}
 
       {/* Ringkasan Lanjutan Modal (diakses dari Opsi Lainnya) */}
       {showAdvancedSummary && (

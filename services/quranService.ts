@@ -227,7 +227,14 @@ class QuranService {
 
     try {
       const url = `https://api.quran.com/api/v4/verses/by_page/${clampedPage}?words=true&word_fields=text_uthmani,location,line_number,page_number&fields=text_uthmani,chapter_id`;
-      const response = await fetch(url);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      let response: Response;
+      try {
+        response = await fetch(url, { signal: ctrl.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status} saat mengambil data halaman ${clampedPage}`);
       }
@@ -291,7 +298,14 @@ class QuranService {
 
     try {
       const url = `https://api.quran.com/api/v4/verses/by_key/${key}?words=true&word_fields=text_uthmani,location,line_number,page_number&fields=text_uthmani,chapter_id`;
-      const res = await fetch(url);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: ctrl.signal });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!res.ok) return null;
       const data = await res.json();
       const v = data.verse;

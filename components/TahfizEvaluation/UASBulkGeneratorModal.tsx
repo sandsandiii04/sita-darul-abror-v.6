@@ -102,6 +102,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
   const [loadingBank, setLoadingBank] = useState(false);
 
   const [detailShortageItem, setDetailShortageItem] = useState<UASEligibilityItem | null>(null);
+  const [showGroupedShortage, setShowGroupedShortage] = useState(false);
 
   const [isExecuting, setIsExecuting] = useState(false);
   const inFlightRef = useRef(false);
@@ -247,6 +248,54 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
       totalActive: st?.totalActiveSessions ?? 0
     };
   }, [eligibilitySummary.sessionStats]);
+
+  // Ringkasan gabungan kekurangan soal per (Juz, Zona, Rentang Halaman) agar Admin tidak menghitung ganda antar-santri
+  const groupedBankShortages = useMemo(() => {
+    const map = new Map<string, {
+      juzNumber: number;
+      zoneNumber: number;
+      startPage: number;
+      endPage: number;
+      startRef: string;
+      endRef: string;
+      affectedSessions: number;
+      affectedStudentIds: Set<string>;
+      draftCount: number;
+    }>();
+
+    for (const item of eligibilitySummary.items) {
+      if (item.status !== 'BANK_SOAL_KURANG') continue;
+      for (const se of (item.sessionEligibilities || [])) {
+        if (se.status !== 'BANK_SOAL_KURANG' || !se.diagnostic) continue;
+        for (const mz of se.missingZones) {
+          const zd = se.diagnostic.zonesDetail.find(z => z.zoneNumber === mz);
+          if (!zd) continue;
+          const key = `J${se.juzNumber}|Z${mz}|P${zd.startPage}-${zd.endPage}`;
+          if (!map.has(key)) {
+            map.set(key, {
+              juzNumber: se.juzNumber,
+              zoneNumber: mz,
+              startPage: zd.startPage,
+              endPage: zd.endPage,
+              startRef: zd.startRef,
+              endRef: zd.endRef,
+              affectedSessions: 0,
+              affectedStudentIds: new Set(),
+              draftCount: zd.inactiveCount
+            });
+          }
+          const g = map.get(key)!;
+          g.affectedSessions++;
+          g.affectedStudentIds.add(item.studentId);
+          g.draftCount = Math.max(g.draftCount, zd.inactiveCount);
+        }
+      }
+    }
+
+    return Array.from(map.values())
+      .map(g => ({ ...g, affectedStudents: g.affectedStudentIds.size }))
+      .sort((a, b) => a.juzNumber - b.juzNumber || a.startPage - b.startPage || a.zoneNumber - b.zoneNumber);
+  }, [eligibilitySummary.items]);
 
   const displayedItems = useMemo(() => {
     return eligibilitySummary.items.filter(item => {
@@ -535,6 +584,15 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                     {eligibilitySummary.bankSoalKurang} <span className="text-xs font-semibold text-purple-600">santri</span>
                   </p>
                   <p className="text-[10px] text-purple-700 font-semibold">{sessionPreview.bankShort} sesi kurang zona soal</p>
+                  {groupedBankShortages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowGroupedShortage(v => !v)}
+                      className="mt-1 text-[10px] font-bold text-purple-800 underline hover:text-purple-950"
+                    >
+                      {showGroupedShortage ? 'Sembunyikan' : `Lihat ${groupedBankShortages.length} kebutuhan Juz/Zona`}
+                    </button>
+                  )}
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
                   <p className="text-[11px] font-semibold text-slate-600">Sudah Ada Paket</p>
@@ -544,6 +602,76 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                   <p className="text-[10px] text-slate-500">{sessionPreview.alreadyHave} paket sesi (dilewati)</p>
                 </div>
               </div>
+              {showGroupedShortage && groupedBankShortages.length > 0 && (
+                <div className="bg-white rounded-2xl border border-purple-200 shadow-sm overflow-hidden">
+                  <div className="px-4 py-2.5 bg-purple-50 border-b border-purple-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-purple-950">
+                      Ringkasan Gabungan Kebutuhan Soal per Juz &amp; Zona ({groupedBankShortages.length} titik zona — 1 soal valid dapat dipakai banyak santri)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowGroupedShortage(false)}
+                      className="text-purple-700 hover:text-purple-950 font-bold text-[11px]"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-1.5 font-bold">Juz &amp; Zona</th>
+                          <th className="px-3 py-1.5 font-bold">Rentang Ayat &amp; Halaman</th>
+                          <th className="px-3 py-1.5 font-bold">Terdampak</th>
+                          <th className="px-3 py-1.5 font-bold">Tindakan Admin</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {groupedBankShortages.map(g => (
+                          <tr key={`J${g.juzNumber}_Z${g.zoneNumber}_P${g.startPage}_${g.endPage}`} className="hover:bg-purple-50/40">
+                            <td className="px-3 py-1.5 font-bold text-slate-900">Juz {g.juzNumber} · Zona {g.zoneNumber}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{g.startRef} s.d. {g.endRef} (Hal. {g.startPage}–{g.endPage})</td>
+                            <td className="px-3 py-1.5 text-slate-700">
+                              <strong>{g.affectedSessions} sesi</strong> ({g.affectedStudents} santri)
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {g.draftCount > 0 ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold text-[10px]">
+                                    Tersedia {g.draftCount} draft (verifikasi &amp; aktifkan)
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[10px]">
+                                    Tambah min. +1 soal aktif
+                                  </span>
+                                )}
+                                {onNavigateToQuestionBank && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      onNavigateToQuestionBank({
+                                        juz: g.juzNumber,
+                                        examType: 'uas',
+                                        questionType: 'random',
+                                        status: g.draftCount > 0 ? 'draft' : 'active'
+                                      });
+                                      onClose();
+                                    }}
+                                    className="px-2 py-0.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[10px] inline-flex items-center gap-1"
+                                  >
+                                    <ExternalLink size={10} />
+                                    <span>Lihat Bank Soal</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
