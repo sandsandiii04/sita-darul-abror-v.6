@@ -15,6 +15,7 @@ import {
   UASEligibilityStatus,
   UASSessionEligibilityResult
 } from '../../services/uasBulkEligibilityService';
+import { UASBankAutoFillModal } from './UASBankAutoFillModal';
 import {
   Sparkles,
   CheckCircle2,
@@ -103,6 +104,7 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
 
   const [detailShortageItem, setDetailShortageItem] = useState<UASEligibilityItem | null>(null);
   const [showGroupedShortage, setShowGroupedShortage] = useState(false);
+  const [showAutoFillModal, setShowAutoFillModal] = useState(false);
 
   const [isExecuting, setIsExecuting] = useState(false);
   const inFlightRef = useRef(false);
@@ -585,13 +587,25 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                   </p>
                   <p className="text-[10px] text-purple-700 font-semibold">{sessionPreview.bankShort} sesi kurang zona soal</p>
                   {groupedBankShortages.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowGroupedShortage(v => !v)}
-                      className="mt-1 text-[10px] font-bold text-purple-800 underline hover:text-purple-950"
-                    >
-                      {showGroupedShortage ? 'Sembunyikan' : `Lihat ${groupedBankShortages.length} kebutuhan Juz/Zona`}
-                    </button>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowGroupedShortage(v => !v)}
+                        className="text-[10px] font-bold text-purple-800 underline hover:text-purple-950"
+                      >
+                        {showGroupedShortage ? 'Sembunyikan' : `Lihat ${groupedBankShortages.length} kebutuhan Juz/Zona`}
+                      </button>
+                      {user.role === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAutoFillModal(true)}
+                          className="px-2 py-0.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-bold text-[10px] inline-flex items-center gap-1"
+                        >
+                          <Sparkles size={10} />
+                          <span>Siapkan Kandidat Soal Otomatis</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
@@ -608,13 +622,25 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
                     <span className="font-bold text-purple-950">
                       Ringkasan Gabungan Kebutuhan Soal per Juz &amp; Zona ({groupedBankShortages.length} titik zona — 1 soal valid dapat dipakai banyak santri)
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowGroupedShortage(false)}
-                      className="text-purple-700 hover:text-purple-950 font-bold text-[11px]"
-                    >
-                      Tutup
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {user.role === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAutoFillModal(true)}
+                          className="px-2.5 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-bold text-[11px] inline-flex items-center gap-1"
+                        >
+                          <Sparkles size={12} />
+                          <span>Siapkan Kandidat Soal Otomatis</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowGroupedShortage(false)}
+                        className="text-purple-700 hover:text-purple-950 font-bold text-[11px]"
+                      >
+                        Tutup
+                      </button>
+                    </div>
                   </div>
                   <div className="max-h-48 overflow-y-auto">
                     <table className="w-full text-left text-[11px]">
@@ -1050,6 +1076,19 @@ export const UASBulkGeneratorModal: React.FC<UASBulkGeneratorModalProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {showAutoFillModal && (
+        <UASBankAutoFillModal
+          isOpen={showAutoFillModal}
+          onClose={() => setShowAutoFillModal(false)}
+          sessions={juzSessions}
+          eligibilityItems={eligibilitySummary.items}
+          bankQuestions={bankQuestions}
+          user={user}
+          onActivated={async () => {
+            setReloadTick(t => t + 1);
+          }}
+        />
       )}
     </div>
   );
