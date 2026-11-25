@@ -9,7 +9,12 @@ import {
 import { api } from '../../api';
 import { getSessionExaminers, SessionExaminerEntry } from '../../services/uasExaminerDisplay';
 import { UASExamReviewModal } from './UASExamReviewModal';
-import { generateExamRecapCSV, generateExamRecapExcelXML } from '../../services/examRecapExportService';
+import { UASRecapPrintModal } from './UASRecapPrintModal';
+import {
+  computeStudentUASRecapSummary,
+  generateExamRecapCSV,
+  generateExamRecapExcelXML
+} from '../../services/examRecapExportService';
 import { 
   Award, 
   Calendar, 
@@ -44,6 +49,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
   const [selectedHalaqah, setSelectedHalaqah] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'ALL' | 'PASSED' | 'FAILED' | 'IN_PROGRESS' | 'NOT_STARTED'>('ALL');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
 
   // Review Modal State
   const [reviewStudent, setReviewStudent] = useState<{
@@ -101,6 +107,10 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
             arr.push(sess);
             sMap.set(sid, arr);
           });
+        sMap.forEach((arr, sid) => {
+          arr.sort((a: any, b: any) => (a.session_number ?? a.sessionNumber ?? 0) - (b.session_number ?? b.sessionNumber ?? 0));
+          sMap.set(sid, arr);
+        });
         setSessionsByStudent(sMap);
       } else {
         setSessionsByStudent(new Map());
@@ -157,9 +167,9 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
     }
   };
 
-  // Export handlers
+  // Export handlers (menggunakan data multi-sesi UAS aktual agar 100% selaras dengan layar)
   const handleExportCSV = () => {
-    if (students.length === 0) {
+    if (filteredStudents.length === 0) {
       alert('Tidak ada data untuk diekspor.');
       return;
     }
@@ -167,7 +177,8 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
       'uas',
       periodInfo?.name || 'Periode UAS',
       periodInfo?.kkm || 70,
-      filteredStudents
+      filteredStudents,
+      sessionsByStudent
     );
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -180,7 +191,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
   };
 
   const handleExportExcel = () => {
-    if (students.length === 0) {
+    if (filteredStudents.length === 0) {
       alert('Tidak ada data untuk diekspor.');
       return;
     }
@@ -188,7 +199,8 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
       'uas',
       periodInfo?.name || 'Periode UAS',
       periodInfo?.kkm || 70,
-      filteredStudents
+      filteredStudents,
+      sessionsByStudent
     );
     const blob = new Blob([xmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -201,24 +213,31 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
   };
 
   const handlePrint = () => {
-    window.print();
+    if (filteredStudents.length === 0) {
+      alert('Tidak ada data untuk dicetak.');
+      return;
+    }
+    setShowPrintModal(true);
   };
 
-  // Stats calculation
+  // Stats calculation (mendukung multi-sesi UAS)
   const stats = useMemo(() => {
     const kkm = periodInfo?.kkm || 70;
     const total = students.length;
-    const submittedList = students.filter(s => s.attemptStatus === 'submitted');
+    const summaries = students.map(s => computeStudentUASRecapSummary(s, sessionsByStudent.get(s.studentId), kkm));
+
+    const submittedList = summaries.filter(sm => sm.isAllSubmitted);
     const submitted = submittedList.length;
-    const inProgress = students.filter(s => s.attemptStatus === 'in_progress').length;
+    const inProgress = summaries.filter(sm => sm.statusCategory === 'IN_PROGRESS').length;
     const notStarted = total - submitted - inProgress;
 
-    const passedList = submittedList.filter(s => (s.totalScore || 0) >= kkm);
-    const passed = passedList.length;
-    const failed = submitted - passed;
+    const passed = summaries.filter(sm => sm.statusCategory === 'PASSED').length;
+    const failed = summaries.filter(sm => sm.statusCategory === 'FAILED').length;
     const passRate = submitted > 0 ? Math.round((passed / submitted) * 100) : 0;
 
-    const scores = submittedList.map(s => Number(s.totalScore || 0));
+    const scores = summaries
+      .map(sm => sm.averageScore)
+      .filter((v): v is number => v !== null && !Number.isNaN(v));
     const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '0';
     const highestScore = scores.length > 0 ? Math.max(...scores) : 0;
     const lowestScore = scores.length > 0 ? Math.min(...scores) : 0;
@@ -235,7 +254,7 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
       highestScore,
       lowestScore
     };
-  }, [students, periodInfo]);
+  }, [students, sessionsByStudent, periodInfo]);
 
   // Unique classes and halaqahs
   const classes = useMemo(() => {
@@ -272,18 +291,10 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
       // Halaqah filter
       if (selectedHalaqah !== 'ALL' && s.halaqah !== selectedHalaqah) return false;
 
-      // Status filter
-      if (selectedStatusFilter === 'PASSED') {
-        return s.attemptStatus === 'submitted' && (s.totalScore || 0) >= kkm;
-      }
-      if (selectedStatusFilter === 'FAILED') {
-        return s.attemptStatus === 'submitted' && (s.totalScore || 0) < kkm;
-      }
-      if (selectedStatusFilter === 'IN_PROGRESS') {
-        return s.attemptStatus === 'in_progress';
-      }
-      if (selectedStatusFilter === 'NOT_STARTED') {
-        return s.attemptStatus !== 'submitted' && s.attemptStatus !== 'in_progress';
+      // Status filter (konsisten dengan multi-sesi UAS)
+      if (selectedStatusFilter !== 'ALL') {
+        const summary = computeStudentUASRecapSummary(s, sessionsByStudent.get(s.studentId), kkm);
+        if (summary.statusCategory !== selectedStatusFilter) return false;
       }
 
       return true;
@@ -733,6 +744,17 @@ export const UASRecapView: React.FC<UASRecapViewProps> = ({ user }) => {
           </div>
         )}
       </div>
+
+      {showPrintModal && (
+        <UASRecapPrintModal
+          isOpen={showPrintModal}
+          onClose={() => setShowPrintModal(false)}
+          periodName={periodInfo?.name || 'Periode UAS'}
+          kkm={periodInfo?.kkm || 70}
+          students={filteredStudents}
+          sessionsByStudent={sessionsByStudent}
+        />
+      )}
 
       {/* Review Modal */}
       {reviewStudent && (
