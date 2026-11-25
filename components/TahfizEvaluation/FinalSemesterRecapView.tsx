@@ -39,6 +39,7 @@ import {
   generateFinalRecapSpreadsheetXML, 
   downloadExportFile 
 } from '../../services/finalRecapExportService';
+import { deduplicateCleanAcademicTerms } from '../../services/semesterRecapBuilderService';
 import { StudentEvaluationDetailModal } from './StudentEvaluationDetailModal';
 
 interface FinalSemesterRecapViewProps {
@@ -92,8 +93,11 @@ export const FinalSemesterRecapView: React.FC<FinalSemesterRecapViewProps> = ({ 
   const loadAcademicTerms = async () => {
     setIsLoading(true);
     try {
-      const res = await api.getAcademicTerms(user);
-      const terms = res.data || [];
+      const [res, periodsRes] = await Promise.all([
+        api.getAcademicTerms(user),
+        api.getExamPeriods(user)
+      ]);
+      const terms = deduplicateCleanAcademicTerms(res.data || [], periodsRes.data || []);
       if (terms.length > 0) {
         setAcademicTerms(terms);
         const active = terms.find(t => t.status === 'active') || terms[0];
@@ -193,10 +197,11 @@ export const FinalSemesterRecapView: React.FC<FinalSemesterRecapViewProps> = ({ 
   const getStatusBadge = (status?: string, hasRemedial?: boolean) => {
     switch (status) {
       case 'TUNTAS':
+      case 'TUNTAS_MELALUI_REMEDIAL':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            {hasRemedial ? 'Tuntas (via Remedial)' : 'Tuntas'}
+            {hasRemedial || status === 'TUNTAS_MELALUI_REMEDIAL' ? 'Tuntas (via Remedial)' : 'Tuntas'}
           </span>
         );
       case 'PERLU_REMEDIAL':
@@ -515,7 +520,25 @@ export const FinalSemesterRecapView: React.FC<FinalSemesterRecapViewProps> = ({ 
 
                     {/* UAS columns */}
                     <td className="p-3.5 text-center bg-emerald-50/30 font-medium">
-                      {item.uasOriginalScore !== null ? Number(item.uasOriginalScore).toFixed(2) : '-'}
+                      {item.uasOriginalScore !== null ? (
+                        <div>
+                          <div>{Number(item.uasOriginalScore).toFixed(2)}</div>
+                          {(item.uasTotalSessions ?? 0) > 1 && (
+                            <div className="text-[10px] text-emerald-700 font-normal">
+                              ({item.uasSubmittedSessions}/{item.uasTotalSessions} Sesi)
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <div>-</div>
+                          {(item.uasTotalSessions ?? 0) > 0 && (item.uasSubmittedSessions ?? 0) > 0 && (
+                            <div className="text-[10px] text-amber-700 font-normal">
+                              ({item.uasSubmittedSessions}/{item.uasTotalSessions} Sesi)
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3.5 text-center bg-emerald-50/30 font-semibold text-emerald-700">
                       {item.uasRemedialScore !== null ? Number(item.uasRemedialScore).toFixed(2) : '-'}

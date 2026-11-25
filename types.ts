@@ -1025,6 +1025,10 @@ export interface SemesterExamComponent {
   status: ComponentExamStatus;
   remedialEligible: boolean;
   materialSnapshotId?: string;
+  totalSessions?: number;
+  submittedSessions?: number;
+  sessionSummaryText?: string;
+  examinerSummary?: string;
 }
 
 export interface SemesterContribution {
@@ -1401,6 +1405,9 @@ export interface FinalSemesterRecapItem {
   uasOriginalScore: number | null;
   uasOriginalSubmittedAt: string | null;
   uasOriginalExaminerName: string | null;
+  uasSessionSummary?: string;
+  uasTotalSessions?: number;
+  uasSubmittedSessions?: number;
 
   uasRemedialSessionId: string | null;
   uasRemedialAttemptId: string | null;

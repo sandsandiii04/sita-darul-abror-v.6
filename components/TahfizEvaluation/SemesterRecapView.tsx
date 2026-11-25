@@ -36,6 +36,10 @@ import {
   UserCheck
 } from 'lucide-react';
 import { remedialQuestionGenerator } from '../../services/remedialQuestionGenerator';
+import {
+  deduplicateCleanAcademicTerms,
+  getPeriodsForAcademicTerm
+} from '../../services/semesterRecapBuilderService';
 
 interface SemesterRecapViewProps {
   user: User;
@@ -45,6 +49,7 @@ type FilterChip = 'ALL' | 'TUNTAS' | 'PERLU_REMEDIAL' | 'UTS_REMEDIAL' | 'UAS_RE
 
 export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) => {
   const [academicTerms, setAcademicTerms] = useState<AcademicTerm[]>([]);
+  const [rawAcademicTerms, setRawAcademicTerms] = useState<AcademicTerm[]>([]);
   const [selectedTermId, setSelectedTermId] = useState<string>('');
   const [examPeriods, setExamPeriods] = useState<ExamPeriod[]>([]);
   const [configs, setConfigs] = useState<SemesterEvaluationConfig[]>([]);
@@ -108,12 +113,16 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const termsRes = await api.getAcademicTerms(user);
-      const terms = termsRes.data || [];
-      setAcademicTerms(terms);
-
-      const periodsRes = await api.getExamPeriods(user);
+      const [termsRes, periodsRes] = await Promise.all([
+        api.getAcademicTerms(user),
+        api.getExamPeriods(user)
+      ]);
+      const rawTerms = termsRes.data || [];
       const periods = periodsRes.data || [];
+      const cleanTerms = deduplicateCleanAcademicTerms(rawTerms, periods);
+
+      setRawAcademicTerms(rawTerms);
+      setAcademicTerms(cleanTerms);
       setExamPeriods(periods);
 
       // Load teachers list for examiner assignment
@@ -126,7 +135,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
       }
 
       // Determine default active term
-      const activeTerm = terms.find(t => t.status === 'active') || terms[0];
+      const activeTerm = cleanTerms.find(t => t.status === 'active') || cleanTerms[0];
       const termId = activeTerm ? activeTerm.id : '';
       setSelectedTermId(termId);
 
@@ -508,10 +517,17 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
   }, [recapResponse, searchQuery, selectedClass, selectedHalaqah, activeChip]);
 
   // Handle Save Configuration
+  const semesterPeriods = useMemo(() => {
+    return getPeriodsForAcademicTerm(
+      selectedTermId,
+      rawAcademicTerms.length > 0 ? rawAcademicTerms : academicTerms,
+      examPeriods
+    );
+  }, [selectedTermId, rawAcademicTerms, academicTerms, examPeriods]);
+
   const handleOpenConfigModal = () => {
-    const termPeriods = examPeriods.filter(p => p.academicTermId === selectedTermId);
-    const uts = termPeriods.filter(p => p.examType === 'uts');
-    const uas = termPeriods.filter(p => p.examType === 'uas');
+    const uts = semesterPeriods.filter(p => (p.examType || '').toLowerCase() === 'uts');
+    const uas = semesterPeriods.filter(p => (p.examType || '').toLowerCase() === 'uas');
 
     setCustomName(recapResponse?.config?.configName || 'Konfigurasi Evaluasi Semester');
     setCustomUtsPeriodId(recapResponse?.config?.utsPeriodId || (uts[0]?.id || ''));
@@ -1065,10 +1081,22 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
                             <span className="font-semibold text-slate-800 font-mono">
                               {item.uas.originalScore.toFixed(2)}
                             </span>
+                            {(item.uas.totalSessions ?? 0) > 1 && (
+                              <div className="text-[10px] text-teal-700 font-medium">
+                                Rata-rata {item.uas.submittedSessions}/{item.uas.totalSessions} Sesi
+                              </div>
+                            )}
                             <div className="mt-0.5">{renderStatusBadge(item.uas.status, 'sm')}</div>
                           </div>
                         ) : (
-                          <div>{renderStatusBadge(item.uas.status, 'sm')}</div>
+                          <div>
+                            {renderStatusBadge(item.uas.status, 'sm')}
+                            {(item.uas.totalSessions ?? 0) > 0 && item.uas.status === 'IN_PROGRESS' && (
+                              <div className="text-[10px] text-amber-700 font-medium mt-0.5">
+                                {item.uas.submittedSessions}/{item.uas.totalSessions} Sesi Selesai
+                              </div>
+                            )}
+                          </div>
                         )}
                       </td>
 
@@ -1919,6 +1947,12 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
                       </p>
                     </div>
                   </div>
+                  {selectedStudent.uas.sessionSummaryText && (
+                    <div className="text-[11px] text-slate-600 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 leading-relaxed">
+                      <span className="font-semibold text-slate-700">Rincian Sesi UAS: </span>
+                      {selectedStudent.uas.sessionSummaryText}
+                    </div>
+                  )}
                   {selectedStudent.uas.materialSnapshotId && (
                     <div className="text-[11px] text-slate-400 font-mono truncate">
                       Snapshot Materi: {selectedStudent.uas.materialSnapshotId}
@@ -2002,7 +2036,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
                 >
                   <option value="">-- Pilih Periode UTS --</option>
-                  {examPeriods.filter(p => p.academicTermId === selectedTermId && p.examType === 'uts').map(p => (
+                  {semesterPeriods.filter(p => (p.examType || '').toLowerCase() === 'uts').map(p => (
                     <option key={p.id} value={p.id}>
                       {p.name} (KKM: {p.kkm})
                     </option>
@@ -2019,7 +2053,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
                 >
                   <option value="">-- Pilih Periode UAS --</option>
-                  {examPeriods.filter(p => p.academicTermId === selectedTermId && p.examType === 'uas').map(p => (
+                  {semesterPeriods.filter(p => (p.examType || '').toLowerCase() === 'uas').map(p => (
                     <option key={p.id} value={p.id}>
                       {p.name} (KKM: {p.kkm})
                     </option>

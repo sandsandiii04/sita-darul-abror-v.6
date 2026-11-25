@@ -3,6 +3,14 @@ import { User, Student, TahfidzRecord, Attendance, Exam, AttendanceOpenRequest, 
 import { MOCK_USERS, MOCK_STUDENTS } from './constants';
 import { calculateFluencyScore, calculateTajwidScore, calculateMakhrajScore, calculateQuestionScore, calculateAttemptTotalScore } from './services/utsScoringService';
 import { calculateUASFluencyScore, calculateUASTajwidScore, calculateUASMakhrajScore, calculateUASQuestionScore, calculateUASAttemptTotalScore, isMandatoryQuestion, UAS_SCORING_CONFIG } from './services/uasScoringService';
+import {
+  resolveSemesterPeriodPair,
+  filterConfigsForTerm,
+  buildSemesterTahfizRecapFromLiveData,
+  buildRemedialCandidatesFromLiveData,
+  buildSemesterFinalRecapFromLiveData,
+  buildStudentEvaluationHistoryFromLiveData
+} from './services/semesterRecapBuilderService';
 
 export type ActionType = 'addUser' | 'addStudent' | 'addRecord' | 'addExam' | 'markAttendance' | 'updateUser' | 'deleteData' | 'addAttendanceOpenRequest';
 
@@ -5851,30 +5859,44 @@ export const api = {
       return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak melihat konfigurasi semester.' };
     }
 
+    const localConfigs = this.getLocalSemesterEvaluationConfigs();
+
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_semester_evaluation_configs', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_academic_term_id: academicTermId || null
-        });
+        const [{ data, error }, termsRes] = await Promise.all([
+          supabase.rpc('get_semester_evaluation_configs', {
+            p_username: u.username,
+            p_password: u.sessionToken || u.password,
+            p_academic_term_id: null
+          }),
+          this.getAcademicTerms(u)
+        ]);
 
-        if (data && data.success === false) {
+        if (data && data.success === false && !isTemporaryError(data)) {
           return data;
         }
 
         if (!error && data?.success) {
+          const remoteConfigs: SemesterEvaluationConfig[] = data.configs || [];
+          const mergedMap = new Map<string, SemesterEvaluationConfig>();
+          for (const rc of remoteConfigs) mergedMap.set(rc.id, rc);
+          for (const lc of localConfigs) {
+            if (!mergedMap.has(lc.id)) mergedMap.set(lc.id, lc);
+          }
+          const allMerged = Array.from(mergedMap.values());
+          const allTerms = termsRes.data || [];
+          const filtered = academicTermId
+            ? filterConfigsForTerm(academicTermId, allTerms, allMerged)
+            : allMerged;
+
           return {
             success: true,
-            configs: data.configs || []
+            configs: filtered
           };
         }
 
-        if (error) {
-          if (!isTemporaryError(error)) {
-            return { success: false, message: error.message || 'Akses ditolak oleh server.' };
-          }
-          console.warn("getSemesterEvaluationConfigs remote temporary error, fallback to local:", error);
+        if (error && !isTemporaryError(error)) {
+          return { success: false, message: error.message || 'Akses ditolak oleh server.' };
         }
       } catch (e: any) {
         if (!isTemporaryError(e)) {
@@ -5884,12 +5906,12 @@ export const api = {
       }
     }
 
-    // Local fallback only if offline / demo mode
-    let configs = this.getLocalSemesterEvaluationConfigs();
-    if (academicTermId) {
-      configs = configs.filter(c => c.academicTermId === academicTermId);
-    }
-    return { success: true, configs };
+    // Local fallback if offline / demo mode
+    const allTerms = this.getLocalAcademicTerms();
+    const filtered = academicTermId
+      ? filterConfigsForTerm(academicTermId, allTerms, localConfigs)
+      : localConfigs;
+    return { success: true, configs: filtered };
   },
 
   async upsertSemesterEvaluationConfig(
@@ -5919,10 +5941,6 @@ export const api = {
           p_config: payload
         });
 
-        if (data && data.success === false) {
-          return data;
-        }
-
         if (!error && data?.success) {
           if (data.config) {
             this.saveLocalSemesterEvaluationConfig(data.config);
@@ -5930,8 +5948,18 @@ export const api = {
           return data;
         }
 
-        if (error) {
-          if (!isTemporaryError(error)) {
+        // Jika UTS & UAS berada di dua ID baris academic_terms berbeda pada tahun/semester yang sama,
+        // simpan secara aman pada penyimpanan konfigurasi aplikasi agar bobot kustom tetap berfungsi.
+        const msg = String(data?.message || error?.message || '');
+        const isCrossTermPairRejection =
+          msg.includes('semester akademik yang sama') ||
+          msg.includes('tidak berada pada semester');
+
+        if (!isCrossTermPairRejection) {
+          if (data && data.success === false) {
+            return data;
+          }
+          if (error && !isTemporaryError(error)) {
             return { success: false, message: error.message || 'Gagal menyimpan konfigurasi pada server.' };
           }
         }
@@ -5943,18 +5971,44 @@ export const api = {
       }
     }
 
-    // Local fallback
-    const id = payload.id || `sec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    // Simpan konfigurasi pasangan periode lintas-term / lokal
+    let termMeta: AcademicTerm | undefined;
+    let utsMeta: ExamPeriod | undefined;
+    let uasMeta: ExamPeriod | undefined;
+    try {
+      const [termsRes, periodsRes] = await Promise.all([
+        this.getAcademicTerms(u),
+        this.getExamPeriods(u)
+      ]);
+      termMeta = (termsRes.data || []).find(t => t.id === payload.academicTermId);
+      utsMeta = (periodsRes.data || []).find(p => p.id === payload.utsPeriodId);
+      uasMeta = (periodsRes.data || []).find(p => p.id === payload.uasPeriodId);
+    } catch (_) {}
+
+    const existingList = this.getLocalSemesterEvaluationConfigs();
+    const existingMatch = existingList.find(
+      c =>
+        c.id === payload.id ||
+        (c.utsPeriodId === payload.utsPeriodId && c.uasPeriodId === payload.uasPeriodId)
+    );
+
+    const id = payload.id || existingMatch?.id || `sec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const savedConfig: SemesterEvaluationConfig = {
       id,
       academicTermId: payload.academicTermId!,
+      academicYear: termMeta?.academicYear,
+      semester: termMeta?.semester,
       name: payload.name || 'Konfigurasi Rekap Semester',
       utsPeriodId: payload.utsPeriodId!,
+      utsPeriodName: utsMeta?.name,
+      utsKkm: utsMeta?.kkm,
       uasPeriodId: payload.uasPeriodId!,
+      uasPeriodName: uasMeta?.name,
+      uasKkm: uasMeta?.kkm,
       utsWeight: payload.utsWeight,
       uasWeight: payload.uasWeight,
       createdBy: u.id,
-      createdAt: new Date().toISOString(),
+      createdAt: existingMatch?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     this.saveLocalSemesterEvaluationConfig(savedConfig);
@@ -5962,7 +6016,7 @@ export const api = {
     return {
       success: true,
       config: savedConfig,
-      message: 'Konfigurasi evaluasi semester berhasil disimpan (lokal).'
+      message: 'Konfigurasi evaluasi semester berhasil disimpan.'
     };
   },
 
@@ -5982,34 +6036,54 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_semester_tahfiz_recap', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_academic_term_id: params.academicTermId || null,
-          p_config_id: params.configId || null,
-          p_uts_period_id: params.utsPeriodId || null,
-          p_uas_period_id: params.uasPeriodId || null
+        const [termsRes, periodsRes, configsRes] = await Promise.all([
+          this.getAcademicTerms(u),
+          this.getExamPeriods(u),
+          this.getSemesterEvaluationConfigs(undefined, u)
+        ]);
+
+        const allTerms = termsRes.data || [];
+        const allPeriods = periodsRes.data || [];
+        const allConfigs = configsRes.configs || [];
+
+        const pair = resolveSemesterPeriodPair({
+          academicTermId: params.academicTermId,
+          configId: params.configId,
+          utsPeriodId: params.utsPeriodId,
+          uasPeriodId: params.uasPeriodId,
+          allTerms,
+          allPeriods,
+          allConfigs
         });
 
-        if (data && data.success === false) {
-          return data;
+        if (!pair.success) {
+          return { success: false, message: pair.message };
         }
 
-        if (!error && data) {
-          return data;
+        const [utsRes, uasRes, uasJuzRes] = await Promise.all([
+          this.getExaminerUTSStudents(pair.utsPeriod.id, u),
+          this.getExaminerUASStudents(pair.uasPeriod.id, u),
+          this.getUASJuzPartsAndSessions(pair.uasPeriod.id, u)
+        ]);
+
+        if (!utsRes.success) {
+          return { success: false, message: utsRes.message || 'Gagal memuat data peserta UTS.' };
+        }
+        if (!uasRes.success) {
+          return { success: false, message: uasRes.message || 'Gagal memuat data peserta UAS.' };
         }
 
-        if (error) {
-          if (!isTemporaryError(error)) {
-            return { success: false, message: error.message || 'Akses ditolak oleh server.' };
-          }
-          console.warn("getSemesterTahfizRecap remote temporary error, fallback to local:", error);
-        }
+        return buildSemesterTahfizRecapFromLiveData({
+          pair,
+          utsStudents: utsRes.students || [],
+          uasStudents: uasRes.students || [],
+          uasRawSessions: uasJuzRes.success ? (uasJuzRes.sessions || []) : []
+        });
       } catch (e: any) {
         if (!isTemporaryError(e)) {
-          return { success: false, message: e?.message || 'Akses ditolak oleh server.' };
+          return { success: false, message: e?.message || 'Gagal memuat rekap evaluasi semester.' };
         }
-        console.warn("getSemesterTahfizRecap remote error, fallback to local:", e);
+        console.warn("getSemesterTahfizRecap live builder temporary error, fallback to local:", e);
       }
     }
 
@@ -6313,23 +6387,29 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_remedial_generation_candidates', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_academic_term_id: params.academicTermId || null,
-          p_config_id: params.configId || null,
-          p_exam_period_id: params.examPeriodId || null
-        });
+        const [recapRes, remRes] = await Promise.all([
+          this.getSemesterTahfizRecap(
+            {
+              academicTermId: params.academicTermId,
+              configId: params.configId
+            },
+            u
+          ),
+          this.getExaminerRemedialStudents(u)
+        ]);
 
-        if (data && data.success === false) {
-          return data;
+        if (!recapRes.success) {
+          return {
+            success: false,
+            message: recapRes.message || 'Gagal memuat evaluasi semester untuk kandidat remedial.'
+          };
         }
-        if (!error && data) {
-          return data;
-        }
-        if (error) {
-          return { success: false, message: error.message || 'Gagal mengambil data kandidat remedial dari server.' };
-        }
+
+        return buildRemedialCandidatesFromLiveData({
+          recapResponse: recapRes,
+          remedialStudents: remRes.success ? (remRes.students || []) : [],
+          examPeriodIdFilter: params.examPeriodId
+        });
       } catch (e: any) {
         return { success: false, message: e?.message || 'Terjadi kesalahan saat mengambil kandidat remedial.' };
       }
@@ -6885,27 +6965,50 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_semester_final_recap', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_academic_term_id: params.academicTermId || null,
-          p_config_id: params.configId || null,
-          p_uts_period_id: params.utsPeriodId || null,
-          p_uas_period_id: params.uasPeriodId || null,
-          p_class: params.class || null,
-          p_status: params.status || null,
-          p_search: params.search || null
+        const [termsRes, periodsRes, configsRes] = await Promise.all([
+          this.getAcademicTerms(u),
+          this.getExamPeriods(u),
+          this.getSemesterEvaluationConfigs(undefined, u)
+        ]);
+
+        const pair = resolveSemesterPeriodPair({
+          academicTermId: params.academicTermId,
+          configId: params.configId,
+          utsPeriodId: params.utsPeriodId,
+          uasPeriodId: params.uasPeriodId,
+          allTerms: termsRes.data || [],
+          allPeriods: periodsRes.data || [],
+          allConfigs: configsRes.configs || []
         });
 
-        if (data && data.success === false) {
-          return data;
+        if (!pair.success) {
+          return { success: false, message: pair.message };
         }
-        if (!error && data) {
-          return data;
+
+        const [utsRes, uasRes, uasJuzRes, remRes] = await Promise.all([
+          this.getExaminerUTSStudents(pair.utsPeriod.id, u),
+          this.getExaminerUASStudents(pair.uasPeriod.id, u),
+          this.getUASJuzPartsAndSessions(pair.uasPeriod.id, u),
+          this.getExaminerRemedialStudents(u)
+        ]);
+
+        if (!utsRes.success) {
+          return { success: false, message: utsRes.message || 'Gagal memuat data peserta UTS.' };
         }
-        if (error) {
-          return { success: false, message: error.message || 'Gagal memuat rekap final evaluasi semester.' };
+        if (!uasRes.success) {
+          return { success: false, message: uasRes.message || 'Gagal memuat data peserta UAS.' };
         }
+
+        return buildSemesterFinalRecapFromLiveData({
+          pair,
+          utsStudents: utsRes.students || [],
+          uasStudents: uasRes.students || [],
+          uasRawSessions: uasJuzRes.success ? (uasJuzRes.sessions || []) : [],
+          remedialStudents: remRes.success ? (remRes.students || []) : [],
+          classFilter: params.class,
+          statusFilter: params.status,
+          searchFilter: params.search
+        });
       } catch (e: any) {
         return { success: false, message: e?.message || 'Terjadi kesalahan saat memuat rekap final evaluasi semester.' };
       }
@@ -6932,35 +7035,14 @@ export const api = {
       return { success: false, message: 'Akses ditolak: Hanya Admin yang berhak mengakses data monitoring semester.' };
     }
 
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.rpc('get_semester_monitoring_stats', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_academic_term_id: params.academicTermId || null,
-          p_config_id: params.configId || null,
-          p_uts_period_id: params.utsPeriodId || null,
-          p_uas_period_id: params.uasPeriodId || null,
-          p_class: params.class || null
-        });
-
-        if (data && data.success === false) {
-          return data;
-        }
-        if (!error && data) {
-          return data;
-        }
-        if (error) {
-          return { success: false, message: error.message || 'Gagal memuat statistik monitoring semester.' };
-        }
-      } catch (e: any) {
-        return { success: false, message: e?.message || 'Terjadi kesalahan saat memuat statistik monitoring.' };
-      }
+    const res = await this.getSemesterFinalRecap(params, u);
+    if (!res.success) {
+      return { success: false, message: res.message };
     }
-
     return {
-      success: false,
-      message: 'Koneksi database Supabase tidak aktif untuk memuat monitoring semester.'
+      success: true,
+      config: res.config,
+      summary: res.summary
     };
   },
 
@@ -6979,23 +7061,27 @@ export const api = {
 
     if (supabase) {
       try {
-        const { data, error } = await supabase.rpc('get_student_evaluation_history', {
-          p_username: u.username,
-          p_password: u.sessionToken || u.password,
-          p_student_id: params.studentId,
-          p_academic_term_id: params.academicTermId || null,
-          p_config_id: params.configId || null
-        });
+        const finalRes = await this.getSemesterFinalRecap(
+          {
+            academicTermId: params.academicTermId,
+            configId: params.configId
+          },
+          u
+        );
 
-        if (data && data.success === false) {
-          return data;
+        if (!finalRes.success || !finalRes.config) {
+          return {
+            success: false,
+            message: finalRes.message || 'Gagal memuat riwayat evaluasi santri.'
+          };
         }
-        if (!error && data) {
-          return data;
-        }
-        if (error) {
-          return { success: false, message: error.message || 'Gagal memuat riwayat evaluasi santri.' };
-        }
+
+        const uasJuzRes = await this.getUASJuzPartsAndSessions(finalRes.config.uasPeriodId, u);
+        return buildStudentEvaluationHistoryFromLiveData({
+          studentId: params.studentId,
+          finalRecap: finalRes,
+          uasRawSessions: uasJuzRes.success ? (uasJuzRes.sessions || []) : []
+        });
       } catch (e: any) {
         return { success: false, message: e?.message || 'Terjadi kesalahan saat memuat riwayat evaluasi santri.' };
       }

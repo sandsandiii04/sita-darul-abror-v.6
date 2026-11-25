@@ -306,9 +306,15 @@ export const StudentEvaluationDetailModal: React.FC<StudentEvaluationDetailModal
                       </div>
                     )}
                     {recap.uasOriginalExaminerName && (
-                      <div className="flex justify-between py-1 border-b border-gray-50">
-                        <span className="text-gray-500">Penguji Asli:</span>
-                        <span className="text-gray-700">{recap.uasOriginalExaminerName}</span>
+                      <div className="flex justify-between py-1 border-b border-gray-50 gap-2">
+                        <span className="text-gray-500 shrink-0">Penguji Asli:</span>
+                        <span className="text-gray-700 text-right">{recap.uasOriginalExaminerName}</span>
+                      </div>
+                    )}
+                    {recap.uasSessionSummary && (
+                      <div className="py-1.5 px-2.5 bg-emerald-50/60 border border-emerald-100 rounded-lg text-[11px] text-emerald-900 leading-relaxed">
+                        <span className="font-bold">Rincian Sesi UAS: </span>
+                        {recap.uasSessionSummary}
                       </div>
                     )}
                     <div className="flex justify-between py-1 border-b border-gray-50">
