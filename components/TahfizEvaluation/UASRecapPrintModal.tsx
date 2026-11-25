@@ -368,34 +368,34 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
         const tableHead =
           audience === 'student_board'
             ? `<tr style="background:#065F46;color:#FFFFFF;">
-                <th style="width:28pt;text-align:center;">No</th>
-                <th style="text-align:left;">Nama Santri</th>
-                <th style="width:42pt;text-align:center;">Kelas</th>
-                <th style="width:72pt;text-align:center;">Halaqah</th>
-                <th style="text-align:left;">Materi &amp; Nilai Per Sesi</th>
-                <th style="width:52pt;text-align:center;">Rata-rata</th>
-                <th style="width:72pt;text-align:center;">Keterangan</th>
+                <th style="width:24pt;text-align:center;">No</th>
+                <th style="width:110pt;text-align:left;">Nama Santri</th>
+                <th style="width:34pt;text-align:center;">Kelas</th>
+                <th style="width:54pt;text-align:center;">Halaqah</th>
+                <th style="width:195pt;text-align:left;">Materi &amp; Nilai Per Sesi</th>
+                <th style="width:48pt;text-align:center;">Rata-rata</th>
+                <th style="width:62pt;text-align:center;">Keterangan</th>
               </tr>`
             : `<tr style="background:#065F46;color:#FFFFFF;">
-                <th style="width:26pt;text-align:center;">No</th>
-                <th style="width:52pt;text-align:center;">NIS</th>
-                <th style="text-align:left;">Nama Santri</th>
-                <th style="width:38pt;text-align:center;">Kelas</th>
-                <th style="text-align:left;">Materi &amp; Nilai Per Sesi</th>
-                <th style="text-align:left;">Penguji Aktual</th>
-                <th style="width:48pt;text-align:center;">Rata-rata</th>
-                <th style="width:70pt;text-align:center;">Status</th>
+                <th style="width:22pt;text-align:center;">No</th>
+                <th style="width:44pt;text-align:center;">NIS</th>
+                <th style="width:96pt;text-align:left;">Nama Santri</th>
+                <th style="width:30pt;text-align:center;">Kelas</th>
+                <th style="width:140pt;text-align:left;">Materi &amp; Nilai Per Sesi</th>
+                <th style="width:93pt;text-align:left;">Penguji Aktual</th>
+                <th style="width:42pt;text-align:center;">Rata-rata</th>
+                <th style="width:60pt;text-align:center;">Status</th>
               </tr>`;
 
         const tableBody = grp.rows
           .map(({ student, summary }, rIdx) => {
-            const bgRow = rIdx % 2 === 1 ? 'background:#F8FAFC;' : '';
-            const statusBg =
+            const bgRow = rIdx % 2 === 1 ? 'background:#F8FAFC;' : 'background:#FFFFFF;';
+            const badgeStyle =
               summary.statusCategory === 'PASSED'
-                ? 'background:#D1FAE5;color:#065F46;'
+                ? 'background:#D1FAE5;color:#065F46;border:0.5pt solid #6EE7B7;'
                 : summary.statusCategory === 'FAILED'
-                  ? 'background:#FEE2E2;color:#991B1B;'
-                  : 'background:#FEF3C7;color:#92400E;';
+                  ? 'background:#FEE2E2;color:#991B1B;border:0.5pt solid #FCA5A5;'
+                  : 'background:#FEF3C7;color:#92400E;border:0.5pt solid #FCD34D;';
             const ketText =
               summary.statusCategory === 'PASSED'
                 ? 'LULUS'
@@ -412,7 +412,7 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
                 <td style="text-align:center;">${escapeHtml(student.halaqah || '-')}</td>
                 <td>${escapeHtml(summary.materialSummary)}</td>
                 <td style="text-align:center;font-weight:bold;">${avgDisplay}</td>
-                <td style="text-align:center;font-weight:bold;${statusBg}">${escapeHtml(ketText)}</td>
+                <td style="text-align:center;"><span style="display:inline-block;padding:1pt 4pt;font-size:7.5pt;font-weight:bold;${badgeStyle}">&nbsp;${escapeHtml(ketText)}&nbsp;</span></td>
               </tr>`;
             }
 
@@ -424,7 +424,7 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
               <td>${escapeHtml(summary.materialSummary)}</td>
               <td>${escapeHtml(summary.examinerSummary)}</td>
               <td style="text-align:center;font-weight:bold;">${avgDisplay}</td>
-              <td style="text-align:center;font-weight:bold;${statusBg}">${escapeHtml(summary.statusText)}</td>
+              <td style="text-align:center;"><span style="display:inline-block;padding:1pt 4pt;font-size:7.5pt;font-weight:bold;${badgeStyle}">&nbsp;${escapeHtml(summary.statusText)}&nbsp;</span></td>
             </tr>`;
           })
           .join('');
@@ -435,46 +435,44 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
             : '';
 
         return `${pageBreak}
-        <table style="width:100%;border-collapse:collapse;border-bottom:3pt double #0F172A;margin-bottom:8pt;">
+        <table style="width:527pt;table-layout:fixed;border-collapse:collapse;margin:0 auto;">
           <tr>
-            <td style="width:60pt;border:none;text-align:center;vertical-align:middle;padding-bottom:6pt;">
-              <img src="${LOGO_URL}" width="54" height="54" alt="Logo" />
+            <td style="width:54pt;border:none;border-bottom:2.25pt double #0F172A;text-align:center;vertical-align:middle;padding:0 0 6pt 0;">
+              <img src="${LOGO_URL}" width="48" height="48" alt="Logo" />
             </td>
-            <td style="border:none;text-align:center;vertical-align:middle;padding-bottom:6pt;">
-              <div style="font-family:Georgia,'Times New Roman',serif;font-size:14pt;font-weight:bold;color:#0F172A;">PONDOK PESANTREN DARUL ABROR IBS</div>
-              <div style="font-size:10.5pt;font-weight:bold;color:#065F46;margin-top:1pt;">BAGIAN TAHSIN &amp; TAHFIDZ AL QUR&#39;AN</div>
-              <div style="font-size:8.5pt;color:#475569;margin-top:1pt;">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</div>
+            <td style="width:419pt;border:none;border-bottom:2.25pt double #0F172A;text-align:center;vertical-align:middle;padding:0 4pt 6pt 4pt;">
+              <p class="kop-title">PONDOK PESANTREN DARUL ABROR IBS</p>
+              <p class="kop-sub">BAGIAN TAHSIN &amp; TAHFIDZ AL QUR&#39;AN</p>
+              <p class="kop-addr">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</p>
             </td>
-            <td style="width:60pt;border:none;"></td>
+            <td style="width:54pt;border:none;border-bottom:2.25pt double #0F172A;padding:0 0 6pt 0;">&nbsp;</td>
           </tr>
         </table>
 
-        <div style="text-align:center;margin-bottom:8pt;">
-          <div style="font-size:11pt;font-weight:bold;text-decoration:underline;">${docHeading}</div>
-          <div style="font-size:9.5pt;color:#334155;margin-top:3pt;">
-            <strong>${escapeHtml(grp.title)}</strong>${grp.subtitle ? ` &bull; ${escapeHtml(grp.subtitle)}` : ''} &bull; Periode: ${escapeHtml(periodName)} &bull; KKM: ${kkm}
-          </div>
+        <div style="width:527pt;margin:8pt auto 6pt auto;text-align:center;">
+          <p class="doc-title">${docHeading}</p>
+          <p class="doc-meta"><strong>${escapeHtml(grp.title)}</strong>${grp.subtitle ? ` &bull; ${escapeHtml(grp.subtitle)}` : ''} &bull; Periode: ${escapeHtml(periodName)} &bull; KKM: ${kkm}</p>
           ${
             audience === 'teacher_halaqah'
-              ? `<div style="font-size:9pt;color:#065F46;margin-top:3pt;">Total Santri: <strong>${grp.rows.length}</strong> &bull; Lulus: <strong>${passedCount}</strong> &bull; Belum Tuntas/Remedial: <strong>${failedCount}</strong> &bull; Rata-rata: <strong>${avgStr}</strong></div>`
+              ? `<p class="doc-summary">Total Santri: <strong>${grp.rows.length}</strong> &bull; Lulus: <strong>${passedCount}</strong> &bull; Belum Tuntas/Remedial: <strong>${failedCount}</strong> &bull; Rata-rata: <strong>${avgStr}</strong></p>`
               : ''
           }
         </div>
 
-        <table class="data-table">
+        <table class="data-table" style="width:527pt;table-layout:fixed;border-collapse:collapse;margin:0 auto;">
           <thead>${tableHead}</thead>
           <tbody>${tableBody}</tbody>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;margin-top:16pt;">
+        <table style="width:527pt;table-layout:fixed;border-collapse:collapse;margin:14pt auto 0 auto;">
           <tr>
-            <td style="border:none;width:58%;"></td>
-            <td style="border:none;width:42%;text-align:center;font-size:9.5pt;line-height:1.35;">
-              <div>Garut, ${escapeHtml(dateText)}</div>
-              <div style="font-weight:bold;">Bagian Tahsin &amp; Tahfidz Al Qur&#39;an</div>
-              <div style="font-size:9pt;color:#334155;">Ma&#39;had Darul Abror Islamic Boarding School</div>
-              <div style="height:42pt;">&nbsp;</div>
-              <div style="font-weight:bold;text-decoration:underline;font-size:10pt;">Parhan Mubarok, S.Ag</div>
+            <td style="border:none;width:327pt;">&nbsp;</td>
+            <td style="border:none;width:200pt;text-align:center;vertical-align:top;">
+              <p class="sig-line">Garut, ${escapeHtml(dateText)}</p>
+              <p class="sig-role">Bagian Tahsin &amp; Tahfidz Al Qur&#39;an</p>
+              <p class="sig-org">Ma&#39;had Darul Abror Islamic Boarding School</p>
+              <p style="margin:0;line-height:38pt;font-size:1pt;">&nbsp;</p>
+              <p class="sig-name">Parhan Mubarok, S.Ag</p>
             </td>
           </tr>
         </table>`;
@@ -499,14 +497,27 @@ xmlns="http://www.w3.org/TR/REC-html40">
   <style>
     @page Section1 {
       size: 595.3pt 841.9pt;
+      mso-page-orientation: portrait;
       margin: 34pt 34pt 34pt 34pt;
-      mso-header-margin: 20pt;
-      mso-footer-margin: 20pt;
+      mso-header-margin: 18pt;
+      mso-footer-margin: 18pt;
     }
-    div.Section1 { page: Section1; }
-    body { font-family: Calibri, Arial, sans-serif; font-size: 9.5pt; color: #0F172A; }
-    table.data-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
-    table.data-table th, table.data-table td { border: 0.75pt solid #94A3B8; padding: 4pt 5pt; vertical-align: middle; }
+    div.Section1 { page: Section1; width: 527pt; margin: 0 auto; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 8.5pt; color: #0F172A; margin: 0; padding: 0; }
+    p { margin: 0; padding: 0; mso-para-margin-top: 0pt; mso-para-margin-bottom: 0pt; }
+    .kop-title { font-family: Georgia, 'Times New Roman', serif; font-size: 13pt; font-weight: bold; color: #0F172A; line-height: 1.15; }
+    .kop-sub { font-size: 9.5pt; font-weight: bold; color: #065F46; line-height: 1.2; margin-top: 1pt; }
+    .kop-addr { font-size: 7.5pt; color: #475569; line-height: 1.2; margin-top: 1pt; }
+    .doc-title { font-size: 10pt; font-weight: bold; text-decoration: underline; color: #0F172A; line-height: 1.25; }
+    .doc-meta { font-size: 8.5pt; color: #334155; line-height: 1.25; margin-top: 2pt; }
+    .doc-summary { font-size: 8pt; color: #065F46; line-height: 1.25; margin-top: 2pt; }
+    table.data-table { width: 527pt; table-layout: fixed; border-collapse: collapse; font-size: 8pt; }
+    table.data-table th { border: 0.5pt solid #64748B; padding: 4pt 4pt; vertical-align: middle; font-weight: bold; }
+    table.data-table td { border: 0.5pt solid #94A3B8; padding: 3.5pt 4pt; vertical-align: middle; word-wrap: break-word; line-height: 1.2; }
+    .sig-line { font-size: 8.5pt; color: #0F172A; line-height: 1.3; }
+    .sig-role { font-size: 8.5pt; font-weight: bold; color: #0F172A; line-height: 1.3; }
+    .sig-org { font-size: 8pt; color: #334155; line-height: 1.3; }
+    .sig-name { font-size: 9pt; font-weight: bold; text-decoration: underline; color: #0F172A; line-height: 1.3; }
   </style>
 </head>
 <body>
