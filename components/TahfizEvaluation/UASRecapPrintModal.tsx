@@ -6,7 +6,7 @@ import {
   StudentUASRecapSummary,
   UASRecapSessionLike
 } from '../../services/examRecapExportService';
-import { Printer, Users, ClipboardList, X } from 'lucide-react';
+import { Printer, Users, ClipboardList, X, FileText, FileSpreadsheet } from 'lucide-react';
 
 interface UASRecapPrintModalProps {
   isOpen: boolean;
@@ -33,6 +33,38 @@ function escapeHtml(val: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function escapeXml(val: string): string {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function sanitizeSheetName(raw: string, used: Set<string>): string {
+  const cleaned = String(raw || 'Sheet')
+    .replace(/[\\/?*[\]:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 28) || 'Sheet';
+  let candidate = cleaned;
+  let counter = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${cleaned.slice(0, 25)}_${counter}`;
+    counter++;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function sanitizeFileSlug(raw: string): string {
+  return String(raw || '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
 }
 
 export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
@@ -299,6 +331,463 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
     win.document.close();
   };
 
+  const buildFileBaseName = () => {
+    const modeTag = audience === 'student_board' ? 'Pengumuman_UAS_Santri' : 'Rekap_UAS_Guru';
+    const scopeTag =
+      selectedGroupFilter !== 'ALL'
+        ? sanitizeFileSlug(selectedGroupFilter)
+        : effectiveGrouping === 'by_class'
+          ? 'Per_Kelas'
+          : effectiveGrouping === 'by_halaqah'
+            ? 'Per_Halaqah'
+            : 'Semua';
+    const dateSlug = new Date().toISOString().slice(0, 10);
+    return `${modeTag}_${scopeTag}_${dateSlug}`;
+  };
+
+  const handleDownloadWord = () => {
+    if (pageGroups.length === 0) return;
+
+    const docHeading =
+      audience === 'student_board'
+        ? 'PENGUMUMAN HASIL UJIAN AKHIR SEMESTER (UAS) TAHFIZ AL-QUR&#39;AN'
+        : 'REKAPITULASI HASIL UJIAN AKHIR SEMESTER (UAS) PER HALAQAH';
+
+    const sectionsHtml = pageGroups
+      .map((grp, gIdx) => {
+        const passedCount = grp.rows.filter(r => r.summary.statusCategory === 'PASSED').length;
+        const failedCount = grp.rows.filter(r => r.summary.statusCategory === 'FAILED').length;
+        const validScores = grp.rows
+          .map(r => r.summary.averageScore)
+          .filter((v): v is number => v !== null && !Number.isNaN(v));
+        const avgStr =
+          validScores.length > 0
+            ? (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(2)
+            : '-';
+
+        const tableHead =
+          audience === 'student_board'
+            ? `<tr style="background:#065F46;color:#FFFFFF;">
+                <th style="width:28pt;text-align:center;">No</th>
+                <th style="text-align:left;">Nama Santri</th>
+                <th style="width:42pt;text-align:center;">Kelas</th>
+                <th style="width:72pt;text-align:center;">Halaqah</th>
+                <th style="text-align:left;">Materi &amp; Nilai Per Sesi</th>
+                <th style="width:52pt;text-align:center;">Rata-rata</th>
+                <th style="width:72pt;text-align:center;">Keterangan</th>
+              </tr>`
+            : `<tr style="background:#065F46;color:#FFFFFF;">
+                <th style="width:26pt;text-align:center;">No</th>
+                <th style="width:52pt;text-align:center;">NIS</th>
+                <th style="text-align:left;">Nama Santri</th>
+                <th style="width:38pt;text-align:center;">Kelas</th>
+                <th style="text-align:left;">Materi &amp; Nilai Per Sesi</th>
+                <th style="text-align:left;">Penguji Aktual</th>
+                <th style="width:48pt;text-align:center;">Rata-rata</th>
+                <th style="width:70pt;text-align:center;">Status</th>
+              </tr>`;
+
+        const tableBody = grp.rows
+          .map(({ student, summary }, rIdx) => {
+            const bgRow = rIdx % 2 === 1 ? 'background:#F8FAFC;' : '';
+            const statusBg =
+              summary.statusCategory === 'PASSED'
+                ? 'background:#D1FAE5;color:#065F46;'
+                : summary.statusCategory === 'FAILED'
+                  ? 'background:#FEE2E2;color:#991B1B;'
+                  : 'background:#FEF3C7;color:#92400E;';
+            const ketText =
+              summary.statusCategory === 'PASSED'
+                ? 'LULUS'
+                : summary.statusCategory === 'FAILED'
+                  ? 'REMEDIAL'
+                  : summary.statusText;
+            const avgDisplay = summary.averageScore !== null ? summary.averageScore.toFixed(2) : '-';
+
+            if (audience === 'student_board') {
+              return `<tr style="${bgRow}">
+                <td style="text-align:center;">${rIdx + 1}</td>
+                <td style="font-weight:bold;">${escapeHtml(student.studentName)}</td>
+                <td style="text-align:center;">${escapeHtml(student.class || '-')}</td>
+                <td style="text-align:center;">${escapeHtml(student.halaqah || '-')}</td>
+                <td>${escapeHtml(summary.materialSummary)}</td>
+                <td style="text-align:center;font-weight:bold;">${avgDisplay}</td>
+                <td style="text-align:center;font-weight:bold;${statusBg}">${escapeHtml(ketText)}</td>
+              </tr>`;
+            }
+
+            return `<tr style="${bgRow}">
+              <td style="text-align:center;">${rIdx + 1}</td>
+              <td style="text-align:center;">${escapeHtml(student.studentNis || '-')}</td>
+              <td style="font-weight:bold;">${escapeHtml(student.studentName)}</td>
+              <td style="text-align:center;">${escapeHtml(student.class || '-')}</td>
+              <td>${escapeHtml(summary.materialSummary)}</td>
+              <td>${escapeHtml(summary.examinerSummary)}</td>
+              <td style="text-align:center;font-weight:bold;">${avgDisplay}</td>
+              <td style="text-align:center;font-weight:bold;${statusBg}">${escapeHtml(summary.statusText)}</td>
+            </tr>`;
+          })
+          .join('');
+
+        const pageBreak =
+          gIdx > 0
+            ? `<br clear="all" style="mso-special-character:line-break;page-break-before:always" />`
+            : '';
+
+        return `${pageBreak}
+        <table style="width:100%;border-collapse:collapse;border-bottom:3pt double #0F172A;margin-bottom:8pt;">
+          <tr>
+            <td style="width:60pt;border:none;text-align:center;vertical-align:middle;padding-bottom:6pt;">
+              <img src="${LOGO_URL}" width="54" height="54" alt="Logo" />
+            </td>
+            <td style="border:none;text-align:center;vertical-align:middle;padding-bottom:6pt;">
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:14pt;font-weight:bold;color:#0F172A;">PONDOK PESANTREN DARUL ABROR IBS</div>
+              <div style="font-size:10.5pt;font-weight:bold;color:#065F46;margin-top:1pt;">BAGIAN TAHSIN &amp; TAHFIDZ AL QUR&#39;AN</div>
+              <div style="font-size:8.5pt;color:#475569;margin-top:1pt;">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</div>
+            </td>
+            <td style="width:60pt;border:none;"></td>
+          </tr>
+        </table>
+
+        <div style="text-align:center;margin-bottom:8pt;">
+          <div style="font-size:11pt;font-weight:bold;text-decoration:underline;">${docHeading}</div>
+          <div style="font-size:9.5pt;color:#334155;margin-top:3pt;">
+            <strong>${escapeHtml(grp.title)}</strong>${grp.subtitle ? ` &bull; ${escapeHtml(grp.subtitle)}` : ''} &bull; Periode: ${escapeHtml(periodName)} &bull; KKM: ${kkm}
+          </div>
+          ${
+            audience === 'teacher_halaqah'
+              ? `<div style="font-size:9pt;color:#065F46;margin-top:3pt;">Total Santri: <strong>${grp.rows.length}</strong> &bull; Lulus: <strong>${passedCount}</strong> &bull; Belum Tuntas/Remedial: <strong>${failedCount}</strong> &bull; Rata-rata: <strong>${avgStr}</strong></div>`
+              : ''
+          }
+        </div>
+
+        <table class="data-table">
+          <thead>${tableHead}</thead>
+          <tbody>${tableBody}</tbody>
+        </table>
+
+        <table style="width:100%;border-collapse:collapse;margin-top:16pt;">
+          <tr>
+            <td style="border:none;width:58%;"></td>
+            <td style="border:none;width:42%;text-align:center;font-size:9.5pt;line-height:1.35;">
+              <div>Garut, ${escapeHtml(dateText)}</div>
+              <div style="font-weight:bold;">Bagian Tahsin &amp; Tahfidz Al Qur&#39;an</div>
+              <div style="font-size:9pt;color:#334155;">Ma&#39;had Darul Abror Islamic Boarding School</div>
+              <div style="height:42pt;">&nbsp;</div>
+              <div style="font-weight:bold;text-decoration:underline;font-size:10pt;">Parhan Mubarok, S.Ag</div>
+            </td>
+          </tr>
+        </table>`;
+      })
+      .join('');
+
+    const wordHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hasil UAS Tahfiz - Darul Abror IBS</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page Section1 {
+      size: 595.3pt 841.9pt;
+      margin: 34pt 34pt 34pt 34pt;
+      mso-header-margin: 20pt;
+      mso-footer-margin: 20pt;
+    }
+    div.Section1 { page: Section1; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 9.5pt; color: #0F172A; }
+    table.data-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+    table.data-table th, table.data-table td { border: 0.75pt solid #94A3B8; padding: 4pt 5pt; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <div class="Section1">
+    ${sectionsHtml}
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob(['\uFEFF', wordHtml], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${buildFileBaseName()}.doc`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadExcel = () => {
+    if (pageGroups.length === 0) return;
+
+    const usedSheetNames = new Set<string>();
+    const docHeading =
+      audience === 'student_board'
+        ? "PENGUMUMAN HASIL UJIAN AKHIR SEMESTER (UAS) TAHFIZ AL-QUR'AN"
+        : 'REKAPITULASI HASIL UJIAN AKHIR SEMESTER (UAS) PER HALAQAH';
+
+    const worksheetsXml = pageGroups
+      .map(grp => {
+        const sheetName = sanitizeSheetName(grp.title, usedSheetNames);
+        const passedCount = grp.rows.filter(r => r.summary.statusCategory === 'PASSED').length;
+        const failedCount = grp.rows.filter(r => r.summary.statusCategory === 'FAILED').length;
+        const validScores = grp.rows
+          .map(r => r.summary.averageScore)
+          .filter((v): v is number => v !== null && !Number.isNaN(v));
+        const avgStr =
+          validScores.length > 0
+            ? (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(2)
+            : '-';
+
+        const colDefs =
+          audience === 'student_board'
+            ? `<Column ss:Width="35"/>
+   <Column ss:Width="185"/>
+   <Column ss:Width="55"/>
+   <Column ss:Width="95"/>
+   <Column ss:Width="270"/>
+   <Column ss:Width="75"/>
+   <Column ss:Width="95"/>`
+            : `<Column ss:Width="35"/>
+   <Column ss:Width="65"/>
+   <Column ss:Width="175"/>
+   <Column ss:Width="55"/>
+   <Column ss:Width="255"/>
+   <Column ss:Width="175"/>
+   <Column ss:Width="75"/>
+   <Column ss:Width="95"/>`;
+
+        const headerCells =
+          audience === 'student_board'
+            ? `<Cell ss:StyleID="TableHeader"><Data ss:Type="String">No</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Nama Santri</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Kelas</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Halaqah</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Materi &amp; Nilai Per Sesi</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Rata-rata</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Keterangan</Data></Cell>`
+            : `<Cell ss:StyleID="TableHeader"><Data ss:Type="String">No</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">NIS</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Nama Santri</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Kelas</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Materi &amp; Nilai Per Sesi</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Penguji Aktual</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Rata-rata</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Status</Data></Cell>`;
+
+        const dataRowsXml = grp.rows
+          .map(({ student, summary }, rIdx) => {
+            const stStyle =
+              summary.statusCategory === 'PASSED'
+                ? 'CellLulus'
+                : summary.statusCategory === 'FAILED'
+                  ? 'CellGagal'
+                  : 'CellProses';
+            const ketText =
+              audience === 'student_board'
+                ? summary.statusCategory === 'PASSED'
+                  ? 'LULUS'
+                  : summary.statusCategory === 'FAILED'
+                    ? 'REMEDIAL'
+                    : summary.statusText
+                : summary.statusText;
+
+            const avgCell =
+              summary.averageScore !== null
+                ? `<Cell ss:StyleID="CellNumber"><Data ss:Type="Number">${summary.averageScore.toFixed(2)}</Data></Cell>`
+                : `<Cell ss:StyleID="CellCenter"><Data ss:Type="String">-</Data></Cell>`;
+
+            if (audience === 'student_board') {
+              return `   <Row ss:Height="22">
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${rIdx + 1}</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">${escapeXml(student.studentName)}</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(student.class || '-')}</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(student.halaqah || '-')}</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">${escapeXml(summary.materialSummary)}</Data></Cell>
+    ${avgCell}
+    <Cell ss:StyleID="${stStyle}"><Data ss:Type="String">${escapeXml(ketText)}</Data></Cell>
+   </Row>`;
+            }
+
+            return `   <Row ss:Height="22">
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="Number">${rIdx + 1}</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(student.studentNis || '-')}</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">${escapeXml(student.studentName)}</Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String">${escapeXml(student.class || '-')}</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">${escapeXml(summary.materialSummary)}</Data></Cell>
+    <Cell ss:StyleID="CellText"><Data ss:Type="String">${escapeXml(summary.examinerSummary)}</Data></Cell>
+    ${avgCell}
+    <Cell ss:StyleID="${stStyle}"><Data ss:Type="String">${escapeXml(ketText)}</Data></Cell>
+   </Row>`;
+          })
+          .join('\n');
+
+        const sigColIndex = audience === 'student_board' ? 5 : 6;
+
+        return ` <Worksheet ss:Name="${escapeXml(sheetName)}">
+  <Table ss:DefaultRowHeight="20">
+   ${colDefs}
+   <Row ss:Height="24">
+    <Cell ss:StyleID="HeaderTitle"><Data ss:Type="String">PONDOK PESANTREN DARUL ABROR IBS</Data></Cell>
+   </Row>
+   <Row ss:Height="19">
+    <Cell ss:StyleID="HeaderSubtitle"><Data ss:Type="String">BAGIAN TAHSIN &amp; TAHFIDZ AL QUR&apos;AN</Data></Cell>
+   </Row>
+   <Row ss:Height="16">
+    <Cell><Data ss:Type="String">Jl. Raya Samarang No.216, Mekarwangi, Kec. Tarogong Kaler, Kabupaten Garut, Jawa Barat 44151</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:StyleID="HeaderSubtitle"><Data ss:Type="String">${escapeXml(docHeading)}</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell><Data ss:Type="String">${escapeXml(grp.title)}${grp.subtitle ? ` | ${escapeXml(grp.subtitle)}` : ''} | Periode: ${escapeXml(periodName)} | KKM: ${kkm}</Data></Cell>
+   </Row>
+   ${
+     audience === 'teacher_halaqah'
+       ? `<Row ss:Height="18">
+    <Cell><Data ss:Type="String">Total Santri: ${grp.rows.length} | Lulus: ${passedCount} | Belum Tuntas/Remedial: ${failedCount} | Rata-rata: ${avgStr}</Data></Cell>
+   </Row>`
+       : ''
+   }
+   <Row ss:Height="8"/>
+   <Row ss:Height="26">
+    ${headerCells}
+   </Row>
+${dataRowsXml}
+   <Row ss:Height="14"/>
+   <Row ss:Height="18">
+    <Cell ss:Index="${sigColIndex}"><Data ss:Type="String">Garut, ${escapeXml(dateText)}</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:Index="${sigColIndex}"><Data ss:Type="String">Bagian Tahsin &amp; Tahfidz Al Qur&apos;an</Data></Cell>
+   </Row>
+   <Row ss:Height="18">
+    <Cell ss:Index="${sigColIndex}"><Data ss:Type="String">Ma&apos;had Darul Abror Islamic Boarding School</Data></Cell>
+   </Row>
+   <Row ss:Height="34"/>
+   <Row ss:Height="20">
+    <Cell ss:Index="${sigColIndex}" ss:StyleID="HeaderSubtitle"><Data ss:Type="String">Parhan Mubarok, S.Ag</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>`;
+      })
+      .join('\n');
+
+    const excelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#000000"/>
+  </Style>
+  <Style ss:ID="HeaderTitle">
+   <Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#047857"/>
+  </Style>
+  <Style ss:ID="HeaderSubtitle">
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#0F172A"/>
+  </Style>
+  <Style ss:ID="TableHeader">
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#065F46" ss:Pattern="Solid"/>
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#064E3B"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#064E3B"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#064E3B"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#064E3B"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellText">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellNumber">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <NumberFormat ss:Format="0.00"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellLulus">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#065F46"/>
+   <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#A7F3D0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellGagal">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#991B1B"/>
+   <Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FECACA"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellProses">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#92400E"/>
+   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+   </Borders>
+  </Style>
+ </Styles>
+${worksheetsXml}
+</Workbook>`;
+
+    const blob = new Blob([excelXml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${buildFileBaseName()}.xls`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-xs">
@@ -541,15 +1030,33 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] text-slate-500">
-            Tips: Pada dialog cetak, pilih <strong>Save as PDF</strong> untuk dibagikan via WhatsApp ke Guru Halaqah.
+            Pilih <strong>Word (.doc)</strong> atau <strong>Excel (.xls)</strong> jika ingin mengedit manual sebelum dibagikan/ditempel.
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold"
+              className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold"
             >
               Tutup
+            </button>
+            <button
+              type="button"
+              disabled={pageGroups.length === 0}
+              onClick={handleDownloadWord}
+              className="px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-extrabold inline-flex items-center gap-1.5 disabled:opacity-40"
+            >
+              <FileText size={14} />
+              <span>Word (.doc)</span>
+            </button>
+            <button
+              type="button"
+              disabled={pageGroups.length === 0}
+              onClick={handleDownloadExcel}
+              className="px-3.5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-extrabold inline-flex items-center gap-1.5 disabled:opacity-40"
+            >
+              <FileSpreadsheet size={14} />
+              <span>Excel (.xls)</span>
             </button>
             <button
               type="button"
@@ -558,7 +1065,7 @@ export const UASRecapPrintModal: React.FC<UASRecapPrintModalProps> = ({
               className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold inline-flex items-center gap-1.5 disabled:opacity-40"
             >
               <Printer size={14} />
-              <span>Cetak / Simpan PDF ({pageGroups.length} Lembar)</span>
+              <span>Cetak / PDF ({pageGroups.length} Lembar)</span>
             </button>
           </div>
         </div>
