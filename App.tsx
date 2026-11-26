@@ -27,6 +27,8 @@ import { TahsinPeriodsView } from './components/TahsinEvaluation/TahsinPeriodsVi
 import { TahsinPelaksanaanView } from './components/TahsinEvaluation/TahsinPelaksanaanView';
 import { TahsinRemedialView } from './components/TahsinEvaluation/TahsinRemedialView';
 import { TahsinReportsView } from './components/TahsinEvaluation/TahsinReportsView';
+import { ZiyadahAccelContainerView } from './components/ZiyadahAcceleration/ZiyadahAccelContainerView';
+import { ziyadahAccelService } from './services/ziyadahAccelService';
 import { User as UserIcon, Lock, AlertCircle, ArrowRight, CheckCircle2, XCircle, Loader2, WifiOff, Camera, X, Sun, Moon, Check, Wifi, RefreshCw, AlertTriangle } from 'lucide-react';
 import QRScanner from './components/QRScanner';
 import { api, setSessionUser } from './api';
@@ -377,6 +379,42 @@ const App: React.FC = () => {
   const isFetchingRef = useRef(false);
   const lastFetchTimeRef = useRef(0);
 
+  const [zaAccess, setZaAccess] = useState<{
+    canShowMenu: boolean;
+    isCoordinator: boolean;
+    loaded: boolean;
+  }>(() => ({
+    canShowMenu: false,
+    isCoordinator: false,
+    loaded: false
+  }));
+
+  const refreshZaAccess = React.useCallback(async (targetUser?: User | null) => {
+    const u = targetUser ?? user;
+    if (!u || u.role === 'parent') {
+      setZaAccess({ canShowMenu: false, isCoordinator: false, loaded: true });
+      return;
+    }
+    if (u.role === 'admin') {
+      setZaAccess({ canShowMenu: true, isCoordinator: true, loaded: true });
+      return;
+    }
+    try {
+      const ctx = await ziyadahAccelService.getAccessContext(u);
+      setZaAccess({
+        canShowMenu: Boolean(ctx.canShowMenu),
+        isCoordinator: Boolean(ctx.isCoordinator),
+        loaded: true
+      });
+    } catch {
+      setZaAccess({ canShowMenu: false, isCoordinator: false, loaded: true });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    refreshZaAccess(user);
+  }, [user?.id, user?.role, user?.sessionToken, user?.verifiedExaminer?.teacherId]);
+
   useEffect(() => {
     if (user) {
       try {
@@ -386,21 +424,33 @@ const App: React.FC = () => {
       } catch (e) {}
 
       const parentTabs = ['dashboard', 'ziyadah', 'murojaah', 'exam', 'attendance_student', 'reports', 'profile', 'mushaf_digital', 'tahsin_reports'];
+      const teacherZaTabs = !zaAccess.loaded
+        ? ['za_dashboard', 'za_execution', 'za_monitoring', 'za_reports']
+        : zaAccess.isCoordinator
+          ? ['za_dashboard', 'za_execution', 'za_monitoring', 'za_reports']
+          : zaAccess.canShowMenu
+            ? ['za_execution']
+            : [];
       const teacherTabs = [
         'dashboard', 'ziyadah', 'murojaah', 'attendance_student', 'material_preparation',
         'uts_execution', 'uas_execution', 'remedial_execution',
         'exam', 'reports', 'attendance_self', 'profile', 'mushaf_digital',
-        'tahsin_execution', 'tahsin_remedial', 'tahsin_reports'
+        'tahsin_execution', 'tahsin_remedial', 'tahsin_reports',
+        ...teacherZaTabs
       ];
       const adminTabs = [
         'dashboard', 'master_data', 'attendance_student', 'attendance_teacher',
         'mushaf_digital', 'question_bank', 'evaluation_periods', 'material_preparation',
         'uts_execution', 'uas_execution', 'remedial_execution', 'uts_recap', 'uas_recap',
         'semester_recap', 'final_recap', 'exam', 'reports', 'halaqah_reports', 'tutorial', 'profile', 'ziyadah', 'murojaah',
-        'tahsin_dashboard', 'tahsin_periods', 'tahsin_execution', 'tahsin_remedial', 'tahsin_reports'
+        'tahsin_dashboard', 'tahsin_periods', 'tahsin_execution', 'tahsin_remedial', 'tahsin_reports',
+        'za_dashboard', 'za_execution', 'za_monitoring', 'za_reports'
       ];
+      const sharedAllowedTabs = !zaAccess.loaded || zaAccess.canShowMenu
+        ? ['uas_execution', 'za_execution']
+        : ['uas_execution'];
       
-      if (user.role === 'shared_uas_examiner' && activeTab !== 'uas_execution') {
+      if (user.role === 'shared_uas_examiner' && !sharedAllowedTabs.includes(activeTab)) {
         setActiveTab('uas_execution');
       } else if (user.role === 'parent' && !parentTabs.includes(activeTab)) {
         setActiveTab('dashboard');
@@ -414,7 +464,7 @@ const App: React.FC = () => {
         window.localStorage.removeItem('sita_current_user_v1');
       } catch (e) {}
     }
-  }, [user, activeTab]);
+  }, [user, activeTab, zaAccess]);
 
   useEffect(() => { 
     try {
@@ -1255,6 +1305,54 @@ const App: React.FC = () => {
         return (
           <TahsinReportsView user={user!} students={students} users={users} />
         );
+      case 'za_dashboard':
+        return (
+          <ZiyadahAccelContainerView
+            user={user!}
+            students={students}
+            users={users}
+            records={records}
+            initialSubTab="dashboard"
+            onUserUpdate={setUser}
+            onAccessContextChanged={() => refreshZaAccess(user)}
+          />
+        );
+      case 'za_execution':
+        return (
+          <ZiyadahAccelContainerView
+            user={user!}
+            students={students}
+            users={users}
+            records={records}
+            initialSubTab="execution"
+            onUserUpdate={setUser}
+            onAccessContextChanged={() => refreshZaAccess(user)}
+          />
+        );
+      case 'za_monitoring':
+        return (
+          <ZiyadahAccelContainerView
+            user={user!}
+            students={students}
+            users={users}
+            records={records}
+            initialSubTab="monitoring"
+            onUserUpdate={setUser}
+            onAccessContextChanged={() => refreshZaAccess(user)}
+          />
+        );
+      case 'za_reports':
+        return (
+          <ZiyadahAccelContainerView
+            user={user!}
+            students={students}
+            users={users}
+            records={records}
+            initialSubTab="reports"
+            onUserUpdate={setUser}
+            onAccessContextChanged={() => refreshZaAccess(user)}
+          />
+        );
       case 'exam': return <ExamView user={user!} students={students} exams={exams} onAddExam={handleAddExam} onDeleteExam={handleDeleteExam} />;
       case 'profile': return <ProfileSettings user={user!} onUpdateUser={(d) => { const updated = {...user!, ...d}; setUser(updated); api.send('updateUser', updated); }} />;
       case 'tutorial': return <TutorialGuide />;
@@ -1285,6 +1383,7 @@ const App: React.FC = () => {
           activeTab={activeTab} 
           onTabChange={setActiveTab}
           onOpenDbConfig={() => setShowDbConfig(true)}
+          zaAccess={zaAccess}
         >
           {/* Banner Peringatan Browser Internal WhatsApp */}
           {isInAppBrowser && (

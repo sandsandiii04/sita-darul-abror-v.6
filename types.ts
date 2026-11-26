@@ -1713,3 +1713,323 @@ export interface TahsinMonitoringStats {
   averageKelancaran: number;
   averageWaqaf: number;
 }
+
+// ============================================================================
+// MODUL UJIAN ZIYADAH AKSELERASI TYPES (ADDITIVE & TERISOLASI)
+// ============================================================================
+
+export type ZiyadahAccelEventStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'active'
+  | 'closed'
+  | 'finalized'
+  | 'cancelled';
+
+export type ZiyadahAccelSessionStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'active'
+  | 'closed'
+  | 'cancelled';
+
+export type ZiyadahAccelFulfillmentStatus =
+  | 'waiting_turn'
+  | 'called_not_submitted'
+  | 'submitted'
+  | 'absent'
+  | 'pending_examiner_input'
+  | 'cancelled';
+
+export type ZiyadahAccelVerificationStatus =
+  | 'clean'
+  | 'needs_verification'
+  | 'verified_approved'
+  | 'verified_rejected';
+
+export type ZiyadahAccelAbsenceReason = 'sick' | 'permission' | 'alpha' | 'other';
+
+export interface ZiyadahAccelCoordinatorDelegation {
+  userId: string;
+  userName: string;
+  isActive: boolean;
+  notes?: string | null;
+  updatedAt?: string;
+}
+
+export interface ZiyadahAccelEvent {
+  id: string;
+  academicTermId?: string | null;
+  name: string;
+  academicYear: string;
+  semester: 'ganjil' | 'genap';
+  startDate: string;
+  endDate: string;
+  status: ZiyadahAccelEventStatus;
+  coordinatorUserId?: string | null;
+  signerCity: string;
+  signerTitle: string;
+  signerName: string;
+  notes?: string | null;
+  finalizedAt?: string | null;
+  finalizedBy?: string | null;
+  reopenedAt?: string | null;
+  reopenReason?: string | null;
+  version: number;
+  participantCount?: number;
+  sessionCount?: number;
+  activeSessionName?: string | null;
+  needsVerificationCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ZiyadahAccelParticipant {
+  id: string;
+  eventId: string;
+  studentId: string;
+  studentNameSnapshot: string;
+  nisSnapshot: string;
+  classSnapshot: string;
+  halaqahSnapshot: string;
+  halaqahTeacherIdSnapshot?: string | null;
+  halaqahTeacherNameSnapshot?: string | null;
+  memorizationDirectionHint: 'forward' | 'backward' | 'single_surah' | 'unknown';
+  baselineSurah?: number | null;
+  baselineAyah?: number | null;
+  baselinePage?: number | null;
+  baselineLabel?: string | null;
+  participantStatus: 'active' | 'withdrawn';
+  withdrawReason?: string | null;
+  createdAt?: string;
+}
+
+export interface ZiyadahAccelSession {
+  id: string;
+  eventId: string;
+  sessionNumber: number;
+  name: string;
+  sessionDate: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  status: ZiyadahAccelSessionStatus;
+  queueMode: 'akselerasi_last' | 'custom_order';
+  regularQueueOffset: number;
+  activatedAt?: string | null;
+  closedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  version: number;
+}
+
+export interface ZiyadahAccelSessionExaminer {
+  id?: string;
+  eventId?: string;
+  sessionId?: string;
+  examinerUserId: string;
+  examinerNameSnapshot: string;
+  groupLabel?: string | null;
+  canExamineAll: boolean;
+  assignedClasses: string[];
+  assignedHalaqahs: string[];
+  assignedParticipantIds: string[];
+  regularQueueOffset?: number;
+  regularFinishConfirmed?: boolean;
+  regularFinishedAt?: string | null;
+}
+
+export interface ZiyadahAccelRangeItem {
+  id?: string;
+  rangeOrder: number;
+  juzNumber: number;
+  surahNumber: number;
+  surahNameSnapshot: string;
+  ayahStart: number;
+  ayahEnd: number;
+  startPage: number;
+  endPage: number;
+  overlapFlag?: boolean;
+  overlapDetail?: string | null;
+}
+
+export interface ZiyadahAccelSubmission {
+  id: string;
+  eventId: string;
+  sessionId: string;
+  participantId: string;
+  studentId: string;
+  assignedExaminerId?: string | null;
+  groupLabel?: string | null;
+  queueTier: 'regular_before' | 'akselerasi_last';
+  queueOrder: number;
+  fulfillmentStatus: ZiyadahAccelFulfillmentStatus;
+  verificationStatus: ZiyadahAccelVerificationStatus;
+  verificationFlags: string[];
+  confirmedPages: number | null;
+  systemSuggestedPages: number | null;
+  approvedUniquePages: number | null;
+  score: number | null;
+  absenceReason?: ZiyadahAccelAbsenceReason | null;
+  examinerNotes?: string | null;
+  recordedByUserId?: string | null;
+  recordedByNameSnapshot?: string | null;
+  loginAccountUsername?: string | null;
+  submittedAt?: string | null;
+  verifiedBy?: string | null;
+  verifiedByNameSnapshot?: string | null;
+  verifiedAt?: string | null;
+  verificationNote?: string | null;
+  version: number;
+  updatedAt?: string;
+  ranges: ZiyadahAccelRangeItem[];
+}
+
+export interface ZiyadahAccelAuditLog {
+  id: string;
+  sessionId?: string | null;
+  submissionId?: string | null;
+  studentId?: string | null;
+  actionType: string;
+  actorUserId: string;
+  actorNameSnapshot: string;
+  actorRole: string;
+  loginAccountUsername?: string | null;
+  beforeData?: any;
+  afterData?: any;
+  reason?: string | null;
+  createdAt: string;
+}
+
+export interface ZiyadahAccelStudentSessionCell {
+  sessionId: string;
+  sessionNumber: number;
+  sessionName: string;
+  submission?: ZiyadahAccelSubmission;
+  fulfillmentStatus: ZiyadahAccelFulfillmentStatus;
+  verificationStatus: ZiyadahAccelVerificationStatus;
+  confirmedPages: number | null;
+  uniqueVerifiedPages: number;
+  unverifiedPages: number;
+  score: number | null;
+  rangeSummaryText: string;
+  examinerName?: string | null;
+}
+
+export interface ZiyadahAccelStudentSummaryRow {
+  participantId: string;
+  studentId: string;
+  studentName: string;
+  nis: string;
+  className: string;
+  halaqah: string;
+  halaqahTeacherName: string;
+  baselineLabel: string;
+  cells: ZiyadahAccelStudentSessionCell[];
+  totalSessionsExpected: number;
+  submittedSessionCount: number;
+  scoredSessionCount: number;
+  absentSessionCount: number;
+  pendingSessionCount: number;
+  needsVerificationCount: number;
+  totalSubmittedPages: number;
+  totalUniqueVerifiedPages: number;
+  totalUnverifiedPages: number;
+  averageScore: number | null;
+  combinedRangesText: string;
+  isCompleteAllSessions: boolean;
+  isLagging: boolean;
+}
+
+export interface ZiyadahAccelGroupProgress {
+  groupKey: string;
+  participantCount: number;
+  totalObligations: number;
+  submittedObligations: number;
+  absentObligations: number;
+  totalUniqueVerifiedPages: number;
+  averageScoreByStudent: number | null;
+}
+
+export interface ZiyadahAccelSessionProgress {
+  sessionId: string;
+  sessionNumber: number;
+  sessionName: string;
+  sessionDate: string;
+  status: ZiyadahAccelSessionStatus;
+  totalParticipants: number;
+  submittedCount: number;
+  waitingTurnCount: number;
+  calledNotSubmittedCount: number;
+  absentCount: number;
+  pendingExaminerInputCount: number;
+  needsVerificationCount: number;
+  totalUniquePages: number;
+  averageSessionScore: number | null;
+}
+
+export interface ZiyadahAccelEventMetrics {
+  uniqueParticipantsCount: number;
+  activeSessionsCount: number;
+  totalSessionsCount: number;
+  currentActiveSessionId: string | null;
+  currentActiveSessionName: string | null;
+  // Metrik pada Sesi Aktif (Santri Unik)
+  activeSessionSubmittedStudents: number;
+  activeSessionPendingStudents: number;
+  activeSessionAbsentStudents: number;
+  // Metrik Kumulatif Kewajiban Setoran (Peserta x Sesi)
+  totalObligationsCount: number;
+  submittedObligationsCount: number;
+  notSubmittedObligationsCount: number;
+  absentObligationsCount: number;
+  needsVerificationSubmissionsCount: number;
+  needsVerificationStudentsCount: number;
+  // Metrik Halaman & Nilai
+  totalSubmittedPages: number;
+  totalUniqueVerifiedPages: number;
+  totalUnverifiedPages: number;
+  averageScoreByStudent: number | null;
+  studentsWithScoreCount: number;
+  averageScoreBySubmission: number | null;
+  validScoredSubmissionsCount: number;
+  // Breakdown
+  sessionProgress: ZiyadahAccelSessionProgress[];
+  classProgress: ZiyadahAccelGroupProgress[];
+  halaqahProgress: ZiyadahAccelGroupProgress[];
+}
+
+export interface ZiyadahAccelFinalSnapshot {
+  id: string;
+  snapshotVersion: number;
+  frozenSummary: ZiyadahAccelEventMetrics;
+  frozenStudentRows: ZiyadahAccelStudentSummaryRow[];
+  frozenSessionMatrix: any[];
+  finalizedBy: string;
+  finalizedByName: string;
+  finalizedAt: string;
+}
+
+export interface ZiyadahAccelMenuAccess {
+  canShowMenu: boolean;
+  isCoordinator: boolean;
+  assignedSessionCount: number;
+  isSharedAccount?: boolean;
+  pinRequired?: boolean;
+  isPinExpired?: boolean;
+  verifiedExaminer?: { teacherId: string; teacherName: string } | null;
+}
+
+export interface ZiyadahAccelWorkspaceData {
+  isCoordinator: boolean;
+  actorUserId?: string;
+  actorName?: string;
+  isSharedAccount?: boolean;
+  event: ZiyadahAccelEvent;
+  participants: ZiyadahAccelParticipant[];
+  sessions: ZiyadahAccelSession[];
+  sessionExaminers: ZiyadahAccelSessionExaminer[];
+  submissions: ZiyadahAccelSubmission[];
+  finalSnapshot?: ZiyadahAccelFinalSnapshot | null;
+  auditLogs: ZiyadahAccelAuditLog[];
+}
+

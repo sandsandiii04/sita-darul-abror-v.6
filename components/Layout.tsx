@@ -22,7 +22,9 @@ import {
   Calendar,
   ListChecks,
   ClipboardCheck,
-  Layers
+  Layers,
+  Sparkles,
+  Table
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -32,6 +34,7 @@ interface LayoutProps {
   onTabChange: (tab: string) => void;
   children: React.ReactNode;
   onOpenDbConfig?: () => void;
+  zaAccess?: { canShowMenu: boolean; isCoordinator: boolean };
 }
 
 export interface MenuItem {
@@ -42,7 +45,7 @@ export interface MenuItem {
   isSubItem?: boolean;
 }
 
-const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange, children, onOpenDbConfig }) => {
+const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange, children, onOpenDbConfig, zaAccess }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const getMenuItems = (role: Role): MenuItem[] => {
@@ -67,6 +70,19 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
     }
 
     if (role === 'teacher') {
+      const teacherZaMenus: MenuItem[] = zaAccess?.isCoordinator
+        ? [
+            { id: 'za_dashboard', label: 'Dashboard & Kegiatan', icon: Sparkles, section: 'Ziyadah Akselerasi', isSubItem: true },
+            { id: 'za_execution', label: 'Input Penguji', icon: ClipboardCheck, section: 'Ziyadah Akselerasi', isSubItem: true },
+            { id: 'za_monitoring', label: 'Monitoring Matriks', icon: Table, section: 'Ziyadah Akselerasi', isSubItem: true },
+            { id: 'za_reports', label: 'Laporan & Arsip', icon: FileText, section: 'Ziyadah Akselerasi', isSubItem: true }
+          ]
+        : zaAccess?.canShowMenu
+          ? [
+              { id: 'za_execution', label: 'Ujian Akselerasi', icon: Sparkles, section: 'Ziyadah Akselerasi', isSubItem: true }
+            ]
+          : [];
+
       return [
         ...common,
         { id: 'attendance_student', label: 'Absensi Santri', icon: Users },
@@ -79,6 +95,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
         { id: 'tahsin_execution', label: 'Pelaksanaan Ujian', icon: ClipboardCheck, section: 'Ujian Tahsin', isSubItem: true },
         { id: 'tahsin_remedial', label: 'Ujian Remedial', icon: RotateCcw, section: 'Ujian Tahsin', isSubItem: true },
         { id: 'tahsin_reports', label: 'Laporan Tahsin', icon: FileText, section: 'Ujian Tahsin', isSubItem: true },
+        ...teacherZaMenus,
         { id: 'reports', label: 'Laporan Capaian', icon: FileText },
         { id: 'attendance_self', label: 'Absensi Saya', icon: UserCheck },
         profileMenu
@@ -86,9 +103,13 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
     }
 
     if (role === 'shared_uas_examiner') {
-      return [
+      const sharedMenus: MenuItem[] = [
         { id: 'uas_execution', label: 'Pelaksanaan UAS', icon: ClipboardCheck }
       ];
+      if (zaAccess?.canShowMenu) {
+        sharedMenus.push({ id: 'za_execution', label: 'Ujian Akselerasi', icon: Sparkles });
+      }
+      return sharedMenus;
     }
 
     return [
@@ -113,6 +134,10 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout, activeTab, onTabChange,
       { id: 'tahsin_execution', label: 'Pelaksanaan Ujian', icon: ClipboardCheck, section: 'Ujian Tahsin', isSubItem: true },
       { id: 'tahsin_remedial', label: 'Ujian Remedial', icon: RotateCcw, section: 'Ujian Tahsin', isSubItem: true },
       { id: 'tahsin_reports', label: 'Laporan & Rekap', icon: FileText, section: 'Ujian Tahsin', isSubItem: true },
+      { id: 'za_dashboard', label: 'Dashboard & Kegiatan', icon: Sparkles, section: 'Ziyadah Akselerasi', isSubItem: true },
+      { id: 'za_execution', label: 'Input Penguji', icon: ClipboardCheck, section: 'Ziyadah Akselerasi', isSubItem: true },
+      { id: 'za_monitoring', label: 'Monitoring Matriks', icon: Table, section: 'Ziyadah Akselerasi', isSubItem: true },
+      { id: 'za_reports', label: 'Laporan & Arsip', icon: FileText, section: 'Ziyadah Akselerasi', isSubItem: true },
       { id: 'reports', label: 'Laporan', icon: FileText },
       { id: 'halaqah_reports', label: 'Perkembangan Halaqah', icon: Layers },
       { id: 'tutorial', label: 'Panduan Sistem', icon: HelpCircle },
