@@ -26,11 +26,24 @@ import {
   Send,
   X,
   Eye,
+  EyeOff,
   Check,
   HelpCircle,
-  ArrowRight
+  ArrowRight,
+  Layers,
+  Loader2
 } from 'lucide-react';
 import { quranService } from '../../services/quranService';
+
+interface ReconstructedRemedialText {
+  promptText: string;
+  answerText: string;
+  startSurahName: string;
+  endSurahName: string;
+  pageNumber: number;
+  juzNumber: number;
+  isLoading: boolean;
+}
 
 interface RemedialExamExecutionViewProps {
   user: User;
@@ -63,6 +76,12 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
 
   // Mushaf Digital Viewer Modal
   const [mushafPage, setMushafPage] = useState<number | null>(null);
+  const [mushafVerses, setMushafVerses] = useState<any[]>([]);
+  const [mushafLoading, setMushafLoading] = useState<boolean>(false);
+
+  // Reconstructed Quran Arabic Texts per questionNumber
+  const [qTexts, setQTexts] = useState<Record<number, ReconstructedRemedialText>>({});
+  const [showAnswerMap, setShowAnswerMap] = useState<Record<number, boolean>>({});
 
   // Inspect Result Modal
   const [inspectItem, setInspectItem] = useState<{
@@ -75,6 +94,144 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
   useEffect(() => {
     loadAssignedStudents();
   }, []);
+
+  // Load Quran Arabic texts progressively whenever activeSession changes
+  useEffect(() => {
+    if (!activeSession || !activeSession.questions?.length) {
+      setQTexts({});
+      return;
+    }
+
+    let isMounted = true;
+    const isUTS = activeSession.item.examType === 'uts';
+
+    // Default show answer text for all questions so examiner sees Arabic verses immediately
+    const initialShow: Record<number, boolean> = {};
+    for (const q of activeSession.questions) {
+      initialShow[q.questionNumber] = true;
+    }
+    setShowAnswerMap(initialShow);
+
+    const loadAllTexts = async () => {
+      for (const q of activeSession.questions) {
+        if (!isMounted) return;
+
+        const isMandatory = !isUTS && q.questionRole === 'mandatory';
+        const startSurahNum = q.promptStartSurah || q.answerStartSurah;
+        const endSurahNum = q.answerEndSurah;
+        const startSurahInfo = quranService.getSurah(startSurahNum);
+        const endSurahInfo = quranService.getSurah(endSurahNum);
+        const startSurahName = startSurahInfo?.name || `Surat ${startSurahNum}`;
+        const endSurahName = endSurahInfo?.name || `Surat ${endSurahNum}`;
+        const pageNum = q.pageNumber || q.startPage || 1;
+        const juzNum = quranService.getPageJuz(pageNum);
+
+        let promptText = '...';
+        let answerText = '...';
+
+        try {
+          if (isMandatory) {
+            promptText = 'Bacakan halaman ini secara penuh.';
+            const verses = await quranService.getVersesByPage(pageNum);
+            if (verses && verses.length > 0) {
+              answerText = verses.map(v => `${v.textUthmani} ۝${v.ayahNumber}`).join(' ');
+            } else {
+              answerText = `[Halaman ${pageNum}] ${startSurahName}:${q.answerStartAyah} s.d. ${endSurahName}:${q.answerEndAyah}`;
+            }
+          } else {
+            if (
+              q.promptStartSurah && q.promptStartAyah && q.promptStartWord &&
+              q.promptEndSurah && q.promptEndAyah && q.promptEndWord
+            ) {
+              const pRes = await quranService.getRangeWordsAndText(
+                {
+                  surahNumber: q.promptStartSurah,
+                  ayahNumber: q.promptStartAyah,
+                  wordPosition: q.promptStartWord,
+                  pageNumber: pageNum
+                },
+                {
+                  surahNumber: q.promptEndSurah,
+                  ayahNumber: q.promptEndAyah,
+                  wordPosition: q.promptEndWord,
+                  pageNumber: pageNum
+                },
+                false
+              );
+              promptText = pRes.fullText || `${startSurahName} ayat ${q.promptStartAyah}`;
+            } else {
+              promptText = `QS. ${startSurahName}:${q.answerStartAyah}`;
+            }
+
+            const aRes = await quranService.getRangeWordsAndText(
+              {
+                surahNumber: q.answerStartSurah,
+                ayahNumber: q.answerStartAyah,
+                wordPosition: q.answerStartWord || 1,
+                pageNumber: q.startPage || pageNum
+              },
+              {
+                surahNumber: q.answerEndSurah,
+                ayahNumber: q.answerEndAyah,
+                wordPosition: q.answerEndWord || 1,
+                pageNumber: q.endPage || pageNum
+              },
+              false
+            );
+            answerText = aRes.fullText || `${endSurahName} ayat ${q.answerStartAyah} s.d. ${q.answerEndAyah}`;
+          }
+        } catch (e) {
+          console.warn('Gagal memuat teks Quran remedial:', e);
+          if (answerText === '...') {
+            answerText = `${startSurahName}:${q.answerStartAyah} s.d. ${endSurahName}:${q.answerEndAyah}`;
+          }
+        }
+
+        if (!isMounted) return;
+        setQTexts(prev => ({
+          ...prev,
+          [q.questionNumber]: {
+            promptText,
+            answerText,
+            startSurahName,
+            endSurahName,
+            pageNumber: pageNum,
+            juzNumber: juzNum,
+            isLoading: false
+          }
+        }));
+      }
+    };
+
+    loadAllTexts();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeSession?.attempt?.id]);
+
+  // Load Mushaf page verses when modal opens
+  useEffect(() => {
+    if (!mushafPage) {
+      setMushafVerses([]);
+      return;
+    }
+    let active = true;
+    setMushafLoading(true);
+    quranService
+      .getVersesByPage(mushafPage)
+      .then((verses) => {
+        if (active) setMushafVerses(verses || []);
+      })
+      .catch(() => {
+        if (active) setMushafVerses([]);
+      })
+      .finally(() => {
+        if (active) setMushafLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mushafPage]);
 
   const loadAssignedStudents = async () => {
     setIsLoading(true);
@@ -258,6 +415,51 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
     }
   };
 
+  // Mark current question completed (even if 0 deductions)
+  const markCurrentQuestionCompleted = async () => {
+    if (!activeSession || !currentQuestion || !currentAssessment) return true;
+    if (currentAssessment.completedAt) return true;
+    setIsSaving(true);
+    try {
+      const saveRes = await api.saveRemedialQuestionAssessment({
+        attemptId: activeSession.attempt.id,
+        questionNumber: currentAssessment.questionNumber,
+        assessmentData: {
+          fluencyEvents: currentAssessment.fluencyEvents || [],
+          tajwidEvents: currentAssessment.tajwidEvents || [],
+          makhrajEvents: currentAssessment.makhrajEvents || [],
+          notes: currentAssessment.notes || '',
+          isCompleted: true
+        },
+        expectedVersion: currentAssessment.version,
+        markCompleted: true
+      }, user);
+
+      if (saveRes.success && saveRes.assessment) {
+        const updatedAssessments = activeSession.assessments.map(a =>
+          a.questionNumber === currentAssessment.questionNumber
+            ? {
+                ...a,
+                fluencyScore: saveRes.assessment!.fluencyScore ?? a.fluencyScore,
+                tajwidScore: saveRes.assessment!.tajwidScore ?? a.tajwidScore,
+                makhrajScore: saveRes.assessment!.makhrajScore ?? a.makhrajScore,
+                questionScore: saveRes.assessment!.questionScore ?? a.questionScore,
+                version: saveRes.assessment!.version ?? (a.version + 1),
+                completedAt: saveRes.assessment!.completedAt ?? new Date().toISOString()
+              }
+            : a
+        );
+        setActiveSession({ ...activeSession, assessments: updatedAssessments });
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Final Submit Remedial
   const handleSubmitExam = async () => {
     if (!activeSession) return;
@@ -376,45 +578,155 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
         {/* Question Scoring Workspace vs Review View */}
         {!isReviewStep && currentQuestion && currentAssessment ? (
           <div className="space-y-6">
-            {/* Question Information Card */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {isUTS ? `Butir Soal #${currentQuestion.questionNumber}` : (
-                    currentQuestion.questionRole === 'mandatory' 
-                      ? `Soal Wajib #${currentQuestion.questionNumber}` 
-                      : `Soal Acak #${currentQuestion.questionNumber - 2}`
-                  )}
-                </span>
-                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-full">
-                  Maks: {currentQuestion.maxScore} Poin
-                </span>
-              </div>
+            {/* Question Information Card + Arabic Mushaf Text */}
+            {(() => {
+              const qText = qTexts[currentQuestion.questionNumber];
+              const isMandatory = !isUTS && currentQuestion.questionRole === 'mandatory';
+              const pageNum = currentQuestion.pageNumber || currentQuestion.startPage || qText?.pageNumber || 1;
+              const juzNum = qText?.juzNumber || quranService.getPageJuz(pageNum);
+              const isAnswerVisible = showAnswerMap[currentQuestion.questionNumber] ?? true;
 
-              {/* Coordinates Navigation (No Quran Text in DB) */}
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-xs font-semibold text-slate-500">Koordinat Soal:</span>
-                    <p className="font-mono text-slate-800 text-xs font-semibold mt-0.5">
-                      Surah {currentQuestion.answerStartSurah} : Ayat {currentQuestion.answerStartAyah} (Kata {currentQuestion.answerStartWord})
-                      {' → '}
-                      Surah {currentQuestion.answerEndSurah} : Ayat {currentQuestion.answerEndAyah} (Kata {currentQuestion.answerEndWord})
-                    </p>
+              return (
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                        isMandatory
+                          ? 'bg-teal-50 text-teal-800 border-teal-200'
+                          : 'bg-slate-100 text-slate-700 border-slate-200'
+                      }`}>
+                        {isUTS ? `Butir Soal #${currentQuestion.questionNumber}` : (
+                          isMandatory
+                            ? `Soal Wajib #${currentQuestion.questionNumber}`
+                            : `Soal Acak #${currentQuestion.questionNumber - 2}${currentQuestion.zoneNumber ? ` • Zona ${currentQuestion.zoneNumber}` : ''}`
+                        )}
+                      </span>
+                      <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-full">
+                        Maks: {currentQuestion.maxScore} Poin
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {pageNum && (
+                        <button
+                          onClick={() => setMushafPage(pageNum)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-sm"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>Buka Mushaf Hal. {pageNum}</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={markCurrentQuestionCompleted}
+                        disabled={isSaving || !!currentAssessment.completedAt}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border ${
+                          currentAssessment.completedAt
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{currentAssessment.completedAt ? 'Selesai Dinilai' : 'Tandai Selesai'}</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {currentQuestion.startPage && (
-                    <button
-                      onClick={() => setMushafPage(currentQuestion.startPage!)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-sm"
-                    >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      <span>Buka Mushaf Hal. {currentQuestion.startPage}</span>
-                    </button>
+                  {/* Surah / Page Reference Header */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-bold text-slate-800">
+                    <div className="flex items-center gap-2">
+                      {isMandatory ? (
+                        <>
+                          <BookOpen className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            Halaman {pageNum} • Juz {juzNum}
+                            {qText ? ` (${qText.startSurahName}:${currentQuestion.answerStartAyah} – ${qText.endSurahName}:${currentQuestion.answerEndAyah})` : ''}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Layers className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            {qText?.startSurahName || `Surah ${currentQuestion.answerStartSurah}`} • Ayat {currentQuestion.promptStartAyah || currentQuestion.answerStartAyah}–{currentQuestion.answerEndAyah} (Hal. {pageNum})
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <span className="font-mono text-[11px] font-medium text-slate-400">
+                      QS {currentQuestion.answerStartSurah}:{currentQuestion.answerStartAyah} (K.{currentQuestion.answerStartWord}) → {currentQuestion.answerEndSurah}:{currentQuestion.answerEndAyah} (K.{currentQuestion.answerEndWord})
+                    </span>
+                  </div>
+
+                  {/* Prompt / Instruction Box */}
+                  {isMandatory ? (
+                    <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+                      Bacakan halaman Mushaf Standar Madinah <strong>Halaman {pageNum}</strong> secara penuh.
+                    </p>
+                  ) : (
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[11px] text-slate-500 block font-semibold mb-1.5">
+                        Potongan Awal Ayat (Dibacakan Penguji)
+                      </span>
+                      {!qText ? (
+                        <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Memuat teks ayat Al-Qur'an...</span>
+                        </div>
+                      ) : (
+                        <p
+                          dir="rtl"
+                          className="text-xl sm:text-2xl font-arabic text-slate-900 leading-[2.2] text-right font-medium"
+                        >
+                          {qText.promptText}
+                        </p>
+                      )}
+                    </div>
                   )}
+
+                  {/* Full Reference / Answer Arabic Text */}
+                  <div>
+                    <button
+                      onClick={() =>
+                        setShowAnswerMap(prev => ({
+                          ...prev,
+                          [currentQuestion.questionNumber]: !isAnswerVisible
+                        }))
+                      }
+                      className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-xs font-bold inline-flex items-center gap-1.5 transition"
+                    >
+                      {isAnswerVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>
+                        {isAnswerVisible
+                          ? (isMandatory ? 'Sembunyikan Teks Halaman' : 'Sembunyikan Teks Jawaban')
+                          : (isMandatory ? 'Tampilkan Teks Halaman' : 'Tampilkan Teks Jawaban')}
+                      </span>
+                    </button>
+
+                    {isAnswerVisible && (
+                      <div className="mt-2.5 p-4 sm:p-5 rounded-xl bg-amber-50/40 border border-amber-200/70">
+                        <span className="text-[11px] text-amber-800/80 block font-semibold mb-2">
+                          {isMandatory
+                            ? `Teks Mushaf Halaman ${pageNum} (Rujukan Penguji)`
+                            : 'Kelanjutan Ayat (Rujukan Jawaban Santri)'}
+                        </span>
+                        {!qText ? (
+                          <div className="flex items-center gap-2 text-xs text-slate-400 py-3">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Memuat teks Al-Qur'an...</span>
+                          </div>
+                        ) : (
+                          <p
+                            dir="rtl"
+                            className="text-xl sm:text-2xl font-arabic text-slate-900 leading-[2.4] text-right max-h-80 overflow-y-auto pr-1"
+                          >
+                            {qText.answerText}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Rubric Scoring Controls */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -664,8 +976,12 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
               </div>
 
               <button
-                onClick={() => setCurrentQuestionIdx(currentQuestionIdx + 1)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-sm"
+                onClick={async () => {
+                  await markCurrentQuestionCompleted();
+                  setCurrentQuestionIdx(currentQuestionIdx + 1);
+                }}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl transition shadow-sm"
               >
                 <span>{currentQuestionIdx === totalQuestions - 1 ? 'Ke Review' : 'Selanjutnya'}</span>
                 <ChevronRight className="w-4 h-4" />
@@ -777,29 +1093,69 @@ export const RemedialExamExecutionView: React.FC<RemedialExamExecutionViewProps>
           </div>
         )}
 
-        {/* Coordinate / Page Helper Modal */}
+        {/* Mushaf Digital Viewer Modal (Full Arabic Page) */}
         {mushafPage && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
                 <div className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-emerald-600" />
-                  <h3 className="font-bold text-slate-900">Rujukan Halaman Mushaf</h3>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">
+                      Mushaf Standar Madinah — Halaman {mushafPage}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Juz {quranService.getPageJuz(mushafPage)}
+                    </p>
+                  </div>
                 </div>
-                <button onClick={() => setMushafPage(null)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+                <button onClick={() => setMushafPage(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-slate-600">
-                Soal ini merujuk pada Mushaf Standar Madinah / Kemenag halaman <span className="font-bold text-emerald-700">{mushafPage}</span>.
-              </p>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
-                Gunakan Mushaf cetak atau menu Mushaf Digital pada tab Evaluasi Tahfiz untuk menyimak tilawah santri secara visual.
+
+              <div className="p-5 overflow-y-auto flex-1 bg-amber-50/30">
+                {mushafLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+                    <span className="text-xs">Memuat halaman {mushafPage}...</span>
+                  </div>
+                ) : mushafVerses.length > 0 ? (
+                  <p
+                    dir="rtl"
+                    className="text-2xl sm:text-[26px] font-arabic text-slate-900 leading-[2.4] text-right"
+                  >
+                    {mushafVerses.map(v => `${v.textUthmani} ۝${v.ayahNumber}`).join(' ')}
+                  </p>
+                ) : (
+                  <div className="text-center py-10 text-xs text-slate-500">
+                    Teks halaman {mushafPage} tidak dapat dimuat saat ini. Periksa koneksi internet Anda.
+                  </div>
+                )}
               </div>
-              <div className="flex justify-end">
+
+              <div className="px-5 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setMushafPage(Math.max(1, mushafPage - 1))}
+                    disabled={mushafPage <= 1}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Hal. {Math.max(1, mushafPage - 1)}</span>
+                  </button>
+                  <button
+                    onClick={() => setMushafPage(Math.min(604, mushafPage + 1))}
+                    disabled={mushafPage >= 604}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1"
+                  >
+                    <span>Hal. {Math.min(604, mushafPage + 1)}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <button
                   onClick={() => setMushafPage(null)}
-                  className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-xl text-xs hover:bg-emerald-700 transition"
+                  className="px-4 py-1.5 bg-emerald-600 text-white font-semibold rounded-xl text-xs hover:bg-emerald-700 transition"
                 >
                   Tutup
                 </button>
