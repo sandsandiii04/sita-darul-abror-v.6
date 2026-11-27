@@ -386,9 +386,11 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
         setPinError(res.message || 'Verifikasi PIN sudah kedaluwarsa. Silakan verifikasi PIN ulang.');
       } else {
         setErrorMsg(res.message || 'Tidak dapat memulai sesi ujian UAS.');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal memulai sesi ujian.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       startInFlightRef.current = false;
       setStartingSessionId(null);
@@ -516,9 +518,14 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
         disabledReason: isPeriodActive ? null : 'Ujian belum dibuka'
       };
     }
-    const isApproved = sess.approvalStatus === 'admin_approved' || Boolean(sess.questionSetId);
+    const isApproved = sess.approvalStatus === 'admin_approved';
     if (!isApproved) {
-      return { code: 'WAITING_APPROVAL' as const, label: 'Menunggu Soal', canStart: false, disabledReason: 'Menunggu Soal' };
+      return {
+        code: 'WAITING_APPROVAL' as const,
+        label: 'Menunggu Persetujuan Admin',
+        canStart: false,
+        disabledReason: 'Materi sesi ini belum disetujui Admin'
+      };
     }
     if (!sess.questionSetId) {
       return { code: 'WAITING_PACKET' as const, label: 'Menunggu Soal', canStart: false, disabledReason: 'Menunggu Soal' };
@@ -1035,7 +1042,7 @@ export const UASPelaksanaanView: React.FC<UASPelaksanaanViewProps> = React.memo(
 
       {/* Error Alert with Retry */}
       {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-red-700 animate-fade-in">
+        <div className="sticky top-3 z-40 p-4 bg-red-50 border border-red-300 rounded-2xl shadow-md flex flex-wrap items-center justify-between gap-2 text-xs text-red-700 animate-fade-in">
           <div className="flex items-center gap-2 min-w-0">
             <AlertCircle size={16} className="text-red-500 shrink-0" />
             <span className="break-words">{errorMsg}</span>
