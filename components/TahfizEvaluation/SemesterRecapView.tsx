@@ -231,20 +231,66 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
     setRemedialGeneratingKey(key);
     setRemedialNotification(null);
     try {
-      // 1. Fetch material snapshot
+      // 1. Fetch material snapshot (dengan fallback multi-sesi UAS jika snapshot legacy belum difinalisasi)
       const snapRes = await api.getStudentMaterialSnapshot(candidate.originalPeriodId, candidate.studentId, user);
-      const snapshot = snapRes.snapshot;
+      let snapshot = snapRes.snapshot;
+
+      if (candidate.examType === 'uas' && (!snapshot || snapshot.status !== 'finalized')) {
+        const uasJuzRes = await api.getUASJuzPartsAndSessions(candidate.originalPeriodId, user);
+        const studentSubmittedSessions = (uasJuzRes.sessions || []).filter((s: any) => {
+          const sid = s.student_id || s.studentId;
+          return sid === candidate.studentId && s.status === 'submitted';
+        });
+
+        if (studentSubmittedSessions.length > 0) {
+          const sortedByStart = [...studentSubmittedSessions].sort((a: any, b: any) => {
+            const sDiff = Number(a.start_surah ?? a.startSurah) - Number(b.start_surah ?? b.startSurah);
+            if (sDiff !== 0) return sDiff;
+            return Number(a.start_ayah ?? a.startAyah) - Number(b.start_ayah ?? b.startAyah);
+          });
+          const sortedByEnd = [...studentSubmittedSessions].sort((a: any, b: any) => {
+            const sDiff = Number(b.end_surah ?? b.endSurah) - Number(a.end_surah ?? a.endSurah);
+            if (sDiff !== 0) return sDiff;
+            return Number(b.end_ayah ?? b.endAyah) - Number(a.end_ayah ?? a.endAyah);
+          });
+          const firstSess = sortedByStart[0];
+          const lastSess = sortedByEnd[0];
+          const nowIso = new Date().toISOString();
+
+          snapshot = {
+            id: snapshot?.id || `ems_uas_rem_${candidate.originalPeriodId}_${candidate.studentId}`,
+            examPeriodId: candidate.originalPeriodId,
+            studentId: candidate.studentId,
+            sourceType: 'automatic',
+            startSurah: Number(firstSess.start_surah ?? firstSess.startSurah),
+            startAyah: Number(firstSess.start_ayah ?? firstSess.startAyah),
+            endSurah: Number(lastSess.end_surah ?? lastSess.endSurah),
+            endAyah: Number(lastSess.end_ayah ?? lastSess.endAyah),
+            startPage: Number(firstSess.start_page ?? firstSess.startPage ?? 1),
+            endPage: Number(lastSess.end_page ?? lastSess.endPage ?? 604),
+            startJuz: Number(firstSess.juz_number ?? firstSess.juzNumber ?? 1),
+            endJuz: Number(lastSess.juz_number ?? lastSess.juzNumber ?? 30),
+            estimatedPages: 0,
+            totalRecordsAnalyzed: studentSubmittedSessions.length,
+            memorizationDirection: 'forward',
+            status: 'finalized',
+            createdAt: nowIso,
+            updatedAt: nowIso
+          };
+        }
+      }
+
       if (!snapshot || snapshot.status !== 'finalized') {
         throw new Error('Materi santri belum difinalisasi.');
       }
 
-      // 2. Fetch original questions for anti-reuse
+      // 2. Fetch original questions for anti-reuse (untuk UAS multi-sesi ambil dari seluruh sesi submitted)
       let origQuestions: any[] = [];
       if (candidate.examType === 'uts') {
         const qsRes = await api.getUTSQuestionSet(candidate.originalPeriodId, candidate.studentId, user);
         origQuestions = qsRes.questions || [];
       } else {
-        const qsRes = await api.getUASQuestionSet(candidate.originalPeriodId, candidate.studentId, user);
+        const qsRes = await api.getStudentUASOriginalQuestions(candidate.originalPeriodId, candidate.studentId, user);
         origQuestions = qsRes.questions || [];
       }
 

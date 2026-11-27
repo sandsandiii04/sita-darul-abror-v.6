@@ -21,6 +21,60 @@ export class RemedialQuestionGenerator {
   }
 
   /**
+   * Helper: Normalisasi field soal original (mendukung camelCase maupun snake_case dari RPC row_to_json)
+   */
+  private normalizeOriginalQuestion(oq: any): {
+    questionRole: string;
+    pageNumber: number | null;
+    answerStartSurah: number | null;
+    answerStartAyah: number | null;
+    answerStartWord: number | null;
+    questionBankId: string | null;
+  } {
+    const answerStart = oq?.answerStart || oq?.answer_start;
+    return {
+      questionRole: oq?.questionRole || oq?.question_role || 'random',
+      pageNumber: oq?.pageNumber ?? oq?.page_number ?? oq?.startPage ?? oq?.start_page ?? null,
+      answerStartSurah: oq?.answerStartSurah ?? oq?.answer_start_surah ?? answerStart?.surahNumber ?? answerStart?.surah_number ?? null,
+      answerStartAyah: oq?.answerStartAyah ?? oq?.answer_start_ayah ?? answerStart?.ayahNumber ?? answerStart?.ayah_number ?? null,
+      answerStartWord: oq?.answerStartWord ?? oq?.answer_start_word ?? answerStart?.wordPosition ?? answerStart?.word_position ?? 1,
+      questionBankId: oq?.questionBankId ?? oq?.question_bank_id ?? null
+    };
+  }
+
+  /**
+   * Helper: Validasi batas koordinat soal acak terhadap snapshot materi (selaras dengan SQL Gate 18/19)
+   */
+  private isWithinSnapshotBounds(
+    promptStart: QuranPosition,
+    answerEnd: QuranPosition,
+    snapshot: ExamMaterialSnapshot
+  ): boolean {
+    const dir = snapshot.memorizationDirection || 'forward';
+    if (dir !== 'backward') {
+      if (
+        promptStart.surahNumber < snapshot.startSurah ||
+        (promptStart.surahNumber === snapshot.startSurah && promptStart.ayahNumber < snapshot.startAyah) ||
+        answerEnd.surahNumber > snapshot.endSurah ||
+        (answerEnd.surahNumber === snapshot.endSurah && answerEnd.ayahNumber > snapshot.endAyah)
+      ) {
+        return false;
+      }
+      return true;
+    } else {
+      if (
+        promptStart.surahNumber > snapshot.startSurah ||
+        (promptStart.surahNumber === snapshot.startSurah && promptStart.ayahNumber < snapshot.startAyah) ||
+        answerEnd.surahNumber < snapshot.endSurah ||
+        (answerEnd.surahNumber === snapshot.endSurah && answerEnd.ayahNumber > snapshot.endAyah)
+      ) {
+        return false;
+      }
+      return true;
+    }
+  }
+
+  /**
    * FUNGSI 1: GENERATE PAYLOAD UTS REMEDIAL (5 SOAL, 5 ZONA, ANTI-REUSE)
    */
   public async generateUTSRemedialPayload(params: {
@@ -55,12 +109,15 @@ export class RemedialQuestionGenerator {
     const origBKeys = new Set<string>();
     const origBankIds = new Set<string>();
 
-    for (const oq of originalQuestions) {
-      origBKeys.add(this.makeBKey({
-        surahNumber: oq.answerStartSurah,
-        ayahNumber: oq.answerStartAyah,
-        wordPosition: oq.answerStartWord
-      }));
+    for (const rawOq of originalQuestions) {
+      const oq = this.normalizeOriginalQuestion(rawOq);
+      if (oq.answerStartSurah && oq.answerStartAyah) {
+        origBKeys.add(this.makeBKey({
+          surahNumber: oq.answerStartSurah,
+          ayahNumber: oq.answerStartAyah,
+          wordPosition: oq.answerStartWord || 1
+        }));
+      }
       if (oq.questionBankId) {
         origBankIds.add(oq.questionBankId);
       }
@@ -92,8 +149,18 @@ export class RemedialQuestionGenerator {
       if (strategy === 'hybrid' || strategy === 'bank_only') {
         const bankCandidates = bankQuestions.filter(bq => {
           if (bq.status !== 'active') return false;
+          if (bq.questionType === 'mandatory') return false;
           if (bq.examType !== 'uts' && bq.examType !== 'generic') return false;
           if (origBankIds.has(bq.id)) return false;
+          if (!bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd) return false;
+          if (
+            comparePositions(bq.promptStart, bq.promptEnd) > 0 ||
+            comparePositions(bq.promptEnd, bq.answerStart) >= 0 ||
+            comparePositions(bq.answerStart, bq.answerEnd) > 0
+          ) {
+            return false;
+          }
+          if (!this.isWithinSnapshotBounds(bq.promptStart, bq.answerEnd, snapshot)) return false;
 
           const bKey = this.makeBKey(bq.answerStart);
           if (origBKeys.has(bKey) || usedBKeys.has(bKey)) return false;
@@ -177,7 +244,12 @@ export class RemedialQuestionGenerator {
               );
 
               const currentBKey = this.makeBKey(pts.answerStart);
-              if (!origBKeys.has(currentBKey) && !usedBKeys.has(currentBKey)) {
+              const boundsOk = this.isWithinSnapshotBounds(pts.promptStart, pts.answerEnd, snapshot);
+              const orderOk =
+                comparePositions(pts.promptStart, pts.promptEnd) <= 0 &&
+                comparePositions(pts.promptEnd, pts.answerStart) < 0 &&
+                comparePositions(pts.answerStart, pts.answerEnd) <= 0;
+              if (boundsOk && orderOk && !origBKeys.has(currentBKey) && !usedBKeys.has(currentBKey)) {
                 usedBKeys.add(currentBKey);
                 q = {
                   questionNumber: zoneNum,
@@ -265,14 +337,15 @@ export class RemedialQuestionGenerator {
     const origRandomBKeys = new Set<string>();
     const origBankIds = new Set<string>();
 
-    for (const oq of originalQuestions) {
+    for (const rawOq of originalQuestions) {
+      const oq = this.normalizeOriginalQuestion(rawOq);
       if (oq.questionRole === 'mandatory' && oq.pageNumber) {
         origMandatoryPages.add(oq.pageNumber);
-      } else {
+      } else if (oq.answerStartSurah && oq.answerStartAyah) {
         origRandomBKeys.add(this.makeBKey({
           surahNumber: oq.answerStartSurah,
           ayahNumber: oq.answerStartAyah,
-          wordPosition: oq.answerStartWord
+          wordPosition: oq.answerStartWord || 1
         }));
       }
       if (oq.questionBankId) {
@@ -289,8 +362,18 @@ export class RemedialQuestionGenerator {
     const seed = params.seed || `seed_uas_rem_${period.id}_${snapshot.studentId}_${Date.now()}`;
     const prng = createPRNG(seed);
 
-    // 3. PEMILIHAN 2 SOAL WAJIB DENGAN ANTI-REUSE
-    // Filter kandidat Bank Soal Wajib yang belum dipakai di UAS original
+    // 3. PEMILIHAN 2 SOAL WAJIB DENGAN ANTI-REUSE (Prioritas Bank Soal -> Auto Fallback Halaman Penuh Mushaf)
+    interface MandatoryPageCandidate {
+      pageNumber: number;
+      sourceType: 'bank' | 'auto';
+      questionBankId: string | null;
+      notes?: string;
+    }
+
+    const validCandidates: MandatoryPageCandidate[] = [];
+    const candidatePageSet = new Set<number>();
+
+    // 3a. Filter kandidat Bank Soal Wajib yang belum dipakai di UAS original
     const eligibleMandatoryBank = bankQuestions.filter(bq => {
       const isActive = (bq.status === 'active');
       const isMandatory = (bq.questionType === 'mandatory');
@@ -302,11 +385,37 @@ export class RemedialQuestionGenerator {
       return isActive && isMandatory && isExamMatch && notUsedInOriginalBank && notUsedInOriginalPage;
     });
 
-    const validCandidates: QuestionBankItem[] = [];
     for (const c of eligibleMandatoryBank) {
       const pageNum = c.pageNumber || c.startPage;
-      if (pageNum && await uasQuestionGenerator.isFullPageEligible(pageNum, snapshot, path)) {
-        validCandidates.push(c);
+      if (pageNum && !candidatePageSet.has(pageNum) && await uasQuestionGenerator.isFullPageEligible(pageNum, snapshot, path)) {
+        candidatePageSet.add(pageNum);
+        validCandidates.push({
+          pageNumber: pageNum,
+          sourceType: 'bank',
+          questionBankId: c.id,
+          notes: c.notes || `Soal Wajib Remedial Halaman ${pageNum}`
+        });
+      }
+    }
+
+    // 3b. Auto Fallback: Jika Bank Soal Wajib < 2 (lazim pada UAS Multi-Sesi dengan pilihan wajib manual),
+    //     ambil halaman penuh yang 100% eligible langsung dari materi santri (mengecualikan halaman UAS original)
+    if (validCandidates.length < 2 && strategy !== 'bank_only') {
+      const distinctPages = Array.from(
+        new Set(path.nodes.map(n => n.pageNumber).filter(p => p >= 1 && p <= 604))
+      ).sort((a, b) => a - b);
+
+      for (const pageNum of distinctPages) {
+        if (origMandatoryPages.has(pageNum) || candidatePageSet.has(pageNum)) continue;
+        if (await uasQuestionGenerator.isFullPageEligible(pageNum, snapshot, path)) {
+          candidatePageSet.add(pageNum);
+          validCandidates.push({
+            pageNumber: pageNum,
+            sourceType: 'auto',
+            questionBankId: null,
+            notes: `Soal Wajib Remedial (Auto Mushaf) Halaman ${pageNum}`
+          });
+        }
       }
     }
 
@@ -315,16 +424,16 @@ export class RemedialQuestionGenerator {
     }
 
     // Pilih 2 halaman berbeda
-    const pairsDifferentPage: [QuestionBankItem, QuestionBankItem][] = [];
-    const pairsWithSpacing: [QuestionBankItem, QuestionBankItem][] = [];
+    const pairsDifferentPage: [MandatoryPageCandidate, MandatoryPageCandidate][] = [];
+    const pairsWithSpacing: [MandatoryPageCandidate, MandatoryPageCandidate][] = [];
 
     for (let i = 0; i < validCandidates.length; i++) {
       for (let j = i + 1; j < validCandidates.length; j++) {
-        const p1 = validCandidates[i].pageNumber || validCandidates[i].startPage;
-        const p2 = validCandidates[j].pageNumber || validCandidates[j].startPage;
+        const p1 = validCandidates[i].pageNumber;
+        const p2 = validCandidates[j].pageNumber;
         if (p1 !== p2) {
           pairsDifferentPage.push([validCandidates[i], validCandidates[j]]);
-          if (p1 && p2 && Math.abs(p1 - p2) >= 2) {
+          if (Math.abs(p1 - p2) >= 2) {
             pairsWithSpacing.push([validCandidates[i], validCandidates[j]]);
           }
         }
@@ -337,23 +446,23 @@ export class RemedialQuestionGenerator {
 
     const poolToChooseFrom = pairsWithSpacing.length > 0 ? pairsWithSpacing : pairsDifferentPage;
     const chosenIndex = Math.floor(prng() * poolToChooseFrom.length);
-    const chosenMandatoryBank = poolToChooseFrom[chosenIndex];
-    const mandatoryPages = chosenMandatoryBank.map(m => m.pageNumber || m.startPage);
+    const chosenMandatory = poolToChooseFrom[chosenIndex];
+    const mandatoryPages = chosenMandatory.map(m => m.pageNumber);
 
     const questions: any[] = [];
 
     // Tambahkan 2 Soal Wajib (Q1 & Q2)
     for (let mIdx = 0; mIdx < 2; mIdx++) {
-      const mb = chosenMandatoryBank[mIdx];
-      const pageNum = (mb.pageNumber || mb.startPage)!;
+      const mb = chosenMandatory[mIdx];
+      const pageNum = mb.pageNumber;
       const pageBoundary = await uasQuestionGenerator.getPageWordBoundary(pageNum);
 
       questions.push({
         questionNumber: mIdx + 1,
         questionRole: 'mandatory',
         zoneNumber: null,
-        sourceType: 'bank',
-        questionBankId: mb.id,
+        sourceType: mb.sourceType,
+        questionBankId: mb.questionBankId,
         pageNumber: pageNum,
         maxScore: 15,
         promptStart: null,
@@ -406,6 +515,15 @@ export class RemedialQuestionGenerator {
           if (bq.questionType !== 'random') return false;
           if (bq.examType !== 'uas' && bq.examType !== 'generic') return false;
           if (origBankIds.has(bq.id)) return false;
+          if (!bq.promptStart || !bq.promptEnd || !bq.answerStart || !bq.answerEnd) return false;
+          if (
+            comparePositions(bq.promptStart, bq.promptEnd) > 0 ||
+            comparePositions(bq.promptEnd, bq.answerStart) >= 0 ||
+            comparePositions(bq.answerStart, bq.answerEnd) > 0
+          ) {
+            return false;
+          }
+          if (!this.isWithinSnapshotBounds(bq.promptStart, bq.answerEnd, snapshot)) return false;
 
           const bInZone = zone.nodes.some(n => 
             n.surahNumber === bq.answerStart.surahNumber && 
@@ -480,7 +598,12 @@ export class RemedialQuestionGenerator {
           );
 
           const bKey = this.makeBKey(pts.answerStart);
-          if (!origRandomBKeys.has(bKey) && !usedRandomB.has(bKey)) {
+          const boundsOk = this.isWithinSnapshotBounds(pts.promptStart, pts.answerEnd, snapshot);
+          const orderOk =
+            comparePositions(pts.promptStart, pts.promptEnd) <= 0 &&
+            comparePositions(pts.promptEnd, pts.answerStart) < 0 &&
+            comparePositions(pts.answerStart, pts.answerEnd) <= 0;
+          if (boundsOk && orderOk && !origRandomBKeys.has(bKey) && !usedRandomB.has(bKey)) {
             usedRandomB.add(bKey);
             chosenRandom = {
               questionNumber,

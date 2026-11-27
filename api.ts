@@ -3385,6 +3385,40 @@ export const api = {
     return { success: true, hasQuestionSet: false, message: 'Soal UAS belum dibuat.' };
   },
 
+  async getStudentUASOriginalQuestions(
+    periodId: string,
+    studentId: string,
+    userOverride?: User | null
+  ): Promise<{ success: boolean; questions: any[]; message?: string }> {
+    const u = userOverride || getLoggedUser();
+    if (!u || u.role === 'parent') {
+      return { success: false, questions: [], message: 'Akses ditolak.' };
+    }
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.rpc('get_student_uas_original_questions', {
+          p_username: u.username,
+          p_password: u.sessionToken || u.password,
+          p_period_id: periodId,
+          p_student_id: studentId
+        });
+        if (!error && data?.success) {
+          return { success: true, questions: data.questions || [] };
+        }
+      } catch (e: any) {
+        console.warn('getStudentUASOriginalQuestions RPC fallback to getUASQuestionSet:', e);
+      }
+    }
+
+    const fallback = await this.getUASQuestionSet(periodId, studentId, u);
+    return {
+      success: Boolean(fallback.success),
+      questions: fallback.questions || [],
+      message: fallback.message
+    };
+  },
+
   // ============================================================
   // TAHAP 5B: PELAKSANAAN & PENILAIAN UTS TAHFIZ (PENGUJI)
   // ============================================================
