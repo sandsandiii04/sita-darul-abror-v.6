@@ -264,8 +264,9 @@ BEGIN
         LIMIT 1;
     END IF;
 
-    -- Untuk Multi-Sesi UAS: jika snapshot belum ada atau belum finalized, sinkronkan dari sesi UAS submitted
-    IF (NOT FOUND OR v_snapshot.status != 'finalized') AND v_active_uas_sessions_count > 0 THEN
+    -- Untuk Multi-Sesi UAS: SELALU sinkronkan snapshot dengan rentang penuh seluruh sesi UAS submitted
+    -- agar soal remedial tersebar acak di seluruh Juz/surah yang diujikan (bukan terkunci di snapshot legacy sempit).
+    IF v_active_uas_sessions_count > 0 THEN
         SELECT * INTO v_first_sess
         FROM public.exam_uas_sessions
         WHERE exam_period_id = p_original_period_id

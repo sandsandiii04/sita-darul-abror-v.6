@@ -499,8 +499,10 @@ export class RemedialQuestionGenerator {
       throw new Error('Pembagian zona gagal menghasilkan tepat 7 zona.');
     }
 
-    // 5. GENERATE 7 SOAL ACAK (Q3..Q9) DENGAN ANTI-REUSE
+    // 5. GENERATE 7 SOAL ACAK (Q3..Q9) DENGAN ANTI-REUSE & SEBARAN SURAT/HALAMAN ACAK
     const usedRandomB = new Set<string>();
+    const usedRandomSurahs = new Set<number>();
+    const usedRandomPages = new Set<number>();
 
     for (let zIdx = 0; zIdx < 7; zIdx++) {
       const zone = zones[zIdx];
@@ -541,10 +543,19 @@ export class RemedialQuestionGenerator {
         });
 
         if (bankCandidates.length > 0) {
-          const pickIdx = Math.floor(prng() * bankCandidates.length);
-          const cb = bankCandidates[pickIdx];
+          // Prioritaskan kandidat dari surat & halaman yang belum dipakai agar soal acak menyebar luas
+          const diverseBank = bankCandidates.filter(
+            bq => !usedRandomSurahs.has(bq.answerStart.surahNumber) && !usedRandomPages.has(bq.startPage)
+          );
+          const diffPageBank = bankCandidates.filter(bq => !usedRandomPages.has(bq.startPage));
+          const pool = diverseBank.length > 0 ? diverseBank : (diffPageBank.length > 0 ? diffPageBank : bankCandidates);
+
+          const pickIdx = Math.floor(prng() * pool.length);
+          const cb = pool[pickIdx];
           const bKey = this.makeBKey(cb.answerStart);
           usedRandomB.add(bKey);
+          usedRandomSurahs.add(cb.answerStart.surahNumber);
+          if (cb.startPage) usedRandomPages.add(cb.startPage);
 
           chosenRandom = {
             questionNumber,
@@ -573,56 +584,66 @@ export class RemedialQuestionGenerator {
         throw new Error(`INSUFFICIENT_UNIQUE_RANDOM_POOL: Zona ke-${zoneNumber} tidak memiliki Bank Soal acak baru yang valid.`);
       }
 
-      // Pembangkitan Otomatis (Auto Candidate)
+      // Pembangkitan Otomatis (Auto Candidate) dengan prioritas surat & halaman berbeda
       if (!chosenRandom) {
-        let candidateNodes = zone.nodes.filter(n => !mandatoryPages.includes(n.pageNumber));
-        if (candidateNodes.length === 0) {
-          candidateNodes = zone.nodes;
-        }
+        const nonMandatoryNodes = zone.nodes.filter(n => !mandatoryPages.includes(n.pageNumber));
+        const baseNodes = nonMandatoryNodes.length > 0 ? nonMandatoryNodes : zone.nodes;
 
-        let attempts = 0;
-        const maxAttempts = Math.min(candidateNodes.length * 4, 30);
+        const diverseNodes = baseNodes.filter(
+          n => !usedRandomSurahs.has(n.surahNumber) && !usedRandomPages.has(n.pageNumber)
+        );
+        const diffPageNodes = baseNodes.filter(n => !usedRandomPages.has(n.pageNumber));
+        const candidatePools = [diverseNodes, diffPageNodes, baseNodes].filter(p => p.length > 0);
 
-        while (attempts < maxAttempts) {
-          attempts++;
-          const targetNodeIdx = Math.floor(prng() * candidateNodes.length);
-          const targetNode = candidateNodes[targetNodeIdx];
+        for (const candidateNodes of candidatePools) {
+          let attempts = 0;
+          const maxAttempts = Math.min(candidateNodes.length * 4, 30);
 
-          const pts = await uasQuestionGenerator.buildQuestionPoints(
-            targetNode.surahNumber,
-            targetNode.ayahNumber,
-            null,
-            path,
-            snapshot,
-            prng
-          );
+          while (attempts < maxAttempts) {
+            attempts++;
+            const targetNodeIdx = Math.floor(prng() * candidateNodes.length);
+            const targetNode = candidateNodes[targetNodeIdx];
 
-          const bKey = this.makeBKey(pts.answerStart);
-          const boundsOk = this.isWithinSnapshotBounds(pts.promptStart, pts.answerEnd, snapshot);
-          const orderOk =
-            comparePositions(pts.promptStart, pts.promptEnd) <= 0 &&
-            comparePositions(pts.promptEnd, pts.answerStart) < 0 &&
-            comparePositions(pts.answerStart, pts.answerEnd) <= 0;
-          if (boundsOk && orderOk && !origRandomBKeys.has(bKey) && !usedRandomB.has(bKey)) {
-            usedRandomB.add(bKey);
-            chosenRandom = {
-              questionNumber,
-              questionRole: 'random',
-              zoneNumber,
-              sourceType: 'auto',
-              questionBankId: null,
-              pageNumber: pts.startPage,
-              maxScore: 10,
-              promptStart: pts.promptStart,
-              promptEnd: pts.promptEnd,
-              answerStart: pts.answerStart,
-              answerEnd: pts.answerEnd,
-              startPage: pts.startPage,
-              endPage: pts.endPage,
-              metadata: pts.metadata
-            };
-            break;
+            const pts = await uasQuestionGenerator.buildQuestionPoints(
+              targetNode.surahNumber,
+              targetNode.ayahNumber,
+              null,
+              path,
+              snapshot,
+              prng
+            );
+
+            const bKey = this.makeBKey(pts.answerStart);
+            const boundsOk = this.isWithinSnapshotBounds(pts.promptStart, pts.answerEnd, snapshot);
+            const orderOk =
+              comparePositions(pts.promptStart, pts.promptEnd) <= 0 &&
+              comparePositions(pts.promptEnd, pts.answerStart) < 0 &&
+              comparePositions(pts.answerStart, pts.answerEnd) <= 0;
+            if (boundsOk && orderOk && !origRandomBKeys.has(bKey) && !usedRandomB.has(bKey)) {
+              usedRandomB.add(bKey);
+              usedRandomSurahs.add(pts.answerStart.surahNumber);
+              if (pts.startPage) usedRandomPages.add(pts.startPage);
+              chosenRandom = {
+                questionNumber,
+                questionRole: 'random',
+                zoneNumber,
+                sourceType: 'auto',
+                questionBankId: null,
+                pageNumber: pts.startPage,
+                maxScore: 10,
+                promptStart: pts.promptStart,
+                promptEnd: pts.promptEnd,
+                answerStart: pts.answerStart,
+                answerEnd: pts.answerEnd,
+                startPage: pts.startPage,
+                endPage: pts.endPage,
+                metadata: pts.metadata
+              };
+              break;
+            }
           }
+
+          if (chosenRandom) break;
         }
       }
 

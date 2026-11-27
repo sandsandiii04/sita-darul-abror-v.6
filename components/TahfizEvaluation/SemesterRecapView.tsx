@@ -231,11 +231,12 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
     setRemedialGeneratingKey(key);
     setRemedialNotification(null);
     try {
-      // 1. Fetch material snapshot (dengan fallback multi-sesi UAS jika snapshot legacy belum difinalisasi)
-      const snapRes = await api.getStudentMaterialSnapshot(candidate.originalPeriodId, candidate.studentId, user);
-      let snapshot = snapRes.snapshot;
+      // 1. Fetch material snapshot
+      // Untuk UAS Multi-Sesi: SELALU gunakan rentang penuh dari seluruh sesi UAS submitted (exam_uas_sessions)
+      // agar soal remedial tersebar acak di seluruh Juz/surah ujian, bukan terkunci di snapshot legacy sempit.
+      let snapshot: any = undefined;
 
-      if (candidate.examType === 'uas' && (!snapshot || snapshot.status !== 'finalized')) {
+      if (candidate.examType === 'uas') {
         const uasJuzRes = await api.getUASJuzPartsAndSessions(candidate.originalPeriodId, user);
         const studentSubmittedSessions = (uasJuzRes.sessions || []).filter((s: any) => {
           const sid = s.student_id || s.studentId;
@@ -258,7 +259,7 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
           const nowIso = new Date().toISOString();
 
           snapshot = {
-            id: snapshot?.id || `ems_uas_rem_${candidate.originalPeriodId}_${candidate.studentId}`,
+            id: `ems_uas_rem_${candidate.originalPeriodId}_${candidate.studentId}`,
             examPeriodId: candidate.originalPeriodId,
             studentId: candidate.studentId,
             sourceType: 'automatic',
@@ -278,6 +279,11 @@ export const SemesterRecapView: React.FC<SemesterRecapViewProps> = ({ user }) =>
             updatedAt: nowIso
           };
         }
+      }
+
+      if (!snapshot) {
+        const snapRes = await api.getStudentMaterialSnapshot(candidate.originalPeriodId, candidate.studentId, user);
+        snapshot = snapRes.snapshot;
       }
 
       if (!snapshot || snapshot.status !== 'finalized') {
